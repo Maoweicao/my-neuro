@@ -20,3 +20,5 @@ pip install -r requirements.txt
 export MODELSCOPE_CACHE="./model"
 modelscope download --model Qwen/Qwen2.5-7B-Instruct
 ```
+
+### 配置完成，接下来可以打开finetune文件夹进行模型微调了
