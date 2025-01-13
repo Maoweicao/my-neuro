@@ -1,6 +1,6 @@
 # Fake-Neuro
 
-这是一个用于复刻neuro-same 的开源项目。目的是打造属于自己的neuro。
+这是一个用于复刻neuro-same 的开源项目。目的是打造属于自己的neuro。\n
 不过
 
 ## ✨ 功能特性
