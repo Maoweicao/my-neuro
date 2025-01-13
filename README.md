@@ -1,5 +1,3 @@
-# my-neuro
-这是一个属于你自己的neuro-sama 。
 
 ### 下面的部署教程暂时仅限于Linux 系统
 
