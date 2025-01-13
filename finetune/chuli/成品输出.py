@@ -1,7 +1,7 @@
 import json
 
-input_file = '/root/qwen2.5/chuli/多轮对话处理合并.txt'
-output_file = '/root/qwen2.5/data/train.json'
+input_file = '../Dataset.txt'
+output_file = '../data/train.json'
 
 def parse_dialogue(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
