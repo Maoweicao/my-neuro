@@ -1,11 +1,22 @@
 import json
+import os
 
-input_file = '../Dataset.txt'
-output_file = '../data/train.json'
+# 获取当前脚本所在的目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 构建输入输出路径
+input_file = os.path.join(current_dir, '..', 'Dataset.txt')
+output_dir = os.path.join(current_dir, '..', 'data')
+output_file = os.path.join(output_dir, 'train.json')
 
 def parse_dialogue(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+    except FileNotFoundError:
+        print(f"找不到输入文件: {file_path}")
+        print(f"当前工作目录: {os.getcwd()}")
+        exit(1)
         
     dialogues = content.strip().split('\n\n')
     parsed_data = []
@@ -40,9 +51,19 @@ def parse_dialogue(file_path):
     return parsed_data
 
 def save_to_json(data, output_path):
-    with open(output_path, 'w', encoding='utf-8') as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
+    # 确保输出目录存在
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    try:
+        with open(output_path, 'w', encoding='utf-8') as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存JSON文件时出错: {e}")
+        exit(1)
 
-parsed_data = parse_dialogue(input_file)
-save_to_json(parsed_data, output_file)
-print(f"成功保存： {output_file}")
+try:
+    parsed_data = parse_dialogue(input_file)
+    save_to_json(parsed_data, output_file)
+    print(f"成功保存到: {output_file}")
+except Exception as e:
+    print(f"处理过程中出错: {e}")
