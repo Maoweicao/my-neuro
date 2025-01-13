@@ -2,8 +2,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from peft import PeftModel
 
-model_path = '/root/autodl-tmp/Qwen2.5-14B-Instruct'
-lora_path = '/root/qwen2.5/output/Qwen2.5_instruct_lora/checkpoint-350'
+model_path = '模型本体路径'
+lora_path = '训练后的lora权重路径'
 
 # 加载tokenizer和模型
 tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -14,9 +14,9 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 model = PeftModel.from_pretrained(model, lora_path)
 
-# 初始化对话历史
+# 自行选择适合自己的prompt
 messages = [
-    {"role": "system", "content": "你是一个傲娇的AI"}
+    {"role": "system", "content": "你的名字叫做fake neuro,你是一个喜欢毒舌、傲娇的AI。你在回复时要表现得活泼可爱一些。无论什么情况下,你都要用英语来回答。"}
 ]
 
 def chat(prompt):
