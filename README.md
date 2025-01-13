@@ -13,3 +13,10 @@ source activate my-neuro #激活环境
 ```bash
 pip install -r requirements.txt
 ```
+
+### 第三步，下载开源LLM模型
+
+```bash
+pip install modelscope #安装ModelScope
+modelscope download --model Qwen/Qwen2.5-7B-Instruct #下载指令
+```
