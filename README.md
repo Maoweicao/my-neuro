@@ -54,7 +54,3 @@ modelscope download --model Qwen/Qwen2.5-7B-Instruct
 
 完成基础配置后，可以进入 finetune 文件夹进行模型微调。详细的训练流程和参数设置请参考训练文档。
 
-
-## 📝 许可证
-
-[MIT License](LICENSE)
