@@ -6,10 +6,10 @@ from transformers import DataCollatorForSeq2Seq
 import json
 
 print("加载tokenizer和模型...")
-tokenizer = AutoTokenizer.from_pretrained('/root/autodl-tmp/Qwen2.5-14B-Instruct', 
+tokenizer = AutoTokenizer.from_pretrained('tokenizer路径（和模型相同的路径）', 
                                        use_fast=False, 
                                        trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained('/root/autodl-tmp/Qwen2.5-14B-Instruct',
+model = AutoModelForCausalLM.from_pretrained('LLM模型路径',
                                            device_map="auto",
                                            torch_dtype=torch.bfloat16)
 print("模型加载完成")
@@ -71,7 +71,7 @@ def process_func(example):
 
 # 加载并处理数据集
 print("加载并处理数据集...")
-dataset = load_dataset('json', data_files='/root/qwen2.5/data/train.json')
+dataset = load_dataset('json', data_files='data/train.json')
 
 # 添加数据验证
 def validate_and_process_dataset(dataset):
