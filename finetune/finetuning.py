@@ -112,8 +112,8 @@ training_args = Seq2SeqTrainingArguments(
     gradient_accumulation_steps=16,
     
     # 学习率设置
-    learning_rate=5e-4,
-    warmup_steps=2000,
+    learning_rate=2e-4,
+    warmup_steps=0,
     max_grad_norm=1.0,
     
     # 训练步数设置
@@ -135,9 +135,9 @@ training_args = Seq2SeqTrainingArguments(
     # 其他优化
     dataloader_pin_memory=True,   # 数据加载优化
     group_by_length=True,         # 相似长度样本分组
-    lr_scheduler_type="cosine",   # 余弦学习率调度
+    lr_scheduler_type="linear",   # 不使用余弦学习率调度
     weight_decay=0.01,            # 权重衰减
-    max_steps=-1,                 # 使用 epochs 而不是 steps
+    max_steps=-1,                 
 )
 
 # 创建Trainer并开始训练
