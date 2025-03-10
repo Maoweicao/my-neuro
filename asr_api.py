@@ -54,15 +54,14 @@ model_state = {
 async def startup_event():
     print("正在加载模型...")
     
-    # 加载VAD模型 - 使用本地缓存
+    # 从网络加载VAD模型
     try:
-        print("正在从本地加载VAD模型...")
+        print("正在从网络加载VAD模型...")
         model_state["vad_model"] = torch.hub.load(
-            repo_or_dir='/root/.cache/torch/hub/snakers4_silero-vad_master',
+            repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
-            source='local',
-            onnx=True,
             force_reload=False,
+            onnx=True,
             trust_repo=True
         )[0]
         print("VAD模型加载完成")
@@ -70,10 +69,10 @@ async def startup_event():
         print(f"VAD模型加载失败: {str(e)}")
         raise e
 
-    # 加载ASR模型
+    # 加载ASR模型 - 自动从ModelScope下载
     print("正在加载ASR模型...")
     model_state["asr_model"] = AutoModel(
-        model="/root/autodl-tmp/xxxiu-asr2",
+        model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         device=device,
         model_type="pytorch",
         dtype="float32"
@@ -175,7 +174,7 @@ async def upload_audio(file: UploadFile = File(...)):
             "message": str(e)
         }
 
-@app.get("vad/status")
+@app.get("/vad/status")
 def get_status():
     closed_websockets = set()
     for ws in vad_state["active_websockets"]:
