@@ -25,6 +25,11 @@ AUDIO_DIR = "recorded_audio"
 if not os.path.exists(AUDIO_DIR):
     os.makedirs(AUDIO_DIR)
 
+# 创建模型存储目录
+MODEL_DIR = "model"
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
 # 全局变量
 SAMPLE_RATE = 16000
 WINDOW_SIZE = 512
@@ -57,6 +62,16 @@ async def startup_event():
     # 从网络加载VAD模型
     try:
         print("正在从网络加载VAD模型...")
+        # 首先设置torch.hub.dir环境变量，指向我们的模型目录
+        torch_hub_dir = os.path.join(MODEL_DIR, "torch_hub")
+        if not os.path.exists(torch_hub_dir):
+            os.makedirs(torch_hub_dir)
+        
+        # 保存原始的hub目录
+        original_hub_dir = torch.hub.get_dir()
+        # 设置新的hub目录
+        torch.hub.set_dir(torch_hub_dir)
+        
         model_state["vad_model"] = torch.hub.load(
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
@@ -64,12 +79,29 @@ async def startup_event():
             onnx=True,
             trust_repo=True
         )[0]
+        
+        # 恢复原始hub目录
+        torch.hub.set_dir(original_hub_dir)
         print("VAD模型加载完成")
     except Exception as e:
         print(f"VAD模型加载失败: {str(e)}")
         raise e
 
-    # 加载ASR模型 - 自动从ModelScope下载
+    # 设置环境变量来指定模型下载位置
+    # 尝试多个可能的环境变量名以提高兼容性
+    asr_model_path = os.path.join(MODEL_DIR, "asr")
+    if not os.path.exists(asr_model_path):
+        os.makedirs(asr_model_path)
+    
+    # 保存原始环境变量
+    original_modelscope_cache = os.environ.get('MODELSCOPE_CACHE', '')
+    original_funasr_home = os.environ.get('FUNASR_HOME', '')
+    
+    # 设置环境变量
+    os.environ['MODELSCOPE_CACHE'] = asr_model_path
+    os.environ['FUNASR_HOME'] = MODEL_DIR
+    
+    # 加载ASR模型
     print("正在加载ASR模型...")
     model_state["asr_model"] = AutoModel(
         model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
@@ -88,6 +120,17 @@ async def startup_event():
         model_type="pytorch",
         dtype="float32"
     )
+    
+    # 恢复原始环境变量
+    if original_modelscope_cache:
+        os.environ['MODELSCOPE_CACHE'] = original_modelscope_cache
+    else:
+        os.environ.pop('MODELSCOPE_CACHE', None)
+        
+    if original_funasr_home:
+        os.environ['FUNASR_HOME'] = original_funasr_home
+    else:
+        os.environ.pop('FUNASR_HOME', None)
     print("标点符号模型加载完成")
     
     vad_state["model"] = model_state["vad_model"]
