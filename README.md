@@ -50,7 +50,7 @@ pip install -r requirements.txt
 ```
 
 
-4. 启动ASR服务
+3. 启动ASR服务
 ```bash
 ##第一次运行，代码会自动下载需要的模型
 python asr_api.py
