@@ -54,7 +54,7 @@ python asr_api.py
 
 4.启动TTS服务
 ```bash
-python api.py -p 3000 -d cuda -s /root/chuli/neuro-tts/neuro-sama_e8_s344.pth -dr /root/chuli/neuro-tts/sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
+python api.py -p 3000 -d cuda -s ..//model//FKTTS//fake_neuro.pth -dr  ..//model//FKTTS//sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
 ```
 
 
