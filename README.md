@@ -36,7 +36,12 @@
 1. 创建并激活虚拟环境
 ```bash
 conda create -n my-neuro python=3.10 -y
+
+##linux系统
 source activate my-neuro
+
+##win系统
+conda activate my-neuro
 ```
 
 2. 安装依赖
