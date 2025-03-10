@@ -35,3 +35,5 @@ einops
 pytorch-lightning
 gradio
 cn2an
+pypinyin
+jieba_fast
