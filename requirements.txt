@@ -34,3 +34,4 @@ transformers
 einops
 pytorch-lightning
 gradio
+cn2an
