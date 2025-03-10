@@ -39,3 +39,4 @@ pypinyin
 g2p-en
 wordsegment
 jieba_fast
+opencc
