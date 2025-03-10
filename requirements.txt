@@ -33,3 +33,4 @@ LangSegment
 transformers
 einops
 pytorch-lightning
+gradio
