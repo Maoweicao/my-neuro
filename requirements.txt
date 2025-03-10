@@ -7,3 +7,4 @@ numpy
 funasr>=0.9.6
 websockets
 modelscope
+onnxruntime
