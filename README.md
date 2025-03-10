@@ -48,15 +48,11 @@ conda activate my-neuro
 ```bash
 pip install -r requirements.txt
 ```
-3.下载模型
-```bash
-##ASR模型本体
-set MODELSCOPE_CACHE=./ASR
-modelscope download --model iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch
-```
+
 
 4. 启动ASR服务
 ```bash
+##第一次运行，代码会自动下载需要的模型
 python asr_api.py
 ```
 
