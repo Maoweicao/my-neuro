@@ -48,9 +48,20 @@ pip install -r requirements.txt
 
 3. 启动ASR服务
 ```bash
-##第一次运行，代码会自动下载需要的模型
+##第一次运行，会自动下载需要的模型
 python asr_api.py
 ```
+
+4.启动TTS服务
+```bash
+##第一次运行，会自动下载neuro的声音模型
+python tts_api.py
+```
+
+
+
+
+
 
 ## 🔧 模型训练
 
