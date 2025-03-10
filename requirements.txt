@@ -36,4 +36,5 @@ pytorch-lightning
 gradio
 cn2an
 pypinyin
+wordsegment
 jieba_fast
