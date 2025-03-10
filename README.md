@@ -54,8 +54,7 @@ python asr_api.py
 
 4.启动TTS服务
 ```bash
-##第一次运行，会自动下载neuro的声音模型
-python tts_api.py
+python api.py -p 3000 -d cuda -s /root/chuli/neuro-tts/neuro-sama_e8_s344.pth -dr /root/chuli/neuro-tts/sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
 ```
 
 
