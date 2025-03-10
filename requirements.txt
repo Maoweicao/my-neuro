@@ -2,6 +2,7 @@ fastapi
 uvicorn
 python-multipart
 torch>=1.7.0
+torchaudio
 numpy
 funasr>=0.9.6
 websockets
