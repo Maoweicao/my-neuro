@@ -44,10 +44,9 @@ source activate my-neuro
 pip install -r requirements.txt
 ```
 
-3. 下载模型
+3. 启动ASR服务
 ```bash
-export MODELSCOPE_CACHE="./model"
-modelscope download --model Qwen/Qwen2.5-7B-Instruct
+python asr_api.py
 ```
 
 ## 🔧 模型训练
