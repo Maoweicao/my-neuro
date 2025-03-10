@@ -57,7 +57,7 @@ python asr_api.py
 #下载模型
 modelscope download --model morelle/fake_neuro_V1 --local_dir ./model
 #启动TTS服务
-python api.py -p 3000 -d cuda -s ..//model//FKTTS//fake_neuro.pth -dr  ..//model//FKTTS//sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
+python tts_api.py -p 3000 -d cuda -s ..//model//FKTTS//fake_neuro.pth -dr  ..//model//FKTTS//sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
 ```
 
 
