@@ -40,3 +40,6 @@ g2p-en
 wordsegment
 jieba_fast
 opencc
+
+#autodl
+codewithgpu
