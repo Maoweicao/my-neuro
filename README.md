@@ -63,11 +63,6 @@ cd tts-studio
 modelscope download --model morelle/fake_neuro_V1 --local_dir ./tts-model
 
 #自动批量下载必要模型
-#在tts-studio\text 路径下放入G2PWModel模型文件夹
-#在tts-studio\GPT_SoVITS\text 路径下放入G2PWModel模型文件夹
-#在tts-studio\GPT_SoVITS\pretrained_models 路径下放入chinese-hubert-base模型文件夹、chinese-roberta-wwm-ext-large模型文件夹、s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt模型
-#在tts-studio\pretrained_models 路径下放入chinese-hubert-base模型文件夹、chinese-roberta-wwm-ext-large模型文件夹、s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt模型
-
 python Batch_Download.py
 
 #启动TTS服务
