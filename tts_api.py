@@ -780,7 +780,7 @@ app.add_middleware(
     allow_headers=["*"],  # 允许的请求头
 )
 
-@app.post("/v3/set_model")
+@app.post("/set_model")
 async def set_model(request: Request):
     json_post_raw = await request.json()
     global gpt_path
@@ -793,18 +793,18 @@ async def set_model(request: Request):
     return "ok"
 
 
-@app.post("/v3/control")
+@app.post("/control")
 async def control(request: Request):
     json_post_raw = await request.json()
     return handle_control(json_post_raw.get("command"))
 
 
-@app.get("/v3/control")
+@app.get("/control")
 async def control(command: str = None):
     return handle_control(command)
 
 
-@app.post("/v3/change_refer")
+@app.post("/change_refer")
 async def change_refer(request: Request):
     json_post_raw = await request.json()
     return handle_change(
@@ -814,7 +814,7 @@ async def change_refer(request: Request):
     )
 
 
-@app.get("/v3/change_refer")
+@app.get("/change_refer")
 async def change_refer(
         refer_wav_path: str = None,
         prompt_text: str = None,
@@ -823,7 +823,7 @@ async def change_refer(
     return handle_change(refer_wav_path, prompt_text, prompt_language)
 
 
-@app.post("/v3/")
+@app.post("/")
 async def tts_endpoint(request: Request):
     json_post_raw = await request.json()
     return handle(
@@ -840,7 +840,7 @@ async def tts_endpoint(request: Request):
     )
 
 
-@app.get("/v3/")
+@app.get("/")
 async def tts_endpoint(
         refer_wav_path: str = None,
         prompt_text: str = None,
