@@ -75,11 +75,13 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ```
 
 
+5.等待ASR和TTS都输出IP后，即可打开此链接：https://github.com/morettt/my-neuro/releases/tag/v2.0.0
+
+![image](https://github.com/user-attachments/assets/64dcc965-ec53-43a7-a822-f6c4a9a43feb)
+
+就是下载红框里面的那个。下载后解压是这样的，直接双击go.bat 即可开始使用！！！
+
+![image](https://github.com/user-attachments/assets/32b482fa-11f1-492e-9ded-6e61f020f4d9)
 
 
-
-
-## 🔧 模型训练
-
-完成基础配置后，可以进入 finetune 文件夹进行模型微调。详细的训练流程和参数设置请参考训练文档。
 
