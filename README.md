@@ -61,7 +61,7 @@ python asr_api.py
 4.启动TTS服务
 ```bash
 #下载模型
-modelscope download --model morelle/fake_neuro_V1 --local_dir ./model
+modelscope download --model morelle/fake_neuro_V1 --local_dir ./tts-model
 
 #各类模型
 #在tts-studio\text 路径下放入G2PWModel模型文件夹
