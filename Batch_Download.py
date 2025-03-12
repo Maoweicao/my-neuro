@@ -2,193 +2,171 @@ import os
 import subprocess
 import shutil
 import zipfile
-import glob
 
-def create_directory_if_not_exists(directory_path):
-    """创建目录如果它不存在"""
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-        print(f"创建目录: {directory_path}")
+# 获取当前工作目录
+current_dir = os.getcwd()
 
-def download_g2pw_model(model_path="xxxiu/G2PWModel"):
-    """下载G2PWModel到当前目录"""
-    print(f"正在下载模型 {model_path}...")
-    subprocess.run(["cg", "down", model_path], check=True)
-    print(f"模型 {model_path} 下载完成")
-    
-    # 假设下载后的模型文件夹名称为模型名的最后部分
-    return model_path.split("/")[-1]
+# 1. 下载第一个模型 - ernie到bert-model文件夹
+bert_model_dir = os.path.join(current_dir, "bert-model")
+if not os.path.exists(bert_model_dir):
+    os.makedirs(bert_model_dir)
 
-def download_ernie_model(model_path="xxxiu/ernie-3.0-base-zh-Vision-FT"):
-    """在bert-model子目录下下载ernie模型"""
-    # 创建bert-model目录
-    bert_model_dir = "bert-model"
-    create_directory_if_not_exists(bert_model_dir)
-    
-    # 切换到bert-model目录
-    original_dir = os.getcwd()
-    os.chdir(bert_model_dir)
-    
-    print(f"正在bert-model目录中下载模型 {model_path}...")
-    subprocess.run(["cg", "down", model_path], check=True)
-    print(f"模型 {model_path} 下载完成")
-    
-    # 切回原始目录
-    os.chdir(original_dir)
-    
-    return os.path.join(bert_model_dir, model_path.split("/")[-1])
+# 切换到bert-model目录
+os.chdir(bert_model_dir)
+print(f"下载ernie模型到: {os.getcwd()}")
 
-def download_pretrained_models(model_path="xxxiu/fake_neuro_pretrained_models"):
-    """下载pretrained_models并处理zip文件"""
-    # 创建临时下载目录
-    temp_dir = "temp_download_dir"
-    create_directory_if_not_exists(temp_dir)
-    
-    # 切换到临时目录下载
-    original_dir = os.getcwd()
-    os.chdir(temp_dir)
-    
-    print(f"正在下载模型 {model_path}...")
-    subprocess.run(["cg", "down", model_path], check=True)
-    print(f"模型 {model_path} 下载完成")
-    
-    # 切回原始目录
-    os.chdir(original_dir)
-    
-    # 查找下载的zip文件
-    zip_pattern = os.path.join(temp_dir, "**", "*.zip")
-    zip_files = glob.glob(zip_pattern, recursive=True)
-    
-    if not zip_files:
-        raise FileNotFoundError(f"在{temp_dir}目录下未找到zip文件")
-    
-    zip_file = zip_files[0]
-    print(f"找到压缩包: {zip_file}")
-    
-    # 确保目标目录存在
-    target_dir = "pretrained_models"
-    create_directory_if_not_exists(target_dir)
-    
-    # 将zip文件移动到目标目录
-    target_zip = os.path.join(target_dir, os.path.basename(zip_file))
-    shutil.copy2(zip_file, target_zip)
-    print(f"已移动压缩包到: {os.path.abspath(target_zip)}")
-    
-    # 解压缩
-    print(f"正在解压 {target_zip}...")
-    with zipfile.ZipFile(target_zip, 'r') as zip_ref:
-        zip_ref.extractall(target_dir)
-    print(f"解压完成")
-    
-    # 删除压缩包
-    os.remove(target_zip)
-    print(f"已删除压缩包: {target_zip}")
-    
-    # 删除临时下载目录
-    shutil.rmtree(temp_dir)
-    print(f"已删除临时下载目录: {temp_dir}")
-    
-    return target_dir
+# 执行第一个下载命令
+subprocess.Popen(
+    "cg down xxxiu/ernie-3.0-base-zh-Vision-FT",
+    shell=True,
+    stdout=None,
+    stderr=None
+).wait()
 
-def copy_model_to_directory(model_folder, target_directory):
-    """复制模型文件夹到目标目录"""
-    if not os.path.exists(target_directory):
-        create_directory_if_not_exists(target_directory)
-    
-    target_path = os.path.join(target_directory, os.path.basename(model_folder))
-    
-    # 检查目标路径是否已存在模型
-    if os.path.exists(target_path):
-        print(f"目标路径 {target_path} 已存在模型，跳过复制")
-        return
-    
-    print(f"正在复制模型到 {target_path}...")
-    shutil.copytree(model_folder, target_path)
-    print(f"复制完成: {target_path}")
+# 2. 下载第二个模型 - G2PWModel到tts-studio/text文件夹
+# 返回到原始目录
+os.chdir(current_dir)
 
-def process_g2pw_model():
-    """处理G2PWModel模型的下载和复制"""
-    target_directories = [
-        os.path.join("text"),
-        os.path.join("GPT_SoVITS", "text")
-    ]
-    
-    # 检查是否已经下载过模型
-    if os.path.exists("G2PWModel"):
-        print("检测到G2PWModel已下载，将直接复制到目标目录")
-        model_folder = "G2PWModel"
-    else:
-        # 下载模型到当前目录
-        model_folder = download_g2pw_model("xxxiu/G2PWModel")
-    
-    # 复制模型到每个目标目录
-    for target_dir in target_directories:
-        copy_model_to_directory(model_folder, target_dir)
+# 创建tts-studio/text路径
+tts_studio_dir = os.path.join(current_dir, "tts-studio")
+text_dir = os.path.join(tts_studio_dir, "text")
+if not os.path.exists(text_dir):
+    os.makedirs(text_dir)
 
-def process_ernie_model():
-    """处理ernie模型的下载"""
-    # 检查是否已经下载过模型
-    bert_model_dir = "bert-model"
-    ernie_dir = os.path.join(bert_model_dir, "ernie-3.0-base-zh-Vision-FT")
-    
-    if os.path.exists(ernie_dir):
-        print(f"检测到ernie模型已下载在 {ernie_dir}")
-    else:
-        # 下载模型到bert-model目录
-        download_ernie_model("xxxiu/ernie-3.0-base-zh-Vision-FT")
+# 切换到tts-studio/text目录
+os.chdir(text_dir)
+print(f"下载G2PWModel到: {os.getcwd()}")
 
-def process_neuro_pretrained_models():
-    """处理fake_neuro_pretrained_models模型的下载和复制"""
-    target_directories = [
-        os.path.join("GPT_SoVITS", "pretrained_models")
-    ]
+# 执行第二个下载命令
+subprocess.Popen(
+    "cg down xxxiu/G2PWModel",
+    shell=True,
+    stdout=None,
+    stderr=None
+).wait()
+
+# 3. 复制G2PWModel到tts-studio/GPT_SoVITS/text文件夹
+# 返回到原始目录
+os.chdir(current_dir)
+
+# 源文件夹路径
+source_g2pw_dir = os.path.join(text_dir, "G2PWModel")
+
+# 目标文件夹路径
+gpt_sovits_dir = os.path.join(tts_studio_dir, "GPT_SoVITS")
+gpt_text_dir = os.path.join(gpt_sovits_dir, "text")
+target_g2pw_dir = os.path.join(gpt_text_dir, "G2PWModel")
+
+# 创建目标目录结构
+if not os.path.exists(gpt_sovits_dir):
+    os.makedirs(gpt_sovits_dir)
+if not os.path.exists(gpt_text_dir):
+    os.makedirs(gpt_text_dir)
+
+# 复制文件夹
+if os.path.exists(source_g2pw_dir):
+    print(f"复制G2PWModel从 {source_g2pw_dir} 到 {target_g2pw_dir}")
+    # 如果目标文件夹已存在，先删除
+    if os.path.exists(target_g2pw_dir):
+        shutil.rmtree(target_g2pw_dir)
+    # 复制整个文件夹
+    shutil.copytree(source_g2pw_dir, target_g2pw_dir)
+    print("复制完成！")
+else:
+    print(f"错误：源文件夹 {source_g2pw_dir} 不存在，无法复制")
+
+# 4. 下载并解压pretrained_models.zip到tts-studio/GPT_SoVITS/pretrained_models文件夹
+# 创建目标目录
+pretrained_models_dir = os.path.join(gpt_sovits_dir, "pretrained_models")
+if not os.path.exists(pretrained_models_dir):
+    os.makedirs(pretrained_models_dir)
+
+# 切换到pretrained_models目录
+os.chdir(pretrained_models_dir)
+print(f"下载pretrained_models.zip到: {os.getcwd()}")
+
+# 执行下载命令
+subprocess.Popen(
+    "cg down xxxiu/fake_neuro_pretrained_models",
+    shell=True,
+    stdout=None,
+    stderr=None
+).wait()
+
+# 处理下载的文件
+downloaded_folder = os.path.join(pretrained_models_dir, "fake_neuro_pretrained_models")
+if os.path.exists(downloaded_folder):
+    print(f"找到下载的文件夹: {downloaded_folder}")
     
-    # 检查是否已经下载并解压过模型
-    if os.path.exists("pretrained_models") and any(os.listdir("pretrained_models")):
-        print("检测到pretrained_models已下载并解压，将直接复制到目标目录")
-        model_folder = "pretrained_models"
-    else:
-        # 下载并解压模型到pretrained_models目录
-        model_folder = download_pretrained_models("xxxiu/fake_neuro_pretrained_models")
-    
-    # 复制模型到其他目标目录(GPT_SoVITS/pretrained_models)
-    for target_dir in target_directories:
-        # 确保目标目录存在
-        create_directory_if_not_exists(target_dir)
+    # 查找文件夹中的zip文件
+    zip_path = os.path.join(downloaded_folder, "pretrained_models.zip")
+    if os.path.exists(zip_path):
+        print(f"找到zip文件: {zip_path}")
         
-        # 获取source目录中的所有文件和文件夹
-        source_items = os.listdir(model_folder)
+        # 将zip文件移动到上层目录
+        target_zip_path = os.path.join(pretrained_models_dir, "pretrained_models.zip")
+        shutil.move(zip_path, target_zip_path)
+        print(f"已将zip文件移动到: {target_zip_path}")
         
-        # 复制每个文件/文件夹到目标目录
-        for item in source_items:
-            source_path = os.path.join(model_folder, item)
-            target_path = os.path.join(target_dir, item)
-            
-            if os.path.exists(target_path):
-                print(f"{target_path} 已存在，跳过复制")
-                continue
-                
-            if os.path.isdir(source_path):
-                print(f"正在复制目录 {source_path} 到 {target_path}")
-                shutil.copytree(source_path, target_path)
-            else:
-                print(f"正在复制文件 {source_path} 到 {target_path}")
-                shutil.copy2(source_path, target_path)
+        # 删除下载的文件夹
+        shutil.rmtree(downloaded_folder)
+        print(f"已删除文件夹: {downloaded_folder}")
+        
+        # 解压zip文件
+        print(f"正在解压 {target_zip_path}...")
+        with zipfile.ZipFile(target_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(pretrained_models_dir)
+        print("解压完成")
+        
+        # 删除原始zip文件
+        os.remove(target_zip_path)
+        print(f"已删除压缩包: {target_zip_path}")
+    else:
+        print(f"错误：在 {downloaded_folder} 中找不到zip文件")
+else:
+    print(f"错误：下载文件夹 {downloaded_folder} 不存在")
 
-def main():
-    # 处理G2PWModel
-    print("===== 处理G2PWModel =====")
-    process_g2pw_model()
-    
-    # 处理ernie模型
-    print("\n===== 处理ernie模型 =====")
-    process_ernie_model()
-    
-    # 处理fake_neuro_pretrained_models
-    print("\n===== 处理fake_neuro_pretrained_models =====")
-    process_neuro_pretrained_models()
-    
-    print("\n所有操作完成！")
+# 5. 复制预训练模型到tts-studio/pretrained_models文件夹
+# 返回到原始目录
+os.chdir(current_dir)
 
-if __name__ == "__main__":
-    main()
+# 创建目标目录
+tts_pretrained_dir = os.path.join(tts_studio_dir, "pretrained_models")
+if not os.path.exists(tts_pretrained_dir):
+    os.makedirs(tts_pretrained_dir)
+    print(f"创建目录: {tts_pretrained_dir}")
+
+# 源文件夹中的所有文件
+source_pretrained_dir = pretrained_models_dir
+print(f"正在将预训练模型从 {source_pretrained_dir} 复制到 {tts_pretrained_dir}")
+
+# 检查源文件夹中是否有文件
+if os.path.exists(source_pretrained_dir) and os.listdir(source_pretrained_dir):
+    # 创建临时zip文件
+    temp_zip_path = os.path.join(tts_pretrained_dir, "pretrained_models.zip")
+    
+    print("创建临时压缩包...")
+    # 创建一个临时压缩文件
+    with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(source_pretrained_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # 计算相对路径
+                rel_path = os.path.relpath(file_path, source_pretrained_dir)
+                zipf.write(file_path, rel_path)
+    
+    print(f"临时压缩包创建完成: {temp_zip_path}")
+    
+    # 解压文件
+    print(f"正在解压到 {tts_pretrained_dir}...")
+    with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+        zip_ref.extractall(tts_pretrained_dir)
+    
+    # 删除临时zip文件
+    os.remove(temp_zip_path)
+    print(f"已删除临时压缩包")
+    print("预训练模型复制完成")
+else:
+    print(f"错误：源预训练模型文件夹 {source_pretrained_dir} 不存在或为空")
+
+print("所有操作完成！")
