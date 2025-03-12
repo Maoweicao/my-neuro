@@ -93,7 +93,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 ![image](https://github.com/user-attachments/assets/64dcc965-ec53-43a7-a822-f6c4a9a43feb)
 
-下载后解压是这样的，直接双击go.bat 即可开始使用！！！
+下载后解压是这样的，直接双击go.bat 即可开始使用
 
 ![image](https://github.com/user-attachments/assets/32b482fa-11f1-492e-9ded-6e61f020f4d9)
 
