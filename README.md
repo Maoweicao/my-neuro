@@ -71,7 +71,7 @@ python Batch_Download.py
 bert_api.py
 ```
 
-5. 启动ASR服务
+5.启动ASR服务
 ```bash
 ##第一次运行，会自动下载需要的模型
 python asr_api.py
