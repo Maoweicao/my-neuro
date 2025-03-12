@@ -90,4 +90,8 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ![image](https://github.com/user-attachments/assets/32b482fa-11f1-492e-9ded-6e61f020f4d9)
 
 
+### 本地模型微调
+
+微调训练在文件夹finetune中，当前正在完善适配更好的代码。
+
 
