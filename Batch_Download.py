@@ -19,6 +19,25 @@ def download_g2pw_model(model_path="xxxiu/G2PWModel"):
     # 假设下载后的模型文件夹名称为模型名的最后部分
     return model_path.split("/")[-1]
 
+def download_ernie_model(model_path="xxxiu/ernie-3.0-base-zh-Vision-FT"):
+    """在bert-model子目录下下载ernie模型"""
+    # 创建bert-model目录
+    bert_model_dir = "bert-model"
+    create_directory_if_not_exists(bert_model_dir)
+    
+    # 切换到bert-model目录
+    original_dir = os.getcwd()
+    os.chdir(bert_model_dir)
+    
+    print(f"正在bert-model目录中下载模型 {model_path}...")
+    subprocess.run(["cg", "down", model_path], check=True)
+    print(f"模型 {model_path} 下载完成")
+    
+    # 切回原始目录
+    os.chdir(original_dir)
+    
+    return os.path.join(bert_model_dir, model_path.split("/")[-1])
+
 def download_pretrained_models(model_path="xxxiu/fake_neuro_pretrained_models"):
     """下载pretrained_models并处理zip文件"""
     # 创建临时下载目录
@@ -106,6 +125,18 @@ def process_g2pw_model():
     for target_dir in target_directories:
         copy_model_to_directory(model_folder, target_dir)
 
+def process_ernie_model():
+    """处理ernie模型的下载"""
+    # 检查是否已经下载过模型
+    bert_model_dir = "bert-model"
+    ernie_dir = os.path.join(bert_model_dir, "ernie-3.0-base-zh-Vision-FT")
+    
+    if os.path.exists(ernie_dir):
+        print(f"检测到ernie模型已下载在 {ernie_dir}")
+    else:
+        # 下载模型到bert-model目录
+        download_ernie_model("xxxiu/ernie-3.0-base-zh-Vision-FT")
+
 def process_neuro_pretrained_models():
     """处理fake_neuro_pretrained_models模型的下载和复制"""
     target_directories = [
@@ -148,6 +179,10 @@ def main():
     # 处理G2PWModel
     print("===== 处理G2PWModel =====")
     process_g2pw_model()
+    
+    # 处理ernie模型
+    print("\n===== 处理ernie模型 =====")
+    process_ernie_model()
     
     # 处理fake_neuro_pretrained_models
     print("\n===== 处理fake_neuro_pretrained_models =====")
