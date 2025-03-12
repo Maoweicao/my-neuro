@@ -71,6 +71,7 @@ python asr_api.py
 
 6.启动TTS服务
 ```bash
+#进入tts-studio文件夹
 cd tts-studio
 #下载模型
 modelscope download --model morelle/fake_neuro_V1 --local_dir ./tts-model
