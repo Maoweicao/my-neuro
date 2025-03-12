@@ -50,20 +50,30 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 ```
 
 
-3. 启动ASR服务
+3.自动下载需要的各种模型
+
+```bash
+python Batch_Download.py
+```
+
+4.启动bert服务
+
+```bash
+##第一次运行，会自动下载需要的模型
+bert_api.py
+```
+
+5. 启动ASR服务
 ```bash
 ##第一次运行，会自动下载需要的模型
 python asr_api.py
 ```
 
-4.启动TTS服务
+6.启动TTS服务
 ```bash
 cd tts-studio
 #下载模型
 modelscope download --model morelle/fake_neuro_V1 --local_dir ./tts-model
-
-#自动批量下载必要模型
-python Batch_Download.py
 
 #启动TTS服务
 python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-model/FKTTS/sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
