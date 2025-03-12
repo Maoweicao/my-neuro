@@ -80,7 +80,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ```
 
 
-5.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v2.0.0
+7.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v2.0.0
 
 ![image](https://github.com/user-attachments/assets/64dcc965-ec53-43a7-a822-f6c4a9a43feb)
 
