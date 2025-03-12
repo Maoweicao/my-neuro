@@ -69,7 +69,6 @@ python Batch_Download.py
 4.启动bert服务
 
 ```bash
-##第一次运行，会自动下载需要的模型
 bert_api.py
 ```
 
