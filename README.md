@@ -70,7 +70,7 @@ python Batch_Download.py
 4.启动bert服务
 
 ```bash
-bert_api.py
+python bert_api.py
 ```
 
 5.启动ASR服务
