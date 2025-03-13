@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 解决方法有些麻烦，不过测试下来是可以正常解决这个报错的。首先前往 https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
-打开后点击这里
+打开后点击下载生成工具
 ![image](https://github.com/user-attachments/assets/232fe288-b013-48ea-afc4-e5a4f07db43a)
 
 然后运行这个下载包
