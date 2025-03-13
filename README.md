@@ -40,7 +40,7 @@
 
 1. 创建并激活虚拟环境
 ```bash
-conda create -n my-neuro python=3.10 -y
+conda create -n my-neuro python=3.11 -y
 
 ##linux系统
 source activate my-neuro
