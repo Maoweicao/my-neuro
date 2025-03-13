@@ -66,6 +66,9 @@ pip install -r requirements.txt
 然后运行这个下载包
 ![image](https://github.com/user-attachments/assets/77f8683b-53ac-4d86-bc3c-a6c4bc09cdfd)
 
+等待这个下载好
+![image](https://github.com/user-attachments/assets/00bd1f69-02c0-4e3d-89b1-401d41698f08)
+
 接着再按照顺序点击使用c++的桌面开发、然后安装
 ![image](https://github.com/user-attachments/assets/a05b60e3-3c7b-4415-a8bb-072e3236e34b)
 
