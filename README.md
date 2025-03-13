@@ -52,6 +52,11 @@ conda activate my-neuro
 2. 安装依赖
 ```bash
 pip install -r requirements.txt
+#安装ffmpedg
+conda install ffmpeg
+
+#安装cuda 默认是11.8 可以自行修改
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
 在执行pip install -r requirements.txt的时候，你可能会遇到一个报错：尝试安装 jieba_fast 包时缺少必要的 Microsoft Visual C++ 编译工具。
@@ -74,13 +79,6 @@ pip install -r requirements.txt
 
 安装好了以后，再运行：pip install -r requirements.txt  就不会出现这个bug了
 
-
-#安装ffmpedg
-conda install ffmpeg
-
-#安装cuda 默认是11.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
 
 
 3.自动下载需要的各种模型
