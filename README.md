@@ -52,6 +52,23 @@ conda activate my-neuro
 2. 安装依赖
 ```bash
 pip install -r requirements.txt
+```
+
+在执行pip install -r requirements.txt的时候，你可能会遇到一个报错：尝试安装 jieba_fast 包时缺少必要的 Microsoft Visual C++ 编译工具。
+这个是因为gpt-sovits所需要的环境库必须要有jieba_fast这个包。而jieba_fast 是一个 C++ 加速版的 jieba 分词库，它需要通过编译 C++ 代码才能安装。
+
+解决方法有些麻烦，不过测试下来是可以正常解决这个报错的。首先前往 https://visualstudio.microsoft.com/visual-cpp-build-tools/
+打开后点击这里
+![image](https://github.com/user-attachments/assets/232fe288-b013-48ea-afc4-e5a4f07db43a)
+
+然后运行这个下载包
+![image](https://github.com/user-attachments/assets/77f8683b-53ac-4d86-bc3c-a6c4bc09cdfd)
+
+接着再按照顺序点击使用c++的桌面开发、然后安装
+![image](https://github.com/user-attachments/assets/a05b60e3-3c7b-4415-a8bb-072e3236e34b)
+
+安装好了以后，再运行：pip install -r requirements.txt  就不会出现这个bug了
+
 
 #安装ffmpedg
 conda install ffmpeg
