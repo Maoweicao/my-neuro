@@ -52,6 +52,7 @@ conda activate my-neuro
 2. 安装依赖
 ```bash
 pip install -r requirements.txt
+
 #安装ffmpedg
 conda install ffmpeg
 
