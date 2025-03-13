@@ -60,7 +60,7 @@ conda install ffmpeg
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
-在执行pip install -r requirements.txt的时候，你可能会遇到一个报错：尝试安装 jieba_fast 包时缺少必要的 Microsoft Visual C++ 编译工具。
+windows系统在执行pip install -r requirements.txt的时候，你可能会遇到一个报错：尝试安装 jieba_fast 包时缺少必要的 Microsoft Visual C++ 编译工具。
 
 这个是因为gpt-sovits所需要的环境库必须要有jieba_fast这个包。而jieba_fast 是一个 C++ 加速版的 jieba 分词库，它需要通过编译 C++ 代码才能安装。
 
