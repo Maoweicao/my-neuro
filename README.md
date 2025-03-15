@@ -1,4 +1,4 @@
-## 项目简介
+![image](https://github.com/user-attachments/assets/6a796709-8994-45a8-a0a9-e1ecd61b2ca8)## 项目简介
 
 本项目旨在几乎全方位复刻 Neuro-sama，同时向社区收集各种新奇有趣功能添加实现，由于其不错的训练代码。可以非常轻松的将少量数据集训练出非常好的效果。这一点是整个AI的核心。项目的目标是帮助用户打造专属的 AI 角色 - 通过您的数据印记,塑造出心目中理想的 AI 形象。
 
@@ -120,14 +120,15 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 ![image](https://github.com/user-attachments/assets/c037a996-b4c7-4fc0-aa29-b28db8d1c36f)
 
-打开后在529、530行那里,需要修改成你的API信息
+打开后在537、538行那里,需要修改成你的API信息
 
-![image](https://github.com/user-attachments/assets/d6f64f7b-504f-4bc7-99f3-3d24edae9a99)
+![image](https://github.com/user-attachments/assets/20a24f5a-bacb-413b-91f0-2dee7df28cc2)
 
 
-## 在981行，这里是模型的名字修改的地方。
+## 在989行，这里是模型的名字修改的地方。
 
-![image](https://github.com/user-attachments/assets/b267b01a-d79a-4e5b-bc1d-db2153f813d1)
+![image](https://github.com/user-attachments/assets/a9fda498-d4b0-4a93-8719-494702a3d00b)
+
 
 改好后保存，然后双击go.bat 就可以开始和模型聊天了
 
