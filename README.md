@@ -126,6 +126,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 
 同时，在981行，这里是模型的名字修改的地方。
+
 ![image](https://github.com/user-attachments/assets/b267b01a-d79a-4e5b-bc1d-db2153f813d1)
 
 最后保存，然后双击go.bat 就可以开始和模型聊天了
