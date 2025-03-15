@@ -125,7 +125,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ![image](https://github.com/user-attachments/assets/20a24f5a-bacb-413b-91f0-2dee7df28cc2)
 
 
-## 在989行，这里是模型的名字修改的地方。
+在989行，这里是模型的名字修改的地方。
 
 ![image](https://github.com/user-attachments/assets/a9fda498-d4b0-4a93-8719-494702a3d00b)
 
