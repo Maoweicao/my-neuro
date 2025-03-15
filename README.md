@@ -118,7 +118,8 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 下载后解压是这样的，接着你需要修改这个index.html文件
 
-![image](https://github.com/user-attachments/assets/c037a996-b4c7-4fc0-aa29-b28db8d1c36f)
+![image](https://github.com/user-attachments/assets/e80808b1-0306-4558-bbf2-c29089684f3d)
+
 
 打开后在537、538行那里,需要修改成你的API信息
 
@@ -132,7 +133,8 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 改好后保存，然后双击go.bat 就可以开始和模型聊天了
 
-![image](https://github.com/user-attachments/assets/8763396a-1a88-4ed7-a8cd-1b35b55bf9e1)
+![image](https://github.com/user-attachments/assets/4afe85ed-ae01-4864-b35b-1e2cd58fe0fe)
+
 
 
 ### 本地模型微调
