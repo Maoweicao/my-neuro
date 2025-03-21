@@ -105,8 +105,6 @@ python asr_api.py
 ```bash
 #进入tts-studio文件夹
 cd tts-studio
-#下载模型
-modelscope download --model morelle/fake_neuro_V1 --local_dir ./tts-model
 
 #启动TTS服务
 python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-model/FKTTS/sama.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "英文"
