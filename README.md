@@ -43,7 +43,6 @@
 ```bash
 conda create -n my-neuro python=3.11 -y
 
-
 conda activate my-neuro
 ```
 
