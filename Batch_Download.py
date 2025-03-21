@@ -47,8 +47,8 @@ if not os.path.exists(bert_model_dir):
 os.chdir(bert_model_dir)
 print(f"下载ernie模型到: {os.getcwd()}")
 
-# 执行第一个下载命令，带重试机制
-if not download_with_retry("cg down xxxiu/ernie-3.0-base-zh-Vision-FT"):
+# 使用ModelScope下载ernie模型，带重试机制
+if not download_with_retry("modelscope download --model morelle/ernie-3.0-base-zh-Vision-FT --local_dir ./"):
     print("ernie模型下载失败，终止程序")
     exit(1)
 
