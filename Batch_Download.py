@@ -52,11 +52,14 @@ if not download_with_retry("modelscope download --model morelle/ernie-3.0-base-z
     print("ernie模型下载失败，终止程序")
     exit(1)
 
-# 检查下载的模型是否存在
-ernie_model_path = os.path.join(bert_model_dir, "ernie-3.0-base-zh-Vision-FT")
-if not os.path.exists(ernie_model_path):
-    print(f"错误：下载后无法找到ernie模型路径 {ernie_model_path}")
+# 检查下载的模型是否存在 - ModelScope直接下载到指定目录
+# 检查一些关键文件是否存在来确认模型是否下载成功
+ernie_model_files = ["config.json", "model.safetensors", "vocab.txt"]
+missing_files = [f for f in ernie_model_files if not os.path.exists(os.path.join(bert_model_dir, f))]
+if missing_files:
+    print(f"错误：下载后无法找到ernie模型的关键文件: {', '.join(missing_files)}")
     exit(1)
+print("ernie模型检查通过，关键文件已找到")
 
 # 2. 下载第二个模型 - G2PWModel到tts-studio/text文件夹
 # 返回到原始目录
@@ -68,8 +71,13 @@ text_dir = os.path.join(tts_studio_dir, "text")
 if not os.path.exists(text_dir):
     os.makedirs(text_dir)
 
-# 切换到tts-studio/text目录
-os.chdir(text_dir)
+# 创建专门的G2PWModel文件夹
+g2pw_model_dir = os.path.join(text_dir, "G2PWModel")
+if not os.path.exists(g2pw_model_dir):
+    os.makedirs(g2pw_model_dir)
+
+# 切换到G2PWModel目录
+os.chdir(g2pw_model_dir)
 print(f"下载G2PWModel到: {os.getcwd()}")
 
 # 使用ModelScope下载G2PWModel，带重试机制
@@ -77,18 +85,18 @@ if not download_with_retry("modelscope download --model zxm2493188292/G2PWModel 
     print("G2PWModel下载失败，终止程序")
     exit(1)
 
-# 检查下载的模型是否存在
-g2pw_model_path = os.path.join(text_dir, "G2PWModel")
-if not os.path.exists(g2pw_model_path):
-    print(f"错误：下载后无法找到G2PWModel路径 {g2pw_model_path}")
+# 检查下载的G2PWModel是否存在
+if not os.listdir(g2pw_model_dir):
+    print(f"错误：下载后G2PWModel目录为空 {g2pw_model_dir}")
     exit(1)
+print("G2PWModel模型下载检查通过，文件已找到")
 
 # 3. 复制G2PWModel到tts-studio/GPT_SoVITS/text文件夹
 # 返回到原始目录
 os.chdir(current_dir)
 
-# 源文件夹路径
-source_g2pw_dir = os.path.join(text_dir, "G2PWModel")
+# 源文件夹路径 - 现在是专门的G2PWModel文件夹
+source_g2pw_dir = g2pw_model_dir
 
 # 目标文件夹路径
 gpt_sovits_dir = os.path.join(tts_studio_dir, "GPT_SoVITS")
@@ -102,20 +110,16 @@ if not os.path.exists(gpt_text_dir):
     os.makedirs(gpt_text_dir)
 
 # 复制文件夹
-if os.path.exists(source_g2pw_dir):
-    print(f"复制G2PWModel从 {source_g2pw_dir} 到 {target_g2pw_dir}")
-    # 如果目标文件夹已存在，先删除
-    if os.path.exists(target_g2pw_dir):
-        shutil.rmtree(target_g2pw_dir)
-    # 复制整个文件夹
-    try:
-        shutil.copytree(source_g2pw_dir, target_g2pw_dir)
-        print("复制完成！")
-    except Exception as e:
-        print(f"复制过程中出错: {str(e)}")
-        exit(1)
-else:
-    print(f"错误：源文件夹 {source_g2pw_dir} 不存在，无法复制")
+print(f"复制G2PWModel从 {source_g2pw_dir} 到 {target_g2pw_dir}")
+# 如果目标文件夹已存在，先删除
+if os.path.exists(target_g2pw_dir):
+    shutil.rmtree(target_g2pw_dir)
+# 复制整个文件夹
+try:
+    shutil.copytree(source_g2pw_dir, target_g2pw_dir)
+    print("复制完成！")
+except Exception as e:
+    print(f"复制过程中出错: {str(e)}")
     exit(1)
 
 # 4. 下载并解压pretrained_models.zip到tts-studio/GPT_SoVITS/pretrained_models文件夹
@@ -186,3 +190,28 @@ else:
     exit(1)
 
 print("所有操作完成！")
+
+# 6. 下载fake_neuro_V1模型
+print("\n开始下载fake_neuro_V1模型...")
+
+# 创建tts-model目录
+tts_model_dir = os.path.join(tts_studio_dir, "tts-model")
+if not os.path.exists(tts_model_dir):
+    os.makedirs(tts_model_dir)
+    print(f"创建目录: {tts_model_dir}")
+
+# 切换到tts-model目录
+os.chdir(tts_model_dir)
+print(f"下载fake_neuro_V1模型到: {os.getcwd()}")
+
+# 使用ModelScope下载fake_neuro_V1模型，带重试机制
+if not download_with_retry("modelscope download --model morelle/fake_neuro_V1 --local_dir ./"):
+    print("fake_neuro_V1模型下载失败")
+    # 不终止程序，因为这是额外的模型
+else:
+    print("fake_neuro_V1模型下载成功！")
+
+# 返回到原始目录
+os.chdir(current_dir)
+
+print("所有下载操作全部完成！")
