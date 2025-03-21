@@ -50,7 +50,7 @@ conda activate my-neuro
 ```bash
 pip install -r requirements.txt
 
-#安装ffmpedg
+#安装ffmpedg -y
 conda install ffmpeg
 
 #安装cuda 默认是11.8 可以自行修改
