@@ -43,9 +43,6 @@
 ```bash
 conda create -n my-neuro python=3.11 -y
 
-##linux系统
-source activate my-neuro
-
 ##win系统
 conda activate my-neuro
 ```
