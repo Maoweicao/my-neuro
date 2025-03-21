@@ -43,7 +43,7 @@
 ```bash
 conda create -n my-neuro python=3.11 -y
 
-##win系统
+##启动虚拟环境
 conda activate my-neuro
 ```
 
