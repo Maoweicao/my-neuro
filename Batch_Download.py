@@ -72,8 +72,8 @@ if not os.path.exists(text_dir):
 os.chdir(text_dir)
 print(f"下载G2PWModel到: {os.getcwd()}")
 
-# 执行第二个下载命令，带重试机制
-if not download_with_retry("cg down xxxiu/G2PWModel"):
+# 使用ModelScope下载G2PWModel，带重试机制
+if not download_with_retry("modelscope download --model zxm2493188292/G2PWModel --local_dir ./"):
     print("G2PWModel下载失败，终止程序")
     exit(1)
 
@@ -124,68 +124,26 @@ pretrained_models_dir = os.path.join(gpt_sovits_dir, "pretrained_models")
 if not os.path.exists(pretrained_models_dir):
     os.makedirs(pretrained_models_dir)
 
-# 切换到pretrained_models目录
-os.chdir(pretrained_models_dir)
-print(f"下载pretrained_models.zip到: {os.getcwd()}")
+# 返回到原始目录
+os.chdir(current_dir)
 
-# 执行下载命令，带重试机制
-if not download_with_retry("cg down xxxiu/fake_neuro_pretrained_models"):
-    print("pretrained_models下载失败，终止程序")
+# 切换到GPT_SoVITS目录
+print(f"下载GPT-SoVITS预训练模型到: {gpt_sovits_dir}")
+
+# 使用ModelScope下载GPT-SoVITS预训练模型，带重试机制
+if not download_with_retry("modelscope download --model AI-ModelScope/GPT-SoVITS --local_dir ./tts-studio/GPT_SoVITS/pretrained_models"):
+    print("GPT-SoVITS预训练模型下载失败，终止程序")
     exit(1)
 
-# 处理下载的文件
-downloaded_folder = os.path.join(pretrained_models_dir, "fake_neuro_pretrained_models")
-if os.path.exists(downloaded_folder):
-    print(f"找到下载的文件夹: {downloaded_folder}")
-    
-    # 查找文件夹中的zip文件
-    zip_path = os.path.join(downloaded_folder, "pretrained_models.zip")
-    if os.path.exists(zip_path):
-        print(f"找到zip文件: {zip_path}")
-        
-        # 将zip文件移动到上层目录
-        target_zip_path = os.path.join(pretrained_models_dir, "pretrained_models.zip")
-        try:
-            shutil.move(zip_path, target_zip_path)
-            print(f"已将zip文件移动到: {target_zip_path}")
-        except Exception as e:
-            print(f"移动zip文件时出错: {str(e)}")
-            exit(1)
-        
-        # 删除下载的文件夹
-        try:
-            shutil.rmtree(downloaded_folder)
-            print(f"已删除文件夹: {downloaded_folder}")
-        except Exception as e:
-            print(f"删除文件夹时出错: {str(e)}")
-            # 不终止程序，因为这不是关键步骤
-        
-        # 解压zip文件
-        print(f"正在解压 {target_zip_path}...")
-        try:
-            with zipfile.ZipFile(target_zip_path, 'r') as zip_ref:
-                zip_ref.extractall(pretrained_models_dir)
-            print("解压完成")
-        except Exception as e:
-            print(f"解压zip文件时出错: {str(e)}")
-            exit(1)
-        
-        # 删除原始zip文件
-        try:
-            os.remove(target_zip_path)
-            print(f"已删除压缩包: {target_zip_path}")
-        except Exception as e:
-            print(f"删除zip文件时出错: {str(e)}")
-            # 不终止程序，因为这不是关键步骤
-    else:
-        print(f"错误：在 {downloaded_folder} 中找不到zip文件")
-        exit(1)
-else:
-    print(f"错误：下载文件夹 {downloaded_folder} 不存在")
+# 确认模型已下载
+if not os.path.exists(pretrained_models_dir) or not os.listdir(pretrained_models_dir):
+    print(f"错误：下载后无法找到预训练模型目录或目录为空: {pretrained_models_dir}")
     exit(1)
+
+print(f"预训练模型已成功下载到: {pretrained_models_dir}")
 
 # 5. 复制预训练模型到tts-studio/pretrained_models文件夹
-# 返回到原始目录
+# 确保我们在当前工作目录
 os.chdir(current_dir)
 
 # 创建目标目录
@@ -200,43 +158,29 @@ print(f"正在将预训练模型从 {source_pretrained_dir} 复制到 {tts_pretr
 
 # 检查源文件夹中是否有文件
 if os.path.exists(source_pretrained_dir) and os.listdir(source_pretrained_dir):
-    # 创建临时zip文件
-    temp_zip_path = os.path.join(tts_pretrained_dir, "pretrained_models.zip")
-    
-    print("创建临时压缩包...")
-    # 创建一个临时压缩文件
+    # 复制文件夹中的所有内容
+    print(f"复制预训练模型文件...")
     try:
-        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(source_pretrained_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    # 计算相对路径
-                    rel_path = os.path.relpath(file_path, source_pretrained_dir)
-                    zipf.write(file_path, rel_path)
+        # 遍历源目录中的所有文件和文件夹
+        for item in os.listdir(source_pretrained_dir):
+            source_item = os.path.join(source_pretrained_dir, item)
+            target_item = os.path.join(tts_pretrained_dir, item)
+            
+            # 如果是文件夹，递归复制整个文件夹
+            if os.path.isdir(source_item):
+                if os.path.exists(target_item):
+                    shutil.rmtree(target_item)  # 如果目标已存在，先删除
+                shutil.copytree(source_item, target_item)
+                print(f"已复制文件夹: {item}")
+            # 如果是文件，直接复制
+            else:
+                shutil.copy2(source_item, target_item)
+                print(f"已复制文件: {item}")
         
-        print(f"临时压缩包创建完成: {temp_zip_path}")
+        print("预训练模型复制完成")
     except Exception as e:
-        print(f"创建临时压缩包时出错: {str(e)}")
+        print(f"复制预训练模型时出错: {str(e)}")
         exit(1)
-    
-    # 解压文件
-    print(f"正在解压到 {tts_pretrained_dir}...")
-    try:
-        with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-            zip_ref.extractall(tts_pretrained_dir)
-    except Exception as e:
-        print(f"解压临时压缩包时出错: {str(e)}")
-        exit(1)
-    
-    # 删除临时zip文件
-    try:
-        os.remove(temp_zip_path)
-        print(f"已删除临时压缩包")
-    except Exception as e:
-        print(f"删除临时压缩包时出错: {str(e)}")
-        # 不终止程序，因为这不是关键步骤
-    
-    print("预训练模型复制完成")
 else:
     print(f"错误：源预训练模型文件夹 {source_pretrained_dir} 不存在或为空")
     exit(1)
