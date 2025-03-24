@@ -148,7 +148,7 @@ sys.path.append(now_dir)
 sys.path.append("%s/GPT_SoVITS" % (now_dir))
 
 import signal
-import LangSegment
+from vendor.LangSegment import LangSegment
 from time import time as ttime
 from fastapi.middleware.cors import CORSMiddleware
 import torch
