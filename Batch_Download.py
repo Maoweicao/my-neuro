@@ -211,7 +211,18 @@ if not download_with_retry("modelscope download --model morelle/fake_neuro_V1 --
 else:
     print("fake_neuro_V1模型下载成功！")
 
+# 7. 下载Mnemosyne-V1-bert模型
+print("\n开始下载Mnemosyne-V1-bert模型...")
+
 # 返回到原始目录
 os.chdir(current_dir)
+print(f"下载Mnemosyne-V1-bert模型到: {current_dir}")
+
+# 使用ModelScope下载Mnemosyne-V1-bert模型，带重试机制
+if not download_with_retry("modelscope download --model morelle/Mnemosyne-V1-bert --local_dir ./Mnemosyne-bert"):
+    print("Mnemosyne-V1-bert模型下载失败")
+    # 不终止程序，可以根据需要决定是否终止
+else:
+    print("Mnemosyne-V1-bert模型下载成功！")
 
 print("所有下载操作全部完成！")
