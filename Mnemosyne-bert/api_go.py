@@ -8,7 +8,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # 加载模型和tokenizer
-model_path = r"C:\Users\救赎\Desktop\my-neuro-BENDI\Mnemosyne-bert\output_models"
+model_path = r"Mnemosyne-bert\output_models"
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
