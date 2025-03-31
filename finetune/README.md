@@ -1,3 +1,12 @@
+启动LLM的API：
+
+```bash
+conda activate my-neuro
+
+python app.py
+```
+
+
 ### 打开Dataset.txt文件，可在此处制作数据集，具体格式为下列所示：
 
 
