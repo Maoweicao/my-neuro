@@ -8,9 +8,7 @@ python 贩卖机.py
 
 然后输入想要下载的代码。目前支持qwen全系列模型。只需要输入模型完整的名字即可下载
 
-例如输入：Qwen2.5-3B-Instruct
-
-模型会自动下载到 models 文件夹中
+例如输入：Qwen2.5-3B-Instruct 模型会自动下载到 models 文件夹中
 
 
 
