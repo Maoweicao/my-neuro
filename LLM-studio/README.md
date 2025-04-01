@@ -1,9 +1,12 @@
 ## 模型下载
 
-先启动虚拟环境：
+部署本地LLM的虚拟环境：
 
 ```bash
-conda activate my-neuro
+conda create -n my-neuro-llm python=3.10 -y
+
+conda activate my-neuro-llm
+
 ```
 
 
