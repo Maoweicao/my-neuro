@@ -10,6 +10,8 @@ funasr>=0.9.6
 websockets
 modelscope
 onnxruntime
+datasets
+peft
 
 #TTS依赖
 
