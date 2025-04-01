@@ -14,7 +14,7 @@ from threading import Thread
 
 # 初始化模型和分词器
 print("正在加载模型...")
-model_dir = r"llm-models\LLM模型"
+model_dir = r"models\LLM模型"
 model = AutoModelForCausalLM.from_pretrained(
     model_dir,
     device_map='auto',
