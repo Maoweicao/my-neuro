@@ -8,20 +8,53 @@ import time
 import uuid
 import json
 import torch
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import TextIteratorStreamer
 from threading import Thread
 
+# 模型路径配置 - 如果为空字符串则进行自动检测
+MODEL_PATH = ""  # 可以直接在这里硬编码路径，例如："models/你的LLM模型"
+
+# 获取模型路径 - 自动检测或使用硬编码路径
+def get_model_path():
+    # 如果MODEL_PATH已设置，则使用这个路径
+    if MODEL_PATH:
+        print(f"使用硬编码的模型路径: {MODEL_PATH}")
+        return MODEL_PATH
+    
+    # 否则自动检测
+    models_dir = "models"
+    if not os.path.exists(models_dir):
+        raise FileNotFoundError(f"模型目录 '{models_dir}' 不存在")
+    
+    # 获取models目录下的所有文件夹
+    subdirs = [d for d in os.listdir(models_dir) if os.path.isdir(os.path.join(models_dir, d))]
+    
+    if not subdirs:
+        raise FileNotFoundError(f"模型目录 '{models_dir}' 下没有找到任何模型文件夹")
+    
+    # 使用第一个检测到的文件夹
+    model_folder = subdirs[0]
+    model_path = os.path.join(models_dir, model_folder)
+    
+    print(f"已自动检测到模型文件夹: {model_folder}")
+    return model_path
+
 # 初始化模型和分词器
 print("正在加载模型...")
-model_dir = r"models\LLM模型"
-model = AutoModelForCausalLM.from_pretrained(
-    model_dir,
-    device_map='auto',
-    torch_dtype='auto'
-)
-tokenizer = AutoTokenizer.from_pretrained(model_dir)
-print("模型加载完成!")
+try:
+    model_dir = get_model_path()
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        device_map='auto',
+        torch_dtype='auto'
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    print(f"模型加载完成! 使用模型路径: {model_dir}")
+except Exception as e:
+    print(f"模型加载失败: {str(e)}")
+    raise
 
 # FastAPI应用
 app = FastAPI()
@@ -239,11 +272,13 @@ async def health():
 # 模型列表
 @app.get("/v1/models")
 async def list_models():
+    # 从检测到的模型文件夹提取模型名称
+    model_name = os.path.basename(model_dir)
     return {
         "object": "list",
         "data": [
             {
-                "id": "qwen2-7b-instruct",
+                "id": model_name,
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "user"
