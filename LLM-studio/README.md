@@ -1,6 +1,6 @@
 ## 模型下载
 
-记得先开启虚拟环境：
+先启动虚拟环境：
 
 ```bash
 conda activate my-neuro
