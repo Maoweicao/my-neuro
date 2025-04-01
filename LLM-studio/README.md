@@ -61,5 +61,38 @@ python app.py
 运行完后，会在data文件夹下生成一个train.json的文件。这个就是被训练数据集
 
 ```bash
-bash /$(pwd | cut -d'/' -f2)/my-neuro/finetune/chuli/Convert.sh
+python 一键.py
 ```
+
+然后在 finetuning.py 文件中
+
+
+![image](https://github.com/user-attachments/assets/e82a8fff-ad2f-4eb4-b710-e55913884634)
+
+
+这两个标注红框的地方填入你LLM的绝对路径。
+
+好了之后就可以开始微调了：
+
+```bash
+python finetuning.py
+```
+
+保存后的模型权重会在output 文件夹中。
+
+
+## 推理微调后的模型
+
+![image](https://github.com/user-attachments/assets/61eb6b12-3313-4567-9c6a-a7d5f15f5a3f)
+
+这里调整你主模型和训练后的小模型的权重路径。改好后运行测试
+
+```bash
+python reasoning.py
+```
+
+这样就是一个完整的模型微调了。
+
+
+
+
