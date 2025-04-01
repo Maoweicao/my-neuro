@@ -171,10 +171,6 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 最后如果有人和我产生了某些小小的共鸣、支持。我更会觉得这件事是有意义的。因为这个不是只有我的舞台，是属于你的舞台。
 
-## 请求
-
-如果你想支持此项目。同时熟悉javascript、Android studio、LLM模型训练、java 欢迎联系我,很需要这方面的人才
-
 微信：wzx123wzx12
 
  
