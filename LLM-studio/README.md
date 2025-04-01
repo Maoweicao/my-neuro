@@ -9,6 +9,12 @@ conda activate my-neuro-llm
 
 ```
 
+安装依赖：
+```bash
+pip install -r requirements.txt
+```
+
+
 
 首先，想要本地推理LLM最重要的一步就是-----需要有本地的大语言模型
 
