@@ -143,7 +143,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 
 
-### 画饼
+### 结尾画饼
 
 我会把我这几年所有的经验和对技术的理解都一个一个加入到此项目中。my neuro 这个名字除了蹭neuro sama的热度以外 更多的是我对AI边界的想象的期待
 
