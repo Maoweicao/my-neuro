@@ -13,7 +13,7 @@ python 贩卖机.py
 例如输入：Qwen2.5-3B-Instruct 模型会自动下载到 models 文件夹中
 
 
-## 启动推理
+## 推理
 
 启动LLM的API：
 
@@ -24,7 +24,12 @@ python app.py
 ```
 
 
-### 打开Dataset.txt文件，可在此处制作数据集，具体格式为下列所示：
+
+
+
+### 模型训练
+
+打开Dataset.txt文件，可在此处制作数据集，具体格式为下列所示：
 
 
 ```bash
