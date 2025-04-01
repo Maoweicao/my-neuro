@@ -142,6 +142,12 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ![image](https://github.com/user-attachments/assets/4afe85ed-ae01-4864-b35b-1e2cd58fe0fe)
 
 
+## 定制AI
+
+有定制属于自己的AI的需求，请打开LLM-studio 文件夹，在此文件夹中内有关于LLM的微调操作步骤。
+
+目前定制化模块将逐渐增加...
+
 
 ### 结尾画饼
 
