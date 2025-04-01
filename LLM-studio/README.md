@@ -1,23 +1,10 @@
 ## 准备工作
 
-部署本地LLM的虚拟环境：
+首先启动环境：
 
 ```bash
-conda create -n my-neuro-llm python=3.10 -y
-
-conda activate my-neuro-llm
-
+conda activate my-neuro
 ```
-
-安装依赖：
-```bash
-pip install -r requirements.txt
-
-#安装cuda 默认是11.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-
 
 首先，想要本地推理LLM最重要的一步就是-----需要有本地的大语言模型
 
@@ -39,8 +26,6 @@ python 贩卖机.py
 ```bash
 python app.py
 ```
-
-
 
 
 
