@@ -1,5 +1,12 @@
 ## 模型下载
 
+记得先开启虚拟环境：
+
+```bash
+conda activate my-neuro
+```
+
+
 首先，想要本地推理LLM最重要的一步就是-----需要有本地的大语言模型
 
 这里推荐我写的模型下载脚本，我给它取名为模型贩卖机。你可以直接运行：
@@ -18,8 +25,6 @@ python 贩卖机.py
 启动LLM的API：
 
 ```bash
-conda activate my-neuro
-
 python app.py
 ```
 
