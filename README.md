@@ -102,27 +102,28 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 7.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v2.5.0
 
-![image](https://github.com/user-attachments/assets/c4503b40-034c-4a1e-a5c1-76a64e207ce5)
+![image](https://github.com/user-attachments/assets/69111206-f72b-49c7-b9cc-4d37256219f8)
+
 
 
 下载后解压是这样的，接着你需要修改这个index.html文件
 
-![image](https://github.com/user-attachments/assets/e80808b1-0306-4558-bbf2-c29089684f3d)
+![image](https://github.com/user-attachments/assets/442a2868-2091-4b00-8ec2-e98c7054a28e)
 
 
-打开后在537、538行那里,需要修改成你的API信息
+打开后在534、535行那里,需要修改成你的API信息
 
-![image](https://github.com/user-attachments/assets/20a24f5a-bacb-413b-91f0-2dee7df28cc2)
+![image](https://github.com/user-attachments/assets/5b73e25c-2815-4b4f-a4e7-b7bde2c83f87)
 
 
-在989行，这里是模型的名字修改的地方。
+在1048行，这里是模型的名字修改的地方。
 
-![image](https://github.com/user-attachments/assets/a9fda498-d4b0-4a93-8719-494702a3d00b)
+![image](https://github.com/user-attachments/assets/fb86a6d6-dfe5-42cb-8e5d-b63ba7f4b689)
 
 
 改好后保存，然后双击go.bat 就可以开始和模型聊天了
 
-![image](https://github.com/user-attachments/assets/4afe85ed-ae01-4864-b35b-1e2cd58fe0fe)
+![image](https://github.com/user-attachments/assets/f23923f0-9f2f-40b2-8f77-19252f08a613)
 
 
 ## 定制AI
