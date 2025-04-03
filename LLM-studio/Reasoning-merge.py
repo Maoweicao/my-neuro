@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from threading import Thread
 
-model_name = "/root/autodl-tmp/xxx"
+model_name = "模型路径"
 
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
