@@ -97,7 +97,9 @@ python reasoning.py
 
 如果想要合并lora模型到主模型里面，可以打开 merge.py 文件。修改里面的模型路径和保存路径，然后运行即可合并
 
+合并后可以在Reasoning-merge.py 里面修改合并的模型路径，然后运行下面代码既可对话测试
 
-
-
+```bash
+python Reasoning-merge.py
+```
 
