@@ -52,7 +52,7 @@ conda activate my-neuro
 
 2. 安装依赖
 ```bash
-#安装jieba_fast依赖
+#独立安装jieba_fast依赖
 pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl
 
 pip install -r requirements.txt
