@@ -81,9 +81,9 @@ def save_to_json(data, output_path):
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # 构建输入输出路径
-input_file_path = os.path.join(current_dir, '..', 'Dataset.txt')
+input_file_path = os.path.join(current_dir, 'Dataset.txt')
 merged_file_path = os.path.join(current_dir, 'merged_text.txt')
-output_dir = os.path.join(current_dir, '..', 'data')
+output_dir = os.path.join(current_dir, 'data')
 output_json_path = os.path.join(output_dir, 'train.json')
 
 # 确保输出目录存在
