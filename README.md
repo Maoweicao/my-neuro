@@ -170,8 +170,5 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 我希望能在今年可以把上述所有的想法都实现，主旨是先完成，再完美。
 
 最后如果有人和我产生了某些小小的共鸣、支持。我更会觉得这件事是有意义的。因为这个不是只有我的舞台，是属于你的舞台。
-
-微信：wzx123wzx12
-
  
 
