@@ -5,7 +5,7 @@ import zipfile
 import time
 import sys
 
-print("开始部署环境！")
+print("开始部署环境！看看你运气怎么样？")
 
 # 部署conda环境
 print("\n========== 创建并激活conda环境 ==========")
