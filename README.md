@@ -48,7 +48,7 @@
 ```bash
 python 终极下载王.py
 ```
-上面这个指令下载好了以后，直接双击这个：Game-starts.bat
+上面这个指令下载好了以后，直接双击这个：Game-starts.bat 双击后会跳出来很多的窗口，默默等在这些窗口输出对应的ip
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
