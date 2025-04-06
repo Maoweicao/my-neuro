@@ -61,22 +61,22 @@ python app.py
 数据集处理好之后。即可运行下面的指令。将你的数据集处理成可以训练的格式
 运行完后，会在data文件夹下生成一个train.json的文件。这个就是被训练数据集
 
+
+## 配置训练参数
+
+打开configs文件夹，打开里面的config.yaml文件
+
+修改里面的模型路径（改成绝对路径）
 ```bash
-python 一键.py
+model:
+  path: "LLM模型路径"  # 修改这里
 ```
 
-然后在 finetuning.py 文件中
+## 开始训练
 
-
-![image](https://github.com/user-attachments/assets/e82a8fff-ad2f-4eb4-b710-e55913884634)
-
-
-这两个标注红框的地方填入你LLM的绝对路径。
-
-好了之后就可以开始微调了：
-
+运行：
 ```bash
-python finetuning.py
+python train.py --config configs/config.yaml
 ```
 
 保存后的模型权重会在output 文件夹中。
