@@ -7,9 +7,32 @@ import sys
 
 print("开始部署环境！看看你运气怎么样？")
 
+# 检查conda环境是否已存在
+def check_env_exists(env_name):
+    if sys.platform == "win32":
+        # Windows
+        result = subprocess.run(f"conda env list", shell=True, capture_output=True, text=True)
+    else:
+        # Linux/Mac
+        result = subprocess.run(f"conda env list", shell=True, capture_output=True, text=True)
+    
+    return env_name in result.stdout
+
 # 部署conda环境
-print("\n========== 创建并激活conda环境 ==========")
-subprocess.run("conda create -n my-neuro python=3.11 -y", shell=True, check=True)
+print("\n========== 检查并创建conda环境 ==========")
+if check_env_exists("my-neuro"):
+    print("发现已存在名为 my-neuro 的conda环境。")
+    user_choice = input("是否要删除已有环境并重新创建？(y/n): ")
+    if user_choice.lower() == 'y':
+        print("正在删除已有环境...")
+        subprocess.run("conda env remove -n my-neuro -y", shell=True)
+        print("创建新的 my-neuro 环境...")
+        subprocess.run("conda create -n my-neuro python=3.11 -y", shell=True, check=True)
+    else:
+        print("保留现有环境，继续安装过程...")
+else:
+    print("创建 my-neuro 环境...")
+    subprocess.run("conda create -n my-neuro python=3.11 -y", shell=True, check=True)
 
 # 使用conda运行命令
 def run_in_conda_env(command):
