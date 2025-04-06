@@ -2,7 +2,7 @@
 
 # 模型相关配置
 model:
-  path: "E:/my-neuro-testst/my-neuro-main/LLM-studio/models/Qwen2-0.5B"  # 模型路径
+  path: "LLM模型路径"  # 模型路径
   use_lora: false  # 默认用lora训练方式。如果想要进行全参数微调，请改为false
   # LoRA特定参数 (仅当use_lora为true时使用)
   lora_target_modules: 
@@ -19,7 +19,7 @@ model:
 
 # 训练相关配置
 training:
-  output_dir: "E:/my-neuro-testst/my-neuro-main/LLM-studio/output"  # 输出目录
+  output_dir: "output"  # 输出目录
   batch_size: 1  # 每设备批次大小
   gradient_accumulation_steps: 16  # 梯度累积步数
   learning_rate: 0.0002 
@@ -46,5 +46,5 @@ training:
 
 # 数据相关配置
 data:
-  path: "E:/my-neuro-testst/my-neuro-main/LLM-studio/data/train.json"  # 训练数据路径
+  path: "./train.json"  # 训练数据路径
   max_length: 2048  # 最大序列长度
