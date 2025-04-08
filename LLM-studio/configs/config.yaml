@@ -2,8 +2,8 @@
 
 # 模型相关配置
 model:
-  path: "LLM模型路径"  # 模型路径
-  use_lora: true  # 想要lora微调改为“true” 想要全参数微调改为false 这里默认是lora微调
+  path: ""  # 模型路径
+  use_lora: false  # 想要lora微调改为“true” 想要全参数微调改为false 这里默认是lora微调
   # LoRA特定参数 (仅当use_lora为true时使用)
   lora_target_modules: 
     - "q_proj"
@@ -22,11 +22,11 @@ training:
   output_dir: "output"  # 输出目录
   batch_size: 1  # 每设备批次大小
   gradient_accumulation_steps: 16  # 梯度累积步数
-  learning_rate: 0.0002 
+  learning_rate: 1e-4
   warmup_steps: 50
   max_grad_norm: 1.0
-  epochs: 3  # 训练轮数
-  logging_steps: 10
+  epochs: 10  # 训练轮数
+  logging_steps: 5
   save_steps: 10
   save_total_limit: 3  # 保存的检查点数量
   save_on_each_node: true
@@ -46,5 +46,5 @@ training:
 
 # 数据相关配置
 data:
-  path: "./train.json"  # 训练数据路径
-  max_length: 2048  # 最大序列长度
+  path: "./data/train.json"  # 训练数据路径
+  max_length: 4048  # 最大序列长度
