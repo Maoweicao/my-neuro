@@ -105,6 +105,8 @@ def build_conversation_prompt(example):
     # 添加当前轮次的对话
     current_input = example.get('instruction', '')
     if example.get('input'):  # 如果有额外输入，添加到instruction后
+        if current_input:
+            current_input += "\n"
         current_input += example['input']
     
     prompt += f"<|im_start|>user\n{current_input}<|im_end|>\n"
@@ -115,39 +117,66 @@ def build_conversation_prompt(example):
 def process_func(example):
     MAX_LENGTH = data_config.get('max_length', 2048)
     
-    # 检查必要字段
-    if not example.get('instruction') or not example.get('output'):
+    # 只检查output必须存在
+    if not example.get('output'):
         return None
     
-    # 构建对话prompt
-    prompt = build_conversation_prompt(example)
-    
-    # 检查总长度
-    if len(tokenizer(prompt)['input_ids']) > MAX_LENGTH:
-        return None
-    
-    # 编码
-    encodings = tokenizer(prompt, 
-                         truncation=True,
-                         max_length=MAX_LENGTH,
-                         padding=False,
-                         return_tensors=None)
-    
-    # 构建标签
-    labels = [-100] * len(encodings['input_ids'])
-    
-    # 找到最后一个assistant回答的起始位置
-    last_assistant_start = prompt.rindex("<|im_start|>assistant\n")
-    assistant_token_start = len(tokenizer(prompt[:last_assistant_start], add_special_tokens=False)['input_ids'])
-    
-    # 只对最后一轮assistant的回复进行训练
-    labels[assistant_token_start:] = encodings['input_ids'][assistant_token_start:]
-    
-    return {
-        "input_ids": encodings['input_ids'],
-        "attention_mask": encodings['attention_mask'],
-        "labels": labels
-    }
+    try:
+        # 构建对话prompt
+        prompt = build_conversation_prompt(example)
+        
+        # 使用truncation参数自动截断而非过滤超长样本
+        encodings = tokenizer(
+            prompt, 
+            truncation=True,
+            max_length=MAX_LENGTH,
+            padding=False,
+            return_tensors=None
+        )
+        
+        # 构建标签，默认都是-100
+        labels = [-100] * len(encodings['input_ids'])
+        
+        try:
+            # 找到最后一个assistant回答的起始位置
+            last_assistant_start = prompt.rindex("<|im_start|>assistant\n")
+            assistant_token_start = len(tokenizer(prompt[:last_assistant_start], add_special_tokens=False)['input_ids'])
+            
+            # 只对最后一轮assistant的回复进行训练
+            labels[assistant_token_start:] = encodings['input_ids'][assistant_token_start:]
+        except ValueError:
+            # 如果找不到assistant标记，作为备选方案使用全部输出作为标签
+            labels = encodings['input_ids'].copy()
+        
+        return {
+            "input_ids": encodings['input_ids'],
+            "attention_mask": encodings['attention_mask'],
+            "labels": labels
+        }
+    except Exception:
+        # 如有异常，尝试一个更简化的处理方式
+        try:
+            simple_text = f"{example.get('instruction', '')} {example.get('input', '')}".strip()
+            simple_encoding = tokenizer(
+                simple_text,
+                example['output'],
+                truncation=True,
+                max_length=MAX_LENGTH,
+                padding=False,
+                return_tensors=None
+            )
+            
+            # 设置标签
+            input_length = len(tokenizer(simple_text, add_special_tokens=False)['input_ids'])
+            labels = [-100] * input_length + simple_encoding['input_ids'][input_length:]
+            
+            return {
+                "input_ids": simple_encoding['input_ids'],
+                "attention_mask": simple_encoding['attention_mask'],
+                "labels": labels
+            }
+        except:
+            return None
 
 # 加载并处理数据集
 data_path = os.path.expanduser(data_config['path'])
@@ -176,6 +205,16 @@ print(f"输出目录: {output_dir}")
 
 # 训练参数配置
 print("配置训练参数...")
+
+# 确保数值参数是正确的类型
+if 'learning_rate' in training_config and not isinstance(training_config['learning_rate'], float):
+    training_config['learning_rate'] = float(training_config['learning_rate'])
+    
+if 'weight_decay' in training_config and not isinstance(training_config['weight_decay'], float):
+    training_config['weight_decay'] = float(training_config['weight_decay'])
+    
+if 'max_grad_norm' in training_config and not isinstance(training_config['max_grad_norm'], float):
+    training_config['max_grad_norm'] = float(training_config['max_grad_norm'])
 
 # 创建训练参数
 training_args = Seq2SeqTrainingArguments(
