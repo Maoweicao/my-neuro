@@ -3,7 +3,7 @@
 # 模型相关配置
 model:
   path: ""  # 模型路径
-  use_lora: false  # 想要lora微调改为“true” 想要全参数微调改为false 这里默认是lora微调
+  use_lora: true  # 想要lora微调改为“true” 想要全参数微调改为false 这里默认是lora微调
   # LoRA特定参数 (仅当use_lora为true时使用)
   lora_target_modules: 
     - "q_proj"
