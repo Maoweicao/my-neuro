@@ -12,6 +12,7 @@ conda activate my-neuro
 这里推荐使用 贩卖机.py 脚本。可以直接运行：
 
 ```bash
+#感谢狐锋lronyfox帮我构建开源模型库
 python 贩卖机.py
 ```
 
