@@ -429,43 +429,23 @@ def download_tts_models():
     return True
 
 def main():
-    print("==========================================================")
-    print("               欢迎使用 My-Neuro 部署工具")
-    print("==========================================================")
-    print("该工具将为您：")
-    print("1. 下载并解压 Live 2D 模型")
-    print("2. 创建并配置 my-neuro conda 环境")
-    print("3. 下载并配置所有必要的 TTS 语音合成模型")
-    print("==========================================================")
+    print("开始部署环境！看看你运气怎么样？")
     
-    # 询问用户是否要下载Live 2D模型
-    download_live2d = input("是否要下载Live 2D模型？(y/n, 默认y): ").lower() != 'n'
+    # 下载并解压Live 2D模型
+    download_live2d_model()
     
-    # 询问用户是否要部署conda环境
-    setup_conda = input("是否要部署conda环境？(y/n, 默认y): ").lower() != 'n'
+    # 部署conda环境
+    setup_conda_environment()
+    install_dependencies()
     
-    # 询问用户是否要下载TTS模型
-    download_tts = input("是否要下载TTS模型？(y/n, 默认y): ").lower() != 'n'
+    print("\n环境全部部署成功，开始下载所有模型！")
     
-    # 根据用户选择执行相应的操作
-    if download_live2d:
-        download_live2d_model()
-    
-    if setup_conda:
-        setup_conda_environment()
-        install_dependencies()
-    
-    if download_tts:
-        success = download_tts_models()
-        if success:
-            print("\n所有TTS模型下载操作完成！")
-        else:
-            print("\n部分TTS模型下载失败，请检查错误信息并重试。")
-    
-    print("\n==========================================================")
-    print("               My-Neuro 部署工具执行完毕")
-    print("==========================================================")
-    input("按Enter键退出...")
+    # 下载TTS模型
+    success = download_tts_models()
+    if success:
+        print("\n所有下载操作全部完成！")
+    else:
+        print("\n部分模型下载失败，请检查错误信息并重试。")
 
 if __name__ == "__main__":
     main()
