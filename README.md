@@ -54,7 +54,7 @@ python neural_deploy.py
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第8步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第8步了，前1~7步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
 ### 启动步骤
