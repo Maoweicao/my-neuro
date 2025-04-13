@@ -54,7 +54,7 @@ python neural_deploy.py
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第7步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第8步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
 ### 启动步骤
@@ -116,7 +116,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ```
 
 
-7.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v3.6.0
+8.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v3.6.0
 
 ![image](https://github.com/user-attachments/assets/beb75066-6ff6-46c6-956f-c1a8a45410eb)
 
