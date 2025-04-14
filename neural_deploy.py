@@ -173,6 +173,25 @@ def download_with_retry(command, max_retry=3, wait_time=5):
     print(f"经过 {max_retry} 次尝试后，下载仍然失败")
     return False
 
+# 新增函数：下载requirements.txt文件
+def download_requirements_file():
+    """下载requirements.txt文件"""
+    print("\n========== 下载requirements.txt文件 ==========")
+    # 这里替换为实际的requirements.txt文件URL
+    url = "https://raw.githubusercontent.com/morettt/my-neuro/main/requirements.txt"
+    try:
+        # 下载文件
+        downloaded_file = download_file(url, "requirements.txt")
+        if os.path.exists(downloaded_file):
+            print(f"requirements.txt文件已成功下载到当前目录")
+            return True
+        else:
+            print("下载失败，无法找到下载的文件")
+            return False
+    except Exception as e:
+        print(f"下载requirements.txt时出错: {str(e)}")
+        return False
+
 def setup_conda_environment():
     """设置conda环境"""
     print("\n========== 检查并创建conda环境 ==========")
@@ -430,6 +449,12 @@ def download_tts_models():
 
 def main():
     print("开始部署环境！看看你运气怎么样？")
+    
+    # 先下载requirements.txt文件
+    print("\n首先下载requirements.txt文件")
+    req_download_success = download_requirements_file()
+    if not req_download_success:
+        print("无法下载requirements.txt文件，但仍将继续执行下面的步骤")
     
     # 下载并解压Live 2D模型
     download_live2d_model()
