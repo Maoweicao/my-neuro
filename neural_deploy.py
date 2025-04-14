@@ -5,6 +5,7 @@ import subprocess
 import shutil
 import zipfile
 import requests
+import traceback
 
 def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None, current=None, total=None):
     """显示通用进度条"""
@@ -446,5 +447,18 @@ def main():
     else:
         print("\n部分模型下载失败，请检查错误信息并重试。")
 
+def run_with_error_handling():
+    try:
+        main()
+    except Exception as e:
+        print("\n============================")
+        print(f"程序运行出错: {str(e)}")
+        print("错误详情:")
+        traceback.print_exc()
+        print("============================")
+    finally:
+        print("\n程序执行结束，按任意键退出...")
+        input()  # 等待用户输入，防止窗口立即关闭
+
 if __name__ == "__main__":
-    main()
+    run_with_error_handling()
