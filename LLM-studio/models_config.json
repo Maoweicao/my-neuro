@@ -19,7 +19,11 @@
       "Qwen1.5-1.8B", "Qwen1.5-1.8B-Chat", "Qwen1.5-7B", "Qwen1.5-7B-Chat", 
       "CodeQwen1.5-7B-Chat", "Qwen1.5-14B", "Qwen1.5-14B-Chat", "Qwen1.5-MoE-A2.7B", 
       "Qwen1.5-MoE-A2.7B-Chat", "Qwen1.5-32B", "Qwen1.5-32B-Chat", "Qwen1.5-72B", 
-      "Qwen1.5-72B-Chat", "Qwen1.5-110B", "Qwen1.5-110B-Chat"
+      "Qwen1.5-72B-Chat", "Qwen1.5-110B", "Qwen1.5-110B-Chat",
+      "Qwen2.5-7B-Instruct-AWQ", "Qwen2.5-7B-Instruct-GPTQ-Int8", 
+      "Qwen2.5-3B-Instruct-AWQ", "Qwen2.5-14B-Instruct-AWQ", 
+      "Qwen2.5-14B-Instruct-GPTQ-Int4", "Qwen2.5-14B-Instruct-GPTQ-Int8", 
+      "Qwen2.5-32B-Instruct-AWQ", "Qwen2.5-32B-Instruct-GPTQ-Int4"
     ],
     "deepseek-ai": [
       "DeepSeek-R1", "DeepSeek-R1-Distill-Llama-70B", "DeepSeek-R1-Distill-Llama-8B", 
