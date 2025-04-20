@@ -51,7 +51,7 @@
 
 确保你电脑里安装了anaconda 如果还没有安装，可以去这里安装：https://www.anaconda.com/download/success
 
-运行下面这个指令：
+在项目路径下运行这个指令：
 
 ```bash
 python neural_deploy.py
