@@ -128,20 +128,21 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 
 
-下载后解压是这样的，接着打开这个config.json文件
+下载后解压是这样的，双击打开这个 肥牛UI.exe 文件
 
-![image](https://github.com/user-attachments/assets/eea1ac7e-ddf6-4886-9bcb-0b6d60e765b5)
-
-
-
-在开头的api_key、api_url、model 这三个地方填写你的API信息，然后保存
-
-![image](https://github.com/user-attachments/assets/a3ebd6a4-676e-4967-b4be-7f04f2674004)
+![image](https://github.com/user-attachments/assets/7dbdee29-41aa-4a9b-b86a-5b67e9ceacd4)
 
 
-改好后保存，然后双击go.bat 就可以开始和模型聊天了
 
-![image](https://github.com/user-attachments/assets/d5fe3d80-9182-45fb-bb8e-5a1a3068bfe4)
+在红框的位置修改api_key、api_url、model 这三个地方填写你的API信息，修改好了记得点击下面的保存。
+
+![image](https://github.com/user-attachments/assets/873f6928-6688-4770-8099-922d6cea4907)
+
+
+最后双击go.bat 就可以开始和模型聊天了
+
+![image](https://github.com/user-attachments/assets/bc75d870-9e11-400e-afa7-39ce1bd1ea4a)
+
 
 
 ## 定制AI
