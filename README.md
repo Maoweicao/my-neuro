@@ -55,10 +55,10 @@
 先在项目路径下运行这个指令：
 
 ```bash
-powershell Install_requests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& {Set-Location -LiteralPath '%CD%'; & .\Install_requests.ps1}"
 ```
 
-这条命令是安装一键部署必须的requests库，然后开始正式部署：
+这条命令是安装一键部署所必须的requests库，然后开始正式部署：
 
 ```bash
 python neural_deploy.py
