@@ -52,13 +52,19 @@
 
 确保你电脑里安装了anaconda 如果还没有安装，可以去这里安装：https://www.anaconda.com/download/success
 
-在项目路径下运行这个指令：
+先在项目路径下运行这个指令：
+
+```bash
+powershell Install_requests.ps1
+```
+
+这条命令是安装一键部署必须的requests库，然后开始正式部署：
 
 ```bash
 python neural_deploy.py
 ```
 
-上面这个指令运行好了以后，直接双击这个：Game-starts.bat 双击后会跳出来很多的窗口，默默等在这些窗口输出对应的ip
+上面这两条指令运行好了以后，直接双击这个：Game-starts.bat 双击后会跳出来很多的窗口，默默等在这些窗口输出对应的ip
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
