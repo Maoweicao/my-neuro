@@ -194,20 +194,24 @@ def install_dependencies():
     print("\n========== 安装依赖 ==========")
     # 检查jieba_fast whl文件是否存在
     if os.path.exists("jieba_fast-0.53-cp311-cp311-win_amd64.whl"):
-        run_in_conda_env("pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl")
+        run_in_conda_env("pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple")
     else:
         print("警告: jieba_fast-0.53-cp311-cp311-win_amd64.whl 文件不存在，跳过安装")
 
     # 检查requirements.txt是否存在
     if os.path.exists("requirements.txt"):
-        run_in_conda_env("pip install -r requirements.txt")
+        run_in_conda_env("pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt")
     else:
         print("警告: requirements.txt 文件不存在，跳过安装")
 
     # 安装ffmpeg
     print("\n========== 安装ffmpeg ==========")
     run_in_conda_env("conda install ffmpeg -y")
-
+    
+    # 安装modelscope
+    print("\n========== 安装ModelScope ==========")
+    run_in_conda_env("pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple modelscope")
+    
     # 安装pytorch
     print("\n========== 安装PyTorch (CUDA 11.8) ==========")
     run_in_conda_env("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118")
@@ -251,7 +255,7 @@ def download_tts_models():
     print(f"\n下载ernie模型到: {os.getcwd()}")
     
     # 使用ModelScope下载ernie模型，带重试机制
-    if not download_with_retry("modelscope download --model morelle/ernie-3.0-base-zh-Vision-FT --local_dir ./"):
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model morelle/ernie-3.0-base-zh-Vision-FT --local_dir ./"):
         print("ernie模型下载失败，终止程序")
         return False
     
@@ -283,7 +287,7 @@ def download_tts_models():
     print(f"\n下载G2PWModel到: {os.getcwd()}")
     
     # 使用ModelScope下载G2PWModel，带重试机制
-    if not download_with_retry("modelscope download --model zxm2493188292/G2PWModel --local_dir ./"):
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model zxm2493188292/G2PWModel --local_dir ./"):
         print("G2PWModel下载失败，终止程序")
         return False
     
@@ -337,7 +341,7 @@ def download_tts_models():
     print(f"\n下载GPT-SoVITS预训练模型到: {gpt_sovits_dir}")
     
     # 使用ModelScope下载GPT-SoVITS预训练模型，带重试机制
-    if not download_with_retry("modelscope download --model AI-ModelScope/GPT-SoVITS --local_dir ./tts-studio/GPT_SoVITS/pretrained_models"):
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model AI-ModelScope/GPT-SoVITS --local_dir ./tts-studio/GPT_SoVITS/pretrained_models"):
         print("GPT-SoVITS预训练模型下载失败，终止程序")
         return False
     
@@ -405,7 +409,7 @@ def download_tts_models():
     print(f"下载fake_neuro_V1模型到: {os.getcwd()}")
     
     # 使用ModelScope下载fake_neuro_V1模型，带重试机制
-    download_success = download_with_retry("modelscope download --model morelle/fake_neuro_V1 --local_dir ./")
+    download_success = download_with_retry("call conda activate my-neuro && modelscope download --model morelle/fake_neuro_V1 --local_dir ./")
     if not download_success:
         print("fake_neuro_V1模型下载失败，但这是可选模型，继续执行")
     else:
@@ -419,7 +423,7 @@ def download_tts_models():
     print(f"下载Mnemosyne-V1-bert模型到: {current_dir}")
     
     # 使用ModelScope下载Mnemosyne-V1-bert模型，带重试机制
-    download_success = download_with_retry("modelscope download --model morelle/Mnemosyne-V1-bert --local_dir ./Mnemosyne-bert")
+    download_success = download_with_retry("call conda activate my-neuro && modelscope download --model morelle/Mnemosyne-V1-bert --local_dir ./Mnemosyne-bert")
     if not download_success:
         print("Mnemosyne-V1-bert模型下载失败，但这是可选模型，继续执行")
     else:
@@ -432,7 +436,6 @@ def main():
     
     # 下载并解压Live 2D模型
     download_live2d_model()
-    
     # 部署conda环境
     setup_conda_environment()
     install_dependencies()
