@@ -170,6 +170,7 @@ from tools.my_utils import load_audio
 import config as global_config
 import logging
 import subprocess
+import json
 
 
 class DefaultRefer:
@@ -779,6 +780,35 @@ app.add_middleware(
     allow_methods=["*"],  # 允许的请求方法
     allow_headers=["*"],  # 允许的请求头
 )
+
+# 添加语音配置文件路径
+VOICES_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices_config.json")
+
+# 尝试加载语音配置文件，如果不存在则创建空配置
+try:
+    with open(VOICES_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        voices_config = json.load(f)
+except FileNotFoundError:
+    voices_config = []
+    with open(VOICES_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(voices_config, f, ensure_ascii=False, indent=4)
+
+
+@app.get("/voices")
+async def get_voices():
+    """获取所有可用的语音配置"""
+    return voices_config
+
+
+@app.get("/select_voice/{id}")
+async def select_voice_get(id: int):
+    """通过ID选择语音 (GET方式)"""
+    if id < 0 or id >= len(voices_config):
+        return JSONResponse({"code": 400, "message": "无效的语音ID"}, status_code=400)
+
+    voice = voices_config[id]
+    return handle_change(voice.get("path"), voice.get("text"), voice.get("language"))
+
 
 @app.post("/set_model")
 async def set_model(request: Request):
