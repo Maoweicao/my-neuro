@@ -134,26 +134,27 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ```
 
 
-8.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v3.9.2
+8.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v4.0
 
-![image](https://github.com/user-attachments/assets/75a426e2-d8e5-4574-820d-6fc246d37cba)
-
-
-下载后解压是这样的，双击打开这个 肥牛UI.exe 文件
-
-![image](https://github.com/user-attachments/assets/7dbdee29-41aa-4a9b-b86a-5b67e9ceacd4)
+![image](https://github.com/user-attachments/assets/abfda3ad-ac20-4358-8438-6aed327e839a)
 
 
+下载后解压是这样的，双击打开这个 肥牛.exe 文件
 
-在红框的位置修改api_key、api_url、model 这三个地方填写你的API信息，修改好了记得点击下面的保存。
-
-![image](https://github.com/user-attachments/assets/873f6928-6688-4770-8099-922d6cea4907)
+![image](https://github.com/user-attachments/assets/a61b8371-09da-4ed0-b78d-55ef40d02988)
 
 
-最后双击go.bat 就可以开始和模型聊天了
 
-![image](https://github.com/user-attachments/assets/bc75d870-9e11-400e-afa7-39ce1bd1ea4a)
+按照箭头指示点击LLM标签，在框选的这三个地方填写你的API信息，修改好了记得点击下面的保存。
 
+![image](https://github.com/user-attachments/assets/e84aa5c1-ac77-403b-a4d3-816c6b53798b)
+
+
+最后返回点击"启动桌宠" 等待皮套出现，就可以开始和模型聊天了
+
+![image](https://github.com/user-attachments/assets/5765bad6-a0a6-4244-bdc0-dc86c5d7a3b3)
+
+![image](https://github.com/user-attachments/assets/1a2b0408-7a42-4e2a-89b9-b3922a39e7fe)
 
 
 ## 定制AI
