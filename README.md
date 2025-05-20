@@ -190,8 +190,6 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
-
-
- ### 致谢
+感谢大佬的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
 
