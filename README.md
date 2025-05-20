@@ -186,6 +186,11 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 
 希望能在今年可以把上述所有的想法都实现。
 
+## 致谢
+
+QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
+
+
 
  ### 致谢
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
