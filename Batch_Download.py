@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import zipfile
 import time
+import modelscope
 
 # 设置最大重试次数
 MAX_RETRY = 3
