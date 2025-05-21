@@ -5,6 +5,7 @@ import subprocess
 import shutil
 import zipfile
 import requests
+from modelscope import snapshot_download
 
 def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None, current=None, total=None):
     """显示通用进度条"""
@@ -237,6 +238,18 @@ def download_live2d_model():
     if extract_success and os.path.exists(downloaded_file):
         os.remove(downloaded_file)
         print(f"原ZIP文件 {downloaded_file} 已删除")
+
+def download_vad_models():
+    """下载asr的vad"""
+    vad_dir = os.getcwd()
+
+    target_dir = os.path.join(vad_dir,'model','torch_hub')
+    os.makedirs(target_dir,exist_ok=True)
+
+    model_dir = snapshot_download('morelle/my-neuro-vad',local_dir =target_dir)
+
+    print(f'已讲asr vad下载到{model_dir}')
+
 
 def download_tts_models():
     """下载TTS相关模型"""
