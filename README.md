@@ -136,10 +136,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/FKTTS/fake_neuro.pth -dr tts-mode
 ```
 
 
-8.等待ASR和TTS都输出IP后，即可打开此链接下载红框内的zip文件：https://github.com/morettt/my-neuro/releases/tag/v4.3.1
-
-![image](https://github.com/user-attachments/assets/682465cb-5506-4bf4-8742-c0f7d5079d42)
-
+8.等待ASR和TTS都输出IP后，点击此链接下载zip文件：https://github.com/morettt/my-neuro/releases/download/v4.3.1/live.2d.zip
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
 
