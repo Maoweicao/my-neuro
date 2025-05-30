@@ -192,7 +192,7 @@ else:
 
 print("所有操作完成！")
 
-# 6. 下载fake_neuro_V1模型
+# 6. 下载fake_neuro_V2模型
 print("\n开始下载fake_neuro_V1模型...")
 
 # 创建tts-model目录
@@ -203,14 +203,14 @@ if not os.path.exists(tts_model_dir):
 
 # 切换到tts-model目录
 os.chdir(tts_model_dir)
-print(f"下载fake_neuro_V1模型到: {os.getcwd()}")
+print(f"下载fake_neuro_V2模型到: {os.getcwd()}")
 
-# 使用ModelScope下载fake_neuro_V1模型，带重试机制
-if not download_with_retry("modelscope download --model morelle/fake_neuro_V1 --local_dir ./"):
-    print("fake_neuro_V1模型下载失败")
+# 使用ModelScope下载fake_neuro_V2模型，带重试机制
+if not download_with_retry("modelscope download --model morelle/Fake-Neuro-TTS-V2 --local_dir ./"):
+    print("fake_neuro_V2模型下载失败")
     # 不终止程序，因为这是额外的模型
 else:
-    print("fake_neuro_V1模型下载成功！")
+    print("fake_neuro_V2模型下载成功！")
 
 # 7. 下载Mnemosyne-V1-bert模型
 print("\n开始下载Mnemosyne-V1-bert模型...")
