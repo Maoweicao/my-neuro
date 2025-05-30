@@ -193,7 +193,7 @@ else:
 print("所有操作完成！")
 
 # 6. 下载fake_neuro_V2模型
-print("\n开始下载fake_neuro_V1模型...")
+print("\n开始下载fake_neuro_V2模型...")
 
 # 创建tts-model目录
 tts_model_dir = os.path.join(tts_studio_dir, "tts-model")
