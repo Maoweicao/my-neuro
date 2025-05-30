@@ -408,8 +408,8 @@ def download_tts_models():
         print(f"错误：源预训练模型文件夹 {source_pretrained_dir} 不存在或为空")
         return False
     
-    # 6. 下载fake_neuro_V1模型
-    print("\n开始下载fake_neuro_V1模型...")
+    # 6. 下载fake_neuro_V2模型
+    print("\n开始下载fake_neuro_V2模型...")
     
     # 创建tts-model目录
     tts_model_dir = os.path.join(tts_studio_dir, "tts-model")
@@ -419,14 +419,14 @@ def download_tts_models():
     
     # 切换到tts-model目录
     os.chdir(tts_model_dir)
-    print(f"下载fake_neuro_V1模型到: {os.getcwd()}")
+    print(f"下载fake_neuro_V2模型到: {os.getcwd()}")
     
-    # 使用ModelScope下载fake_neuro_V1模型，带重试机制
-    download_success = download_with_retry("call conda activate my-neuro && modelscope download --model morelle/fake_neuro_V1 --local_dir ./")
+    # 使用ModelScope下载fake_neuro_V2模型，带重试机制
+    download_success = download_with_retry("call conda activate my-neuro && modelscope download --model morelle/Fake-Neuro-TTS-V2 --local_dir ./")
     if not download_success:
-        print("fake_neuro_V1模型下载失败，但这是可选模型，继续执行")
+        print("fake_neuro_V2模型下载失败，但这是可选模型，继续执行")
     else:
-        print("fake_neuro_V1模型下载成功！")
+        print("fake_neuro_V2模型下载成功！")
     
     # 7. 下载Mnemosyne-V1-bert模型
     print("\n开始下载Mnemosyne-V1-bert模型...")
