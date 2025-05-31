@@ -92,7 +92,7 @@ python neural_deploy.py
 也能立刻定位出错的位置，从而针对性的解决
 
 
-1. 创建并激活虚拟环境
+1. 创建并激活虚拟环境（不要忘了这一步！！！！第一步很重要！！）
 ```bash
 conda create -n my-neuro python=3.11 -y
 
