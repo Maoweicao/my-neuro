@@ -202,7 +202,9 @@ https://github.com/morettt/my-neuro/releases/download/v4.3.4/live-2d.zip
 ## 致谢
 
 QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
+感谢：jonnytri53 为本项目捐赠的50美元
 
 感谢大佬的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
