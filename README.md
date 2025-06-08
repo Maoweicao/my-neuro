@@ -41,6 +41,7 @@ English Documentation: [English Version](./README_English.md)
 
 ### 扩展功能
 - [ ] 桌面控制：支持语音控制打开软件等操作
+- [ ] AI唱歌
 - [ ] 国外直播平台的接入
 - [x] 直播功能：可在哔哩哔哩平台直播
 - [ ] AI讲课：选择一个主题，让AI给你讲课。中途可提问。偏门课程可植入资料到数据库让AI理解
@@ -203,7 +204,10 @@ https://github.com/morettt/my-neuro/releases/download/v4.3.4/live-2d.zip
 
 QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
-感谢：jonnytri53 为本项目捐赠的50美元
+感谢：## 赞助者 / Sponsors
+
+感谢以下用户的慷慨赞助：
+- [@jonnytri53](https://github.com/jonnytri53) - 感谢您的支持！ 为本项目捐赠的50美元
 
 感谢大佬的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
