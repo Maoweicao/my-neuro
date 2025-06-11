@@ -152,25 +152,28 @@ python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.
 
 8.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
 
-https://github.com/morettt/my-neuro/releases/download/v4.4/live-2d.zip
+https://github.com/morettt/my-neuro/releases/download/v4.4.1/live-2d.zip
 
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
 
-![image](https://github.com/user-attachments/assets/a61b8371-09da-4ed0-b78d-55ef40d02988)
+![image](https://github.com/user-attachments/assets/634240ac-da9a-4ada-9a1e-b92762e385f0)
 
 
 
-按照箭头指示点击LLM标签，在框选的这三个地方填写你的API信息，修改好了记得点击下面的保存。
+按照箭头指示点击LLM标签，在框选的这三个地方填写你的API信息，修改好了记得点击下面的保存。（我在这里已经写了一个可以用的api配置，你可以删除改成你自己的。支持任何openai格式的api）
 
-![image](https://github.com/user-attachments/assets/e84aa5c1-ac77-403b-a4d3-816c6b53798b)
+![image](https://github.com/user-attachments/assets/a605b1f5-3633-404c-8507-096b3d0ac4ba)
+
 
 
 最后返回点击"启动桌宠" 等待皮套出现，就可以开始和模型聊天了
 
-![image](https://github.com/user-attachments/assets/5765bad6-a0a6-4244-bdc0-dc86c5d7a3b3)
+![image](https://github.com/user-attachments/assets/4f1d8cae-7ccb-4e0a-9cf3-2354989efec4)
 
-![image](https://github.com/user-attachments/assets/1a2b0408-7a42-4e2a-89b9-b3922a39e7fe)
+
+![image](https://github.com/user-attachments/assets/d73a1fc3-1514-42cd-9dfc-f5c450976162)
+
 
 
 ## 定制AI
