@@ -68,6 +68,10 @@ English Documentation: [English Version](./README_English.md)
 
 确保你电脑里安装了anaconda 如果还没有安装，可以去这里安装：https://www.anaconda.com/download/success
 
+anaconda的安装流程可以参考这个视频，讲的很详细：https://www.bilibili.com/video/BV1ns4y1T7AP
+
+已经有了anaconda环境后，就可以开始动手了！
+
 先在项目路径下运行这个指令：
 
 ```bash
