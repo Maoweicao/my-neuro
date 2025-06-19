@@ -226,7 +226,7 @@ def download_live2d_model():
     file_name = url.split('/')[-1]
     
     # 创建目标文件夹
-    target_folder = "live 2d"
+    target_folder = "live-2d"
     
     # 下载文件
     downloaded_file = download_file(url, file_name)
