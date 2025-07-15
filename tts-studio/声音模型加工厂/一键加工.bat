@@ -1,8 +1,8 @@
 @echo off
 chcp 936
-echo ÕıÔÚ¿ªÊ¼...
+echo æ­£åœ¨å¼€å§‹...
 cd /d %~dp0
-call ..\..\my-neuro-env\Scripts\activate.bat
-python ´¦Àí.py
-echo Ö´ĞĞÍê³É
+call conda activate my-neuro
+python å¤„ç†.py
+echo æ‰§è¡Œå®Œæˆ
 pause
