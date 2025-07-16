@@ -16,7 +16,7 @@ from PyQt5.QtGui import QGuiApplication
 
 import live2d.v3 as live2d
 from live2d.v3 import StandardParams
-from live2d.utils.lipsync import WavHandler
+from models.lipsync import WavHandler
 import numpy as np
 
 logger = logging.getLogger("live2d_model")
@@ -38,7 +38,7 @@ class Live2DModel(QOpenGLWidget):
         self.event_bus = event_bus
         
         # 从配置获取模型路径和设置
-        self.model_path = self.config.get("model_path", "")
+        self.model_path = self.config.get("ui", {}).get("model_path", "")
         self.model_scale = self.config.get("ui", {}).get("model_scale", 1.0)
         
         # 窗口初始化设置
@@ -141,24 +141,22 @@ class Live2DModel(QOpenGLWidget):
                     logger.error(f"从配置路径加载模型失败: {self.model_path}, 错误: {e}")
 
             if not model_loaded and hasattr(live2d, 'LIVE2D_VERSION') and live2d.LIVE2D_VERSION == 3:
-                # 尝试加载默认模型
-                default_paths = [
-                    # 尝试多个可能的位置
-                    "models/2D/Hiyori.model3-2025.json",
-                    "2D/Hiyori.model3-2025.json",
-                    "model_assets/Hiyori.model3-2025.json",
-                    "../models/2D/Hiyori.model3-2025.json"
-                ]
+                # 尝试加载2D文件夹中的模型
+                for root, dirs, files in os.walk("models/2D"):
+                    for file in files:
+                        # 检查文件是否以 .model3.json 结尾
+                        if file.endswith('.model3.json'):
+                            # 构建完整文件路径并添加到结果列表
+                            full_path = os.path.join(root, file)
+                            print(full_path)
                 
-                for default_path in default_paths:
-                    if os.path.exists(default_path):
-                        try:
-                            self.model.LoadModelJson(default_path)
-                            logger.info(f"从默认路径加载模型成功: {default_path}")
-                            model_loaded = True
-                            break
-                        except Exception as e:
-                            logger.error(f"从默认路径加载模型失败: {default_path}, 错误: {e}")
+                if os.path.exists(full_path):
+                    try:
+                        self.model.LoadModelJson(full_path)
+                        logger.info(f"从2D文件夹加载模型成功: {full_path}")
+                        model_loaded = True
+                    except Exception as e:
+                        logger.error(f"从2D文件夹加载模型失败: {full_path}, 错误: {e}")
                 
                 if not model_loaded:
                     logger.warning("未能加载任何模型")
@@ -195,7 +193,7 @@ class Live2DModel(QOpenGLWidget):
                 if self.wav_handler.Update():
                     # 利用 wav 响度更新 嘴部张合
                     self.model.SetParameterValue(
-                        StandardParams.ParamMouthOpenY, self.wav_handler.GetRms() * 3.0
+                        StandardParams.ParamMouthOpenY, self.wav_handler.GetRms()
                     )
                 
                 # # 如果模型动作结束，根据当前状态触发不同动作
@@ -379,39 +377,6 @@ class Live2DModel(QOpenGLWidget):
                 self.model.SetScale(self.scale)
             
             logger.debug(f"模型缩放比例: {self.scale}")
-
-    def wav_handler_start(self, data:dict):
-        self.wav_handler.ReleasePcmData()
-        try:
-            self.wav_handler.numFrames = data.get('num_frames')
-            self.wav_handler.sampleRate = data.get('framerate')
-            self.wav_handler.sampleWidth = data.get('sample_width')
-            self.wav_handler.numChannels = data.get('channels')
-            # 双声道 / 单声道
-            self.wav_handler.pcmData = data.get('pcm_data')
-            # 标准化
-            self.wav_handler.pcmData = self.wav_handler.pcmData / np.max(np.abs(self.wav_handler.pcmData))
-            # 拆分通道
-            self.wav_handler.pcmData = self.wav_handler.pcmData.reshape(-1, self.wav_handler.numChannels).T
-
-            self.wav_handler.startTime = time.time()
-            self.wav_handler.lastOffset = 0
-
-        except Exception as e:
-            self.wav_handler.ReleasePcmData()
-
-    def mouth_match_motion(self, on_start_motion_callback):
-        # 播放一个不存在的动作
-        self.model.StartMotion(
-            "",
-            0,
-            live2d.MotionPriority.FORCE,
-            on_start_motion_callback,
-            self.on_finish_motion_callback,
-        )
-
-    def on_finish_motion_callback(self):
-        logger.debug("motion finished")
 
     def set_talking(self, is_talking):
         """设置说话状态
