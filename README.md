@@ -10,7 +10,7 @@
 
 English Documentation: [English Version](./README_English.md)
 
-## QQ群：756741478 （群答案：肥牛）
+## QQ群：756741478 （入群答案：肥牛）
 ## 客服
 
 如果部署的时候遇到处理不了的bug可以前往此链接：http://fake-neuro.natapp1.cc
