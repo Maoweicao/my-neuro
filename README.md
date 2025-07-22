@@ -218,7 +218,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢以下用户的资金赞助：
 - [@jonnytri53](https://github.com/jonnytri53) - 感谢您的支持！ 为本项目捐赠的50美元
-- [@蒜头头头](https://space.bilibili.com/92419729?spm_id_from=333.337.0.0) 为本项目捐赠的1000人民币
+- [@蒜头头头](https://space.bilibili.com/92419729?spm_id_from=333.337.0.0) 感谢支持！为本项目捐赠的1000人民币
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
