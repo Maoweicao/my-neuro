@@ -79,10 +79,10 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 先在项目路径下运行这个指令：
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& {Set-Location -LiteralPath '%CD%'; & .\Install_requests.ps1}"
+pip install modelscope requests
 ```
 
-这条命令是安装一键部署所必须的requests库，然后开始正式部署：
+这条命令是安装一键部署所必须的requests和modelscope库，然后开始正式部署：
 
 ```bash
 python neural_deploy.py
