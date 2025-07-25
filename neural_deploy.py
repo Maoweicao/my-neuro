@@ -195,13 +195,13 @@ def install_dependencies():
     print("\n========== 安装依赖 ==========")
     # 检查jieba_fast whl文件是否存在
     if os.path.exists("jieba_fast-0.53-cp311-cp311-win_amd64.whl"):
-        run_in_conda_env("pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple")
+        run_in_conda_env("pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl")
     else:
         print("警告: jieba_fast-0.53-cp311-cp311-win_amd64.whl 文件不存在，跳过安装")
 
     # 检查requirements.txt是否存在
     if os.path.exists("requirements.txt"):
-        run_in_conda_env("pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt")
+        run_in_conda_env("pip install -r requirements.txt")
     else:
         print("警告: requirements.txt 文件不存在，跳过安装")
 
@@ -211,7 +211,7 @@ def install_dependencies():
     
     # 安装modelscope
     print("\n========== 安装ModelScope ==========")
-    run_in_conda_env("pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple modelscope")
+    run_in_conda_env("pip install modelscope")
     
     # 安装pytorch
     print("\n========== 安装PyTorch (CUDA 11.8) ==========")
