@@ -131,6 +131,10 @@ conda activate my-neuro
 python Batch_Download.py
 ```
 
+下面4、5、6、7步需要你在my-neuro文件路径下面各自打开4个终端（cmd窗口）里运行
+
+这4个终端就是你的后端，需要持续开启才能使用项目功能。
+
 4.启动bert服务
 
 ```bash
