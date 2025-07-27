@@ -127,24 +127,28 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 3.自动下载需要的各种模型
 
 ```bash
+conda activate my-neuro
 python Batch_Download.py
 ```
 
 4.启动bert服务
 
 ```bash
+conda activate my-neuro
 python bert_api.py
 ```
 
 5.启动ASR服务
 ```bash
 ##第一次运行，会自动下载需要的模型
+conda activate my-neuro
 python asr_api.py
 ```
 
 6.启动记忆bert
 
 ```bash
+conda activate my-neuro
 python Mnemosyne-bert\api_go.py
 ```
 
@@ -154,6 +158,7 @@ python Mnemosyne-bert\api_go.py
 cd tts-studio
 
 #启动TTS服务
+conda activate my-neuro
 python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "en"
 ```
 
