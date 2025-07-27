@@ -108,7 +108,7 @@ conda create -n my-neuro python=3.11 -y
 conda activate my-neuro
 ```
 
-2. 安装依赖
+2. 安装依赖(按照顺序执行！！！)
 ```bash
 #独立安装jieba_fast依赖
 pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl
