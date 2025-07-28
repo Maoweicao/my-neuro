@@ -191,7 +191,12 @@ https://github.com/morettt/my-neuro/releases/download/v4.4.5/live-2d.zip
 
 ![image](https://github.com/user-attachments/assets/d73a1fc3-1514-42cd-9dfc-f5c450976162)
 
-
+如果有任何问题，在终端运行以下命令以启动诊断工具
+```bash
+conda activate my-neuro
+python diagnostic_tool.py
+```
+运行后将会弹出一个窗口，里面包含了后端诊断信息，若不能自行解决问题，向客服提供该文本
 
 ## 定制AI
 
