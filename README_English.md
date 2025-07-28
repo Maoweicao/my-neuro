@@ -165,7 +165,7 @@ If there's any problem, input the command below into your terminal to run the di
 conda activate my-neuro
 python diagnostic_tool.py
 ```
-Then there will be a window shows diagnostic information. If you cannot resolve the problems yourself, send the information to our customer.
+Then there will be a window shows diagnostic information and one-click repair button. If you cannot resolve the problems yourself, send the output information to our customer.
 
 ## Customize AI
 
