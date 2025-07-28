@@ -160,6 +160,13 @@ Finally, return and click "Launch Desktop Pet". Wait for the avatar to appear, a
 
 ![image](https://github.com/user-attachments/assets/d73a1fc3-1514-42cd-9dfc-f5c450976162)
 
+If there's any problem, input the command below into your terminal to run the diagnostic tool.
+```bash
+conda activate my-neuro
+python diagnostic_tool.py
+```
+Then there will be a window shows diagnostic information. If you cannot resolve the problems yourself, send the information to our customer.
+
 ## Customize AI
 
 If you need to customize your own AI, please open the LLM-studio folder. This folder contains operation steps for LLM fine-tuning.
