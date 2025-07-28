@@ -196,7 +196,7 @@ https://github.com/morettt/my-neuro/releases/download/v4.4.5/live-2d.zip
 conda activate my-neuro
 python diagnostic_tool.py
 ```
-运行后将会弹出一个窗口，里面包含了后端诊断信息，若不能自行解决问题，向客服提供该文本
+运行后将会弹出一个窗口，里面包含了后端诊断信息和一键修复按钮，若不能自行解决问题，向客服提供输出信息
 
 ## 定制AI
 
