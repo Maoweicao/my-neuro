@@ -155,7 +155,7 @@ class DiagnosticTool:
         """批量安装 requirements.txt 中的所有依赖"""
         self.logger.info("尝试批量安装所有缺失依赖")
         try:
-            result = subprocess.run("pip install -r requirements.txt", shell=True, capture_output=True, text=True, check=True)
+            result = subprocess.run("call conda activate my-neuro && pip install -r requirements.txt", shell=True, capture_output=True, text=True, check=True)
             self.results.append(("依赖检查", "修复成功", "已根据 requirements.txt 安装所有依赖"))
             self.logger.info("修复成功: 已安装 requirements.txt 中的所有依赖")
             self.logger.info(f"安装输出: {result.stdout}")
@@ -180,7 +180,7 @@ class DiagnosticTool:
                 self.logger.error("修复失败: 无法自动激活 my-neuro 环境")
         elif "BERT 模型" in issue:
             try:
-                subprocess.run("python Batch_Download.py", shell=True, check=True)
+                subprocess.run("call conda activate my-neuro && python Batch_Download.py", shell=True, check=True)
                 self.results.append(("BERT 模型", "修复成功", "已运行 Batch_Download.py 下载模型"))
                 self.logger.info("修复成功: 已下载 BERT 模型")
             except subprocess.CalledProcessError:
@@ -188,8 +188,8 @@ class DiagnosticTool:
                 self.logger.error("修复失败: Batch_Download.py")
         elif "PyTorch 版本" in issue:
             try:
-                subprocess.run("pip uninstall -y torch torchvision torchaudio", shell=True, check=True)
-                subprocess.run("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128",
+                subprocess.run("call conda activate my-neuro && pip uninstall -y torch torchvision torchaudio", shell=True, check=True)
+                subprocess.run("call conda activate my-neuro && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128",
                               shell=True, check=True)
                 self.results.append(("PyTorch 版本", "修复成功", "已安装 PyTorch CUDA 12.8"))
                 self.logger.info("修复成功: 已安装 PyTorch CUDA 12.8")
@@ -198,8 +198,8 @@ class DiagnosticTool:
                 self.logger.error("修复失败: PyTorch CUDA 12.8")
         elif "PyTorch CUDA" in issue:
             try:
-                subprocess.run("pip uninstall -y torch torchvision torchaudio", shell=True, check=True)
-                subprocess.run("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118",
+                subprocess.run("call conda activate my-neuro && pip uninstall -y torch torchvision torchaudio", shell=True, check=True)
+                subprocess.run("call conda activate my-neuro && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118",
                               shell=True, check=True)
                 self.results.append(("PyTorch CUDA", "修复成功", "已安装 PyTorch CUDA 11.8"))
                 self.logger.info("修复成功: 已安装 PyTorch CUDA 11.8")
@@ -210,7 +210,7 @@ class DiagnosticTool:
             try:
                 wheel_file = "jieba_fast-0.53-cp311-cp311-win_amd64.whl"
                 if os.path.exists(wheel_file):
-                    subprocess.run(f"pip install {wheel_file}", shell=True, check=True)
+                    subprocess.run(f"call conda activate my-neuro && pip install {wheel_file}", shell=True, check=True)
                     self.results.append(("Jieba 库", "修复成功", "已安装 jieba_fast-0.53"))
                     self.logger.info("修复成功: 已安装 jieba_fast")
                 else:
@@ -221,7 +221,7 @@ class DiagnosticTool:
                 self.logger.error("修复失败: jieba_fast")
         elif "FFmpeg" in issue:
             try:
-                subprocess.run("conda install ffmpeg -y", shell=True, check=True)
+                subprocess.run("call conda activate my-neuro && conda install ffmpeg -y", shell=True, check=True)
                 self.results.append(("FFmpeg", "修复成功", "已安装 FFmpeg"))
                 self.logger.info("修复成功: 已安装 FFmpeg")
             except subprocess.CalledProcessError:
