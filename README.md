@@ -92,7 +92,7 @@ python neural_deploy.py
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第8步了，前1~7步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第7步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
 ### 启动步骤
@@ -131,7 +131,7 @@ conda activate my-neuro
 python Batch_Download.py
 ```
 
-下面4、5、6、7步需要你在my-neuro文件路径下面各自打开4个终端（cmd窗口）里运行
+下面4、5、6步需要你在my-neuro文件路径下面各自打开3个终端（cmd窗口）里运行
 
 这4个终端就是你的后端，需要持续开启才能使用项目功能。
 
@@ -139,7 +139,7 @@ python Batch_Download.py
 
 ```bash
 conda activate my-neuro
-python bert_api.py
+python omni_bert_api.py
 ```
 
 5.启动ASR服务
@@ -149,14 +149,7 @@ conda activate my-neuro
 python asr_api.py
 ```
 
-6.启动记忆bert
-
-```bash
-conda activate my-neuro
-python Mnemosyne-bert\api_go.py
-```
-
-7.启动TTS服务
+6.启动TTS服务
 ```bash
 #进入tts-studio文件夹
 cd tts-studio
@@ -167,9 +160,9 @@ python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.
 ```
 
 
-8.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
+7.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
 
-https://github.com/morettt/my-neuro/releases/download/v4.4.5/live-2d.zip
+https://github.com/morettt/my-neuro/releases/download/v4.5/live_2d.zip
 
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
