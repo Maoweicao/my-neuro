@@ -15,11 +15,7 @@ timeout /t 1 /nobreak >nul
 
 echo 正在启动第三个API服务...
 :: 启动第三个API (BERT)
-start cmd /k "call conda activate my-neuro && python bert_api.py"
+start cmd /k "call conda activate my-neuro & python omni_bert_api.py"
 timeout /t 1 /nobreak >nul
-
-echo 正在启动第四个API服务...
-:: 启动第四个API (Mnemosyne-bert)
-start cmd /k "call conda activate my-neuro && python Mnemosyne-bert\api_go.py"
 
 echo 所有API服务已启动!
