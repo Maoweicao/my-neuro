@@ -39,28 +39,28 @@ def download_with_retry(command, max_retry=MAX_RETRY, wait_time=RETRY_WAIT):
 # 获取当前工作目录
 current_dir = os.getcwd()
 
-# 1. 下载第一个模型 - ernie到bert-model文件夹
-bert_model_dir = os.path.join(current_dir, "bert-model")
-if not os.path.exists(bert_model_dir):
-    os.makedirs(bert_model_dir)
+# 1. 下载Omni_fn_bert模型到omni_bert文件夹
+omni_bert_dir = os.path.join(current_dir, "omni_bert")
+if not os.path.exists(omni_bert_dir):
+    os.makedirs(omni_bert_dir)
 
-# 切换到bert-model目录
-os.chdir(bert_model_dir)
-print(f"下载ernie模型到: {os.getcwd()}")
+# 切换到omni_bert目录
+os.chdir(omni_bert_dir)
+print(f"下载Omni_fn_bert模型到: {os.getcwd()}")
 
-# 使用ModelScope下载ernie模型，带重试机制
-if not download_with_retry("modelscope download --model morelle/ernie-3.0-base-zh-Vision-FT --local_dir ./"):
-    print("ernie模型下载失败，终止程序")
+# 使用ModelScope下载Omni_fn_bert模型，带重试机制
+if not download_with_retry("modelscope download --model morelle/Omni_fn_bert --local_dir ./"):
+    print("Omni_fn_bert模型下载失败，终止程序")
     exit(1)
 
 # 检查下载的模型是否存在 - ModelScope直接下载到指定目录
 # 检查一些关键文件是否存在来确认模型是否下载成功
-ernie_model_files = ["config.json", "model.safetensors", "vocab.txt"]
-missing_files = [f for f in ernie_model_files if not os.path.exists(os.path.join(bert_model_dir, f))]
+omni_model_files = ["config.json", "model.safetensors", "vocab.txt"]
+missing_files = [f for f in omni_model_files if not os.path.exists(os.path.join(omni_bert_dir, f))]
 if missing_files:
-    print(f"错误：下载后无法找到ernie模型的关键文件: {', '.join(missing_files)}")
+    print(f"错误：下载后无法找到Omni_fn_bert模型的关键文件: {', '.join(missing_files)}")
     exit(1)
-print("ernie模型检查通过，关键文件已找到")
+print("Omni_fn_bert模型检查通过，关键文件已找到")
 
 # 2. 下载第二个模型 - G2PWModel到tts-studio/text文件夹
 # 返回到原始目录
@@ -211,19 +211,5 @@ if not download_with_retry("modelscope download --model morelle/Fake-Neuro-TTS-V
     # 不终止程序，因为这是额外的模型
 else:
     print("fake_neuro_V2模型下载成功！")
-
-# 7. 下载Mnemosyne-V1-bert模型
-print("\n开始下载Mnemosyne-V1-bert模型...")
-
-# 返回到原始目录
-os.chdir(current_dir)
-print(f"下载Mnemosyne-V1-bert模型到: {current_dir}")
-
-# 使用ModelScope下载Mnemosyne-V1-bert模型，带重试机制
-if not download_with_retry("modelscope download --model morelle/Mnemosyne-V1-bert --local_dir ./Mnemosyne-bert"):
-    print("Mnemosyne-V1-bert模型下载失败")
-    # 不终止程序，可以根据需要决定是否终止
-else:
-    print("Mnemosyne-V1-bert模型下载成功！")
 
 print("所有下载操作全部完成！")
