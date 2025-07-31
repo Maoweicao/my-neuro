@@ -162,7 +162,7 @@ python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.
 
 7.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
 
-https://github.com/morettt/my-neuro/releases/download/v4.5/live_2d.zip
+https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
 
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
