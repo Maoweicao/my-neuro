@@ -258,27 +258,27 @@ def download_tts_models():
     
     print("\n========== 开始下载TTS相关模型 ==========")
     
-    # 1. 下载ernie模型到bert-model文件夹
-    bert_model_dir = os.path.join(current_dir, "bert-model")
-    if not os.path.exists(bert_model_dir):
-        os.makedirs(bert_model_dir)
+    # 1. 下载Omni_fn_bert模型到omni_bert文件夹
+    omni_bert_dir = os.path.join(current_dir, "omni_bert")
+    if not os.path.exists(omni_bert_dir):
+        os.makedirs(omni_bert_dir)
     
-    # 切换到bert-model目录
-    os.chdir(bert_model_dir)
-    print(f"\n下载ernie模型到: {os.getcwd()}")
+    # 切换到omni_bert目录
+    os.chdir(omni_bert_dir)
+    print(f"\n下载Omni_fn_bert模型到: {os.getcwd()}")
     
-    # 使用ModelScope下载ernie模型，带重试机制
-    if not download_with_retry("call conda activate my-neuro && modelscope download --model morelle/ernie-3.0-base-zh-Vision-FT --local_dir ./"):
-        print("ernie模型下载失败，终止程序")
+    # 使用ModelScope下载Omni_fn_bert模型，带重试机制
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model morelle/Omni_fn_bert --local_dir ./"):
+        print("Omni_fn_bert模型下载失败，终止程序")
         return False
     
     # 检查下载的模型是否存在
-    ernie_model_files = ["config.json", "model.safetensors", "vocab.txt"]
-    missing_files = [f for f in ernie_model_files if not os.path.exists(os.path.join(bert_model_dir, f))]
+    omni_model_files = ["config.json", "model.safetensors", "vocab.txt"]
+    missing_files = [f for f in omni_model_files if not os.path.exists(os.path.join(omni_bert_dir, f))]
     if missing_files:
-        print(f"错误：下载后无法找到ernie模型的关键文件: {', '.join(missing_files)}")
+        print(f"错误：下载后无法找到Omni_fn_bert模型的关键文件: {', '.join(missing_files)}")
         return False
-    print("ernie模型检查通过，关键文件已找到")
+    print("Omni_fn_bert模型检查通过，关键文件已找到")
     
     # 2. 下载G2PWModel到tts-studio/text文件夹
     # 返回到原始目录
@@ -428,20 +428,7 @@ def download_tts_models():
     else:
         print("fake_neuro_V2模型下载成功！")
     
-    # 7. 下载Mnemosyne-V1-bert模型
-    print("\n开始下载Mnemosyne-V1-bert模型...")
-    
-    # 返回到原始目录
-    os.chdir(current_dir)
-    print(f"下载Mnemosyne-V1-bert模型到: {current_dir}")
-    
-    # 使用ModelScope下载Mnemosyne-V1-bert模型，带重试机制
-    download_success = download_with_retry("call conda activate my-neuro && modelscope download --model morelle/Mnemosyne-V1-bert --local_dir ./Mnemosyne-bert")
-    if not download_success:
-        print("Mnemosyne-V1-bert模型下载失败，但这是可选模型，继续执行")
-    else:
-        print("Mnemosyne-V1-bert模型下载成功！")
-    
+    print("\n所有TTS模型下载操作完成！")
     return True
 
 def main():
