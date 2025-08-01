@@ -41,7 +41,7 @@ pause
 
 REM 4. 运行uvr_pipe.py
 echo 正在运行 uvr_pipe.py...
-call conda activate gpt-sovits && python fine_tuning/tools/uvr5/uvr_pipe.py "cuda" True
+call conda activate my-neuro && python fine_tuning/tools/uvr5/uvr_pipe.py "cuda" True
 if %errorlevel% neq 0 (
     echo uvr_pipe.py 执行失败，错误码: %errorlevel%
     pause
@@ -50,7 +50,7 @@ if %errorlevel% neq 0 (
 
 REM 5. 运行slicer_pipe.py
 echo 正在运行 slicer_pipe.py...
-call conda activate gpt-sovits && python fine_tuning/tools/slicer_pipe.py
+call conda activate my-neuro && python fine_tuning/tools/slicer_pipe.py
 if %errorlevel% neq 0 (
     echo slicer_pipe.py 执行失败，错误码: %errorlevel%
     pause
@@ -59,7 +59,7 @@ if %errorlevel% neq 0 (
 
 REM 6. 运行asr_pipe.py
 echo 正在运行 asr_pipe.py（语言: %language%）...
-call conda activate gpt-sovits && python fine_tuning/tools/asr_pipe.py -l %language%
+call conda activate my-neuro && python fine_tuning/tools/asr_pipe.py -l %language%
 if %errorlevel% neq 0 (
     echo asr_pipe.py 执行失败，错误码: %errorlevel%
     pause
@@ -68,7 +68,7 @@ if %errorlevel% neq 0 (
 
 REM 7. 运行format_pipe.py
 echo 正在运行 format_pipe.py（模型: %model_name%）...
-call conda activate gpt-sovits && python fine_tuning/format_pipe.py -n "%model_name%"
+call conda activate my-neuro && python fine_tuning/format_pipe.py -n "%model_name%"
 if %errorlevel% neq 0 (
     echo format_pipe.py 执行失败，错误码: %errorlevel%
     pause
@@ -77,7 +77,7 @@ if %errorlevel% neq 0 (
 
 REM 8. 运行trainer_pipe.py
 echo 正在运行 trainer_pipe.py（模型: %model_name%）...
-call conda activate gpt-sovits && python fine_tuning/trainer_pipe.py -n "%model_name%"
+call conda activate my-neuro && python fine_tuning/trainer_pipe.py -n "%model_name%"
 if %errorlevel% neq 0 (
     echo trainer_pipe.py 执行失败，错误码: %errorlevel%
     pause
@@ -86,7 +86,7 @@ if %errorlevel% neq 0 (
 
 REM 9. 运行afterprocess_pipe.py
 echo 正在运行 afterprocess_pipe.py（模型: %model_name%）...
-call conda activate gpt-sovits && python fine_tuning/afterprocess_pipe.py -n "%model_name%"
+call conda activate my-neuro && python fine_tuning/afterprocess_pipe.py -n "%model_name%"
 if %errorlevel% neq 0 (
     echo afterprocess_pipe.py 执行失败，错误码: %errorlevel%
     pause
