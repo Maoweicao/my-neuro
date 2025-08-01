@@ -4,6 +4,53 @@ REM 数据处理流程脚本（带参数输入和Conda环境管理）
 echo 数据处理流程开始...
 echo.
 
+:: 进入虚拟环境
+call conda activate my-neuro
+
+:: 获取当前bat文件所在目录
+set "current_dir=%~dp0"
+
+:: 拼接fine_tuning/tools路径
+set "package_path=%current_dir%fine_tuning"
+
+:: 添加到PYTHONPATH
+set PYTHONPATH=%PYTHONPATH%;%package_path%
+
+setlocal enabledelayedexpansion
+
+:: 获取当前脚本所在目录
+set "scriptDir=%~dp0"
+
+:: 定义要清空的子文件夹路径
+set "outputDir=%current_dir%fine_tuning\output\"
+set "folders=asr sliced uvr5"
+
+:: 检查输出目录是否存在
+if not exist "%outputDir%" (
+    echo 错误：目录不存在 - %outputDir%
+    pause
+    exit /b 1
+)
+
+:: 遍历每个子文件夹并清空内容
+for %%f in (%folders%) do (
+    set "currentFolder=%outputDir%%%f\"
+
+    if exist "!currentFolder!" (
+        echo 正在清空文件夹: !currentFolder!
+
+        :: 删除文件夹内所有文件和子文件夹
+        del /q "!currentFolder!*" >nul 2>&1
+        for /d %%d in ("!currentFolder!*") do (
+            rd /s /q "%%d" >nul 2>&1
+        )
+
+        echo 已清空 !currentFolder!
+    ) else (
+        echo 警告：文件夹不存在 - !currentFolder!
+    )
+)
+
 REM 1. 检查conda是否可用
 where conda >nul 2>&1
 if %errorlevel% neq 0 (
