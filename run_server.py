@@ -38,7 +38,7 @@ def tail_file(log_path, name):
     '''实时读取日志文件内容并输出到终端'''
     while True:
         try:
-            with open(log_path, 'r', encoding='utf-8') as f:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 f.seek(0, 2)  # 移到文件末尾
                 while True:
                     line = f.readline()
