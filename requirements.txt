@@ -45,3 +45,4 @@ jieba_fast
 opencc
 faster-whisper
 x_transformers
+tensorboard
