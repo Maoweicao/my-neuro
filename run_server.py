@@ -5,7 +5,7 @@ import threading
 import time
 import os
 
-with open(os.path.join(os.path.dirname(__file__),'tts-studio/tts-model/3/台本.txt'), 'r', encoding='utf-8') as file:
+with open(os.path.join(os.path.dirname(__file__),'tts-studio/tts-model/neuro/台本.txt'), 'r', encoding='utf-8') as file:
     ref_text = str(file.read())
 
 # 服务端配置列表
@@ -17,7 +17,7 @@ servers = [
     },
     {
         "name": "TTS服务端",
-        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/3.pth -dr tts-model/3/01.wav -dt \"{ref_text}\" -dl \"en\"",
+        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
         "log_file": "logs/tts.log"
     },
     {

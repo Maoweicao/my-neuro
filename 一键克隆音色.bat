@@ -18,9 +18,6 @@ set PYTHONPATH=%PYTHONPATH%;%package_path%
 
 setlocal enabledelayedexpansion
 
-:: 获取当前脚本所在目录
-set "scriptDir=%~dp0"
-
 :: 定义要清空的子文件夹路径
 set "outputDir=%current_dir%fine_tuning\output\"
 set "folders=asr sliced uvr5"
