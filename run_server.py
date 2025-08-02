@@ -3,6 +3,10 @@ import sys
 from pathlib import Path
 import threading
 import time
+import os
+
+with open(os.path.join(os.path.dirname(__file__),'tts-studio/tts-model/3/台本.txt'), 'r', encoding='utf-8') as file:
+    ref_text = str(file.read())
 
 # 服务端配置列表
 servers = [
@@ -13,7 +17,7 @@ servers = [
     },
     {
         "name": "TTS服务端",
-        "command": "call conda activate my-neuro && python tts_launcher.py",
+        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/3.pth -dr tts-model/3/01.wav -dt \"{ref_text}\" -dl \"en\"",
         "log_file": "logs/tts.log"
     },
     {
@@ -38,7 +42,7 @@ def tail_file(log_path, name):
     '''实时读取日志文件内容并输出到终端'''
     while True:
         try:
-            with open(log_path, 'r', encoding='utf-8') as f:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 f.seek(0, 2)  # 移到文件末尾
                 while True:
                     line = f.readline()
