@@ -76,13 +76,12 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 
 已经有了anaconda环境后，就可以开始动手了！
 
-直接双击这个文件
+### 直接双击这个文件
 
 <img width="967" height="412" alt="image" src="https://github.com/user-attachments/assets/2d69f8c0-f9af-46a5-aba0-9aa667561407" />
 
 
-
-一键部署.bat 全都处理完了以后。再直接双击这个：Game-starts.bat 双击后会跳出来一个窗口，默默等在这些窗口输出对应的ip
+### 一键部署.bat 全都处理完了以后。再直接双击这个：Game-starts.bat 双击后会跳出来一个窗口，默默等在这些窗口输出对应的ip
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
