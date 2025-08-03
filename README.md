@@ -92,7 +92,7 @@ python neural_deploy.py
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第7步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第5步了，前1~4步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
 ### 启动步骤
@@ -133,7 +133,7 @@ python Batch_Download.py
 
 ### 接下来直接在项目路径下双击这3个bat文件就行了
 
-4.依次双击这3个后端服务
+4.鼠标双击这3个东西
 
 ```bash
 全能bert.bat
