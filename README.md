@@ -106,10 +106,7 @@ python neural_deploy.py
 conda create -n my-neuro python=3.11 -y
 
 conda activate my-neuro
-```
 
-2. 安装依赖(按照顺序执行！！！)
-```bash
 #独立安装jieba_fast依赖
 pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl
 
@@ -124,7 +121,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 ```
 
 
-3.自动下载需要的各种模型
+2.自动下载需要的各种模型
 
 ```bash
 conda activate my-neuro
@@ -133,7 +130,7 @@ python Batch_Download.py
 
 ### 接下来直接在项目路径下双击这3个bat文件就行了
 
-4.鼠标双击这3个东西
+3.鼠标双击这3个东西
 
 ```bash
 全能bert.bat
@@ -143,7 +140,7 @@ ASR.bat
 TTS.bat
 ```
 
-5.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
+4.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
 
 https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
 
