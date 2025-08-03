@@ -193,7 +193,7 @@ python diagnostic_tool.py
 
 ## 定制tts模型（克隆音色）
 
-该模块由[@jdnoeg](https://github.com/jdnoeg)制作
+该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
 
 注：本模块需要在完成虚拟环境配置后进行
 
@@ -206,6 +206,8 @@ python diagnostic_tool.py
 1.把你的音频文件放在fine_tuning/input文件夹下，改名为"audio.mp3"，如图
 
 ![image](assets/ad202839c87a142df041d39bedae8a4.png)
+
+第一次用的时候这个位置会有一个占位符.txt，建议删掉，不删也没关系，但是会有些不会影响进程的报错
 
 2.这一步需要科学上网运行
 
@@ -277,6 +279,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
