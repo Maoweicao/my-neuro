@@ -113,7 +113,6 @@ conda install ffmpeg -y
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 #自动下载需要的各种模型
-conda activate my-neuro
 python Batch_Download.py
 ```
 
