@@ -131,32 +131,23 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 下载模型.bat
 ```
 
-下面4、5、6步需要你在my-neuro文件路径下面各自打开3个终端（cmd窗口）里运行
+下面4、5、6步需要你在my-neuro文件路径下面直接双击bat文件就行了
 
-这4个终端就是你的后端，需要持续开启才能使用项目功能。
-
-4.启动bert服务
+4.双击这个文件开启bert服务
 
 ```bash
-conda activate my-neuro
-python omni_bert_api.py
+全能bert.bat
 ```
 
-5.启动ASR服务
+5.双击这个文件启动ASR服务
 ```bash
 ##第一次运行，会自动下载需要的模型
-conda activate my-neuro
-python asr_api.py
+ASR.bat
 ```
 
-6.启动TTS服务
+6.双击这个文件启动TTS服务
 ```bash
-#进入tts-studio文件夹
-cd tts-studio
-
-#启动TTS服务
-conda activate my-neuro
-python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "en"
+TTS.bat
 ```
 
 
