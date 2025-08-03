@@ -118,8 +118,8 @@ pip install -r requirements.txt
 #安装ffmpedg
 conda install ffmpeg -y
 
-#安装cuda 默认是11.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#安装cuda 默认是12.8 可以自行修改
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 ```
 
@@ -279,6 +279,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
