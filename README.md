@@ -76,16 +76,12 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 
 已经有了anaconda环境后，就可以开始动手了！
 
-先在项目路径下运行这个指令：
+直接双击这个文件
+<img width="967" height="412" alt="image" src="https://github.com/user-attachments/assets/2d69f8c0-f9af-46a5-aba0-9aa667561407" />
+
 
 ```bash
-pip install modelscope requests
-```
-
-这条命令是安装一键部署所必须的requests和modelscope库，然后开始正式部署：
-
-```bash
-python neural_deploy.py
+一键部署.ba
 ```
 
 上面这两条指令运行好了以后，直接双击这个：Game-starts.bat 双击后会跳出来一个窗口，默默等在这些窗口输出对应的ip
