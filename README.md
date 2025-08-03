@@ -85,7 +85,7 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第4步了，1~3步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第3步了，1、2步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
 
@@ -112,19 +112,14 @@ conda install ffmpeg -y
 #安装cuda 默认是11.8 可以自行修改
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-```
-
-
-2.自动下载需要的各种模型
-
-```bash
+#自动下载需要的各种模型
 conda activate my-neuro
 python Batch_Download.py
 ```
 
 ### 接下来直接在项目路径下双击这3个bat文件就行了
 
-3.鼠标双击这3个东西
+2.鼠标双击这3个东西
 
 ```bash
 bert.bat
@@ -134,7 +129,7 @@ ASR.bat
 TTS.bat
 ```
 
-4.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
+3.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
 
 https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
 
