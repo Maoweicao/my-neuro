@@ -127,8 +127,8 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 3.自动下载需要的各种模型
 
 ```bash
-#直接双击这个脚本，等待终端把所有需要的模型下载好
-下载模型.bat
+conda activate my-neuro
+python Batch_Download.py
 ```
 
 下面4、5、6步需要你在my-neuro文件路径下面直接双击bat文件就行了
