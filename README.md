@@ -127,7 +127,7 @@ python Batch_Download.py
 3.鼠标双击这3个东西
 
 ```bash
-全能bert.bat
+bert.bat
 
 ASR.bat
 
