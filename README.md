@@ -131,7 +131,7 @@ conda activate my-neuro
 python Batch_Download.py
 ```
 
-下面4、5、6步需要你在my-neuro文件路径下面直接双击bat文件就行了
+下面4、5、6步直接在项目路径下双击bat文件就行了
 
 4.双击这个文件开启bert服务
 
@@ -151,7 +151,7 @@ TTS.bat
 ```
 
 
-7.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
+7.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
 
 https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
 
