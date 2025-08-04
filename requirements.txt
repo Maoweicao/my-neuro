@@ -43,3 +43,9 @@ g2p-en
 wordsegment
 jieba_fast
 opencc
+
+#RAG依赖
+sentence-transformers
+watchdog
+
+
