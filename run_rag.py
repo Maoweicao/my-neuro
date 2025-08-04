@@ -20,7 +20,7 @@ reload_lock = threading.Lock()
 
 
 class KnowledgeBaseHandler(FileSystemEventHandler):
-    """监控数据库文件变化"""
+    """监控记忆库文件变化"""
 
     def on_modified(self, event):
         if not event.is_directory and event.src_path.endswith("记忆库.txt"):
@@ -28,7 +28,7 @@ class KnowledgeBaseHandler(FileSystemEventHandler):
             reload_knowledge_base()
 
 
-def load_knowledge_base(file_path="数据库.txt"):
+def load_knowledge_base(file_path="记忆库.txt"):
     """加载知识库文件 - 使用连续横线分割段落"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
