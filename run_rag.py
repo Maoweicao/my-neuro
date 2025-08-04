@@ -84,7 +84,7 @@ async def startup_event():
     print("加载模型...")
 
     # 加载模型
-    model = SentenceTransformer("./jian-model")
+    model = SentenceTransformer("./RAG-model")
     model = model.to('cuda')
     print("模型加载完成，使用GPU")
 
@@ -221,4 +221,4 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8002)
