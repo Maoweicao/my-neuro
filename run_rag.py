@@ -23,7 +23,7 @@ class KnowledgeBaseHandler(FileSystemEventHandler):
     """监控数据库文件变化"""
 
     def on_modified(self, event):
-        if not event.is_directory and event.src_path.endswith("数据库.txt"):
+        if not event.is_directory and event.src_path.endswith("记忆库.txt"):
             time.sleep(0.5)  # 等待文件写入完成
             reload_knowledge_base()
 
