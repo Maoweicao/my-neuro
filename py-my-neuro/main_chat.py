@@ -112,7 +112,7 @@ class MyNeuro:
             self._setup_event_handlers()
 
     def _setup_event_handlers(self):
-        """设置事件处理器 - 新增"""
+        """设置事件处理器"""
         # 订阅用户输入事件
         event_bus.subscribe(Events.USER_INPUT, self._handle_user_input_event)
 
@@ -124,8 +124,11 @@ class MyNeuro:
         event_bus.subscribe("ai_response_start", self._handle_ai_response_start)
         event_bus.subscribe("ai_response_end", self._handle_ai_response_end)
 
+        # 🔥 新增：订阅AI文本块事件
+        event_bus.subscribe("ai_text_chunk", self._handle_ai_text_chunk)
+
     def _handle_user_input_event(self, data):
-        """处理用户输入事件 - 新增"""
+        """处理用户输入事件"""
         user_text = data.get('text', '')
         source = data.get('source', 'unknown')
 
@@ -133,37 +136,47 @@ class MyNeuro:
         self.start_chat(user_text)
 
     def _handle_audio_interrupt_event(self, data=None):
-        """处理音频打断事件 - 新增"""
+        """处理音频打断事件"""
         print("[事件] 收到音频打断信号")
         self.stop_key()
 
     def _handle_mic_toggle_event(self, data):
-        """处理麦克风开关事件 - 新增"""
+        """处理麦克风开关事件"""
         enabled = data.get('enabled', True)
         self.set_mic_enabled(enabled)
 
     def _handle_ai_response_start(self, data=None):
-        """处理AI开始响应事件 - 新增"""
+        """处理AI开始响应事件"""
         if not self.asr_real_time:
             self.set_mic_enabled(False)
             print("🔇 [事件] 麦克风已关闭，AI回复中...")
 
     def _handle_ai_response_end(self, data=None):
-        """处理AI响应结束事件 - 新增"""
+        """处理AI响应结束事件"""
         if not self.asr_real_time:
             self.wait_for_audio_finish()
             self.set_mic_enabled(True)
             print("🎤 [事件] 麦克风已开启，可以说话了")
 
-    # 新增：事件发布方法
+    def _handle_ai_text_chunk(self, data):
+        """处理AI文本块事件 - 🔥 新增核心方法"""
+        ai_response = data.get('text', '')
+
+        # 打印到控制台
+        print(ai_response, end='', flush=True)
+
+        # 发送给音频播放器
+        if self.cut_text_tts:
+            self.audio_player.cut_text(ai_response)
+
+    # 事件发布方法
     def publish_event(self, event_name, data=None):
         """发布事件"""
         if HAS_EVENT_BUS:
             event_bus.publish(event_name, data)
 
-    # 🔥 修改原有方法，集成事件发布
     def start_chat(self, user):
-        """开始聊天 - 修改为支持事件"""
+        """开始聊天"""
         self.stop_flag = False
 
         # 发布开始处理用户输入事件
@@ -190,8 +203,7 @@ class MyNeuro:
         self.publish_event("ai_response_end")
 
     def accept_chat(self, response):
-        """接收聊天 - 修改为支持事件"""
-        # 原有的AI回复逻辑...
+        """🔥 接收聊天 - 事件驱动改造版本"""
         if self.function_calling_enabled and self.fc_tool:
             result = self.fc_tool.accept_chat(response)
             if self.cut_text_tts and not self.stop_flag:
@@ -206,26 +218,22 @@ class MyNeuro:
             for chunk in response:
                 if self.stop_flag:
                     print("🔥 收到打断信号，停止AI回复")
-                    # 发布打断事件
                     self.publish_event(Events.AUDIO_INTERRUPT)
                     break
 
                 if chunk.choices and chunk.choices[0].delta.content is not None:
                     ai_response = chunk.choices[0].delta.content
-                    print(ai_response, end='', flush=True)
 
-                    # 发布AI响应块事件
-                    self.publish_event(Events.AI_RESPONSE, {
-                        "chunk": ai_response,
+                    # 🔥 关键改动：发布事件而不是直接处理
+                    self.publish_event("ai_text_chunk", {
+                        "text": ai_response,
                         "full_text": full_assistant + ai_response
                     })
-
-                    if self.cut_text_tts:
-                        self.audio_player.cut_text(ai_response)
 
                     full_assistant += ai_response
                     time.sleep(0.05)
 
+            # 结束处理
             if self.cut_text_tts and not self.stop_flag:
                 self.audio_player.finish_current_text()
 
@@ -237,7 +245,7 @@ class MyNeuro:
             return full_assistant
 
     def stop_key(self):
-        """停止按键 - 修改为支持事件"""
+        """停止按键"""
         self.stop_flag = True
         self.ai_is_responding = False
         print('打断！')
@@ -249,7 +257,7 @@ class MyNeuro:
         self.emotion_handler.reset_buffer()
 
     def set_mic_enabled(self, enabled):
-        """控制麦克风开关 - 修改为支持事件"""
+        """控制麦克风开关"""
         self.mic_enabled = enabled
         if hasattr(self, 'vad_input'):
             self.vad_input.set_mic_enabled(enabled)
@@ -257,7 +265,7 @@ class MyNeuro:
         # 发布麦克风状态事件
         self.publish_event(Events.MIC_TOGGLE, {"enabled": enabled})
 
-    # 🔥 新增：外部输入接口（支持事件驱动）
+    # 外部输入接口（支持事件驱动）
     def handle_keyboard_input(self, text):
         """处理键盘输入"""
         self.publish_event(Events.USER_INPUT, {
@@ -327,9 +335,8 @@ class MyNeuro:
         if len(self.messages) > 31:
             self.messages.pop(1)
 
-    # 🔥 修改输入处理方法，使用事件驱动
     def asr_vad_chat(self):
-        """ASR语音输入 - 修改为事件驱动"""
+        """ASR语音输入"""
         if self.asr_vad:
             while True:
                 print('启动ASR')
@@ -339,7 +346,7 @@ class MyNeuro:
                     self.handle_voice_input(user)
 
     def main(self):
-        """GUI输入处理 - 修改为事件驱动"""
+        """GUI输入处理"""
 
         def process_keyboard_input(text):
             self.handle_keyboard_input(text)
@@ -347,7 +354,7 @@ class MyNeuro:
         sys.exit(start_gui_with_ai(process_keyboard_input))
 
     def start_main(self):
-        """弹幕监听 - 修改为事件驱动"""
+        """弹幕监听"""
         print('开始对话')
         self.listener.start_listening()
 
@@ -364,7 +371,7 @@ class MyNeuro:
             time.sleep(1)
 
     def auto_chat(self):
-        """自动聊天 - 修改为事件驱动"""
+        """自动聊天"""
         if self.audo_chat:
             while True:
                 jiange = self.interval
@@ -378,7 +385,7 @@ class MyNeuro:
                 })
 
     def main_chat(self):
-        """主聊天循环 - 保持不变"""
+        """主聊天循环"""
         threading.Thread(target=self.auto_chat, daemon=True).start()
         threading.Thread(target=self.start_main, daemon=True).start()
         threading.Thread(target=self.asr_vad_chat, daemon=True).start()
