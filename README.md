@@ -126,9 +126,16 @@ bert.bat
 ASR.bat
 
 TTS.bat
+
+
+```
+可选（双击这个会提升模型的长期记忆功能，但是显存相对来说要增加1.5G）
+```bash
+RAG.bat
 ```
 
-3.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
+
+3.等待上面服务都输出IP后，再点击此链接下载zip文件：
 
 https://github.com/morettt/my-neuro/releases/download/v4.5.1/live-2d.zip
 
