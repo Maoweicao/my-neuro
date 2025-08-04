@@ -130,7 +130,7 @@ TTS.bat
 
 3.等待上面3个服务都输出IP后，再点击此链接下载zip文件：
 
-https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
+https://github.com/morettt/my-neuro/releases/download/v4.5.1/live-2d.zip
 
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
