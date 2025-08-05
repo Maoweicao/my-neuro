@@ -76,40 +76,31 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 
 已经有了anaconda环境后，就可以开始动手了！
 
-先在项目路径下运行这个指令：
+### 直接双击这个文件
 
-```bash
-pip install modelscope requests
-```
+<img width="967" height="412" alt="image" src="https://github.com/user-attachments/assets/2d69f8c0-f9af-46a5-aba0-9aa667561407" />
 
-这条命令是安装一键部署所必须的requests和modelscope库，然后开始正式部署：
 
-```bash
-python neural_deploy.py
-```
-
-上面这两条指令运行好了以后，直接双击这个：Game-starts.bat 双击后会跳出来很多的窗口，默默等在这些窗口输出对应的ip
+### 一键部署.bat 全都处理完了以后。再直接双击这个：Game-starts.bat 双击后会跳出来一个窗口，默默等在这些窗口输出对应的ip
 
 ![image](https://github.com/user-attachments/assets/95483cda-9e6d-41a8-a6fc-44e5ae805703)
 
-成功了后，你就可以直接跳到下面的第7步了，前1~6步都不需要做。如果失败了，就老实做下面的这些步骤吧
+成功了后，你就可以直接跳到下面的第3步了，1、2步都不需要做。如果失败了，就老实做下面的这些步骤吧
 
 
-### 启动步骤
+
+## 原版启动步骤
 如果上面的一键处理出问题了。那么建议一步一步按照下方的操作方法。虽然麻烦。但是如果出错了。
 
 也能立刻定位出错的位置，从而针对性的解决
 
 
-1. 创建并激活虚拟环境（不要忘了这一步！！！！第一步很重要！！）
+1. 按顺序依次执行以下指令（打开终端在项目路径下运行）
 ```bash
 conda create -n my-neuro python=3.11 -y
 
 conda activate my-neuro
-```
 
-2. 安装依赖(按照顺序执行！！！)
-```bash
 #独立安装jieba_fast依赖
 pip install jieba_fast-0.53-cp311-cp311-win_amd64.whl
 
@@ -118,51 +109,35 @@ pip install -r requirements.txt
 #安装ffmpedg
 conda install ffmpeg -y
 
-#安装cuda 默认是12.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#安装cuda 默认是11.8 可以自行修改
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-```
-
-
-3.自动下载需要的各种模型
-
-```bash
-conda activate my-neuro
+#自动下载需要的各种模型
 python Batch_Download.py
 ```
 
-下面4、5、6步需要你在my-neuro文件路径下面各自打开3个终端（cmd窗口）里运行
+### 接下来直接在项目路径下双击这3个bat文件就行了
 
-这4个终端就是你的后端，需要持续开启才能使用项目功能。
-
-4.启动bert服务
+2.鼠标双击这3个东西
 
 ```bash
-conda activate my-neuro
-python omni_bert_api.py
+bert.bat
+
+ASR.bat
+
+TTS.bat
+
+
 ```
-
-5.启动ASR服务
+2.5.可选（双击这个会提升模型的长期记忆功能，但是显存相对来说要增加1.5G）
 ```bash
-##第一次运行，会自动下载需要的模型
-conda activate my-neuro
-python asr_api.py
-```
-
-6.启动TTS服务
-```bash
-#进入tts-studio文件夹
-cd tts-studio
-
-#启动TTS服务
-conda activate my-neuro
-python tts_api.py -p 5000 -d cuda -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday." -dl "en"
+RAG.bat
 ```
 
 
-7.等待ASR和TTS都输出IP后，点击此链接下载zip文件：
+3.等待上面服务都输出IP后，再点击此链接下载zip文件：
 
-https://github.com/morettt/my-neuro/releases/download/v4.5/live-2d.zip
+https://github.com/morettt/my-neuro/releases/download/v4.6/live-2d.zip
 
 
 下载后解压是这样的，双击打开这个 肥牛.exe 文件
@@ -215,11 +190,17 @@ python diagnostic_tool.py
 
 ![image](assets/7bdc3b8c40db916d8c80ca91cc29880.png)
 
-这时候会出现这样的情况：
+这时候可能会出现这样的情况：
 
 ![image](assets/20250802141426_15.png)
 
 不用管，键盘上随便按一个键就可以继续正常运行
+
+如果出现以下情况：
+
+![image](assets/9023C561A735E65D9334EC775A757AF7.png)
+
+直接退出，使用 一键克隆音色2.bat，操作同上
 
 在脚本运行期间不要关闭窗口！！！
 
@@ -279,8 +260,6 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
-
-
 
 
 
