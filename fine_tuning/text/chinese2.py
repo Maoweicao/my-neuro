@@ -32,7 +32,7 @@ if is_g2pw:
 
     parent_directory = os.path.dirname(current_file_path)
     g2pw = G2PWPinyin(
-        model_dir=os.path.join(current_file_path, "G2PWModel"),
+        model_dir=os.path.join(os.path.dirname(parent_directory), "tts-studio/text/G2PWModel"),
         model_source=os.environ.get("bert_path", os.path.join(os.path.dirname(parent_directory), "tts-studio/pretrained_models/chinese-roberta-wwm-ext-large")),
         v_to_u=False,
         neutral_tone_with_five=True,
