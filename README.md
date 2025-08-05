@@ -109,8 +109,8 @@ pip install -r requirements.txt
 #安装ffmpedg
 conda install ffmpeg -y
 
-#安装cuda 默认是11.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#安装cuda 默认是12.8 可以自行修改
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 #自动下载需要的各种模型
 python Batch_Download.py
