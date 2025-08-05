@@ -3,9 +3,12 @@ import pyautogui
 from datetime import datetime
 import inspect
 import json
+import requests
+import json
 
 from .agent import Pc_Agent
 from tavily import TavilyClient
+
 
 class MyNuroTools:
 
@@ -13,13 +16,15 @@ class MyNuroTools:
         # 保存主类的引用，这样就能访问所有属性了
         self.main = my_neuro_instance
         agent = Pc_Agent()
+        self.url = "http://127.0.0.1:8002/ask"
 
         # 工具调用配置
         self.FUNCTIONS = {
             'get_current_time': self.get_current_time,
             'type_text': self.type_text,
-            'click_element':agent.click_element,
-            'get_search':self.get_search
+            'click_element': agent.click_element,
+            'get_search': self.get_search,
+            'ask_q':self.ask_q
         }
 
         # 将工具列表生成移到这里
@@ -54,7 +59,7 @@ class MyNuroTools:
 
     # 工具函数·······························································
 
-    def get_search(self,content: str, quantity: int):
+    def get_search(self, content: str, quantity: int):
         """
         输入问题得到回复，利用游览器搜索引擎获取网络信息
         content参数为搜索具体内容，quantity为返回的结果数量。一般填入1~5以内
@@ -81,13 +86,12 @@ class MyNuroTools:
             search_results = result['title']
             print(f"结果：{search_results}")
             content = result.get('raw_content') or result['content']
-            full_content = content[:1500]# 只要前1500字符文本
+            full_content = content[:1500]  # 只要前1500字符文本
             print(full_content)
-            
+
             print("-" * 50)
 
         return full_content
-
 
     def get_current_time(self):
         """获取当前时间"""
@@ -101,6 +105,20 @@ class MyNuroTools:
         # 自动按Ctrl+V粘贴
         pyautogui.hotkey('ctrl', 'v')
         return '已粘贴完成！'
+
+    def ask_q(self, ask, qty=1):
+        """
+        检索记忆内容。输入想要检索的记忆来查询以往记下的记忆
+        """
+        response = requests.post(self.url, json={"question": ask, "top_k": qty})
+        js_content = response.json()
+
+        rag_content = ""
+        for passage in js_content['relevant_passages']:
+            print(passage['content'])
+            rag_content += passage['content'] + "\n"  # 收集内容返回
+
+        return rag_content
 
     # 工具函数·······························································
 
