@@ -41,7 +41,7 @@ English Documentation: [English Version](./README_English.md)
 - [ ] 超吊的人机体验(类似真人交互设计，敬请期待)
 - [x] 动作表情：根据对话内容展示不同的表情与动作
 - [x] 集成视觉能力，支持图像识别，并通过语言意图判断何时启动视觉功能
-- [ ] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
+- [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
 
 ### 扩展功能
 - [ ] 桌面控制：支持语音控制打开软件等操作
@@ -109,8 +109,8 @@ pip install -r requirements.txt
 #安装ffmpedg
 conda install ffmpeg -y
 
-#安装cuda 默认是11.8 可以自行修改
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#安装cuda 默认是12.8 可以自行修改
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 #自动下载需要的各种模型
 python Batch_Download.py
@@ -165,6 +165,52 @@ conda activate my-neuro
 python diagnostic_tool.py
 ```
 运行后将会弹出一个窗口，里面包含了后端诊断信息和一键修复按钮，若不能自行解决问题，向客服提供输出信息
+
+## 定制tts模型（克隆音色）
+
+该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
+
+注：本模块需要在完成虚拟环境配置后进行
+
+该模块可以使用一段音频一键克隆你想要的角色的音色
+
+音频要求：长度在10min~30min之间，mp3格式，可以有背景音乐，但是只能有一个说话人
+
+硬件要求：显存至少6G的显卡
+
+1.把你的音频文件放在fine_tuning/input文件夹下，改名为"audio.mp3"，如图
+
+![image](assets/ad202839c87a142df041d39bedae8a4.png)
+
+第一次用的时候这个位置会有一个占位符.txt，建议删掉，不删也没关系，但是会有些不影响进程的报错
+
+2.这一步需要科学上网运行
+
+双击运行 一键克隆音色.bat ，在弹出的窗口中输入你的音频使用的语言以及你的tts模型的名称（自己起一个，示例使用"1"），如图
+
+![image](assets/7bdc3b8c40db916d8c80ca91cc29880.png)
+
+键盘上随便按一个键就可以继续
+
+在脚本运行期间不要关闭窗口！！！
+
+3.脚本运行完成后，修改配置以使用你训练好的模型
+
+打开run_server.py进行编辑（有IDE的可以用，没有的直接右键记事本打开）
+
+需要修改的地方一共有如图所示的四处：
+
+![image](assets/2025-08-02_140143_285.png)
+
+红色框的地方全部改成你在步骤2中输入的模型名称，黄色框的地方改成你输入的音频的语言，如下图
+
+![image](assets/c53099af37222f74527b1394b53de8d2.png)
+
+修改完成后一定不要忘记保存！！！
+
+关掉文件，双击Game-starts.bat运行服务端，这时候tts使用的就是你训练好的模型了
+
+想改回默认的模型只需要把你修改过的内容再改回原来的样子就行
 
 ## 定制AI
 

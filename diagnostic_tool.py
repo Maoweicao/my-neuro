@@ -91,16 +91,16 @@ class DiagnosticTool:
                 cuda_version = torch.version.cuda
                 self.results.append(("PyTorch CUDA", "通过", f"已安装 PyTorch CUDA 版本: {current_version}, CUDA: {cuda_version}"))
             else:
-                self.results.append(("PyTorch CUDA", "失败", "未检测到 CUDA 支持的 PyTorch，请安装 PyTorch CUDA 11.8 版本"))
+                self.results.append(("PyTorch CUDA", "失败", "未检测到 CUDA 支持的 PyTorch，请安装 PyTorch CUDA 12.8 版本"))
         except ImportError:
-            self.results.append(("PyTorch CUDA", "失败", "未安装 PyTorch，请安装 PyTorch CUDA 11.8 版本"))
+            self.results.append(("PyTorch CUDA", "失败", "未安装 PyTorch，请安装 PyTorch CUDA 12.8 版本"))
 
     def check_nvidia_50_series(self):
         """检查是否为 NVIDIA 50 系显卡并验证 PyTorch 版本"""
         try:
             result = subprocess.run("nvidia-smi --query-gpu=name --format=csv,noheader", shell=True, capture_output=True, text=True)
             gpu_name = result.stdout.strip().lower()
-            if "50" in gpu_name:
+            if "5060" in gpu_name or "5070" in gpu_name or "5080" in gpu_name or "5090" in gpu_name:
                 import torch
                 current_version = torch.__version__
                 if "cu128" not in current_version:
@@ -199,13 +199,13 @@ class DiagnosticTool:
         elif "PyTorch CUDA" in issue:
             try:
                 subprocess.run("call conda activate my-neuro && pip uninstall -y torch torchvision torchaudio", shell=True, check=True)
-                subprocess.run("call conda activate my-neuro && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118",
+                subprocess.run("call conda activate my-neuro && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128",
                               shell=True, check=True)
-                self.results.append(("PyTorch CUDA", "修复成功", "已安装 PyTorch CUDA 11.8"))
-                self.logger.info("修复成功: 已安装 PyTorch CUDA 11.8")
+                self.results.append(("PyTorch CUDA", "修复成功", "已安装 PyTorch CUDA 12.8"))
+                self.logger.info("修复成功: 已安装 PyTorch CUDA 12.8")
             except subprocess.CalledProcessError:
-                self.results.append(("PyTorch CUDA", "修复失败", "安装 PyTorch CUDA 11.8 失败，请手动运行 'pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118'"))
-                self.logger.error("修复失败: PyTorch CUDA 11.8")
+                self.results.append(("PyTorch CUDA", "修复失败", "安装 PyTorch CUDA 12.8 失败，请手动运行 'pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118'"))
+                self.logger.error("修复失败: PyTorch CUDA 12.8")
         elif "Jieba 库" in issue:
             try:
                 wheel_file = "jieba_fast-0.53-cp311-cp311-win_amd64.whl"

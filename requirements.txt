@@ -44,8 +44,11 @@ wordsegment
 jieba_fast
 opencc
 
+#TTS训练依赖
+faster-whisper
+x_transformers
+tensorboard
+
 #RAG依赖
 sentence-transformers
 watchdog
-
-
