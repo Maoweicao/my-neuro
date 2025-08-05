@@ -19,13 +19,19 @@
 			],
 			"TapBody": [
 				{
-					"File": "motions/Hiyori_m04.motion3.json"
+					"File": "motions/micon.motion3.json"
+				},
+				{
+					"File": "motions/micoff.motion3.json"
 				},
 				{
 					"File": "motions/Hiyori_m02.motion3.json"
 				},
 				{
 					"File": "motions/Hiyori_m03.motion3.json"
+				},
+				{
+					"File": "motions/Hiyori_m04.motion3.json"
 				},
 				{
 					"File": "motions/Hiyori_m05.motion3.json"
@@ -40,21 +46,7 @@
 					"File": "motions/Hiyori_m08.motion3.json"
 				},
 				{
-					"File": "motions/micoff.motion3.json"
-				},
-				{
-					"File": "motions/micon.motion3.json"
-				}
-			],
-			"": [
-				{
-					"File": "motions/micoff.motion3.json"
-				},
-				{
-					"File": "motions/micon.motion3.json"
-				},
-				{
-					"File": "motions/singing.motion3.json"
+					"File": "motions/Hiyori_m09.motion3.json"
 				}
 			]
 		}

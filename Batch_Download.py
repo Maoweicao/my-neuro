@@ -190,8 +190,6 @@ else:
     print(f"错误：源预训练模型文件夹 {source_pretrained_dir} 不存在或为空")
     exit(1)
 
-print("所有操作完成！")
-
 # 6. 下载fake_neuro_V2模型
 print("\n开始下载fake_neuro_V2模型...")
 
@@ -212,4 +210,25 @@ if not download_with_retry("modelscope download --model morelle/Fake-Neuro-TTS-V
 else:
     print("fake_neuro_V2模型下载成功！")
 
-print("所有下载操作全部完成！")
+# 7. 下载BAAI/bge-m3模型到RAG-model文件夹
+print("\n开始下载BAAI/bge-m3模型...")
+
+# 返回到原始目录
+os.chdir(current_dir)
+
+# 创建RAG-model目录
+rag_model_dir = os.path.join(current_dir, "RAG-model")
+if not os.path.exists(rag_model_dir):
+    os.makedirs(rag_model_dir)
+    print(f"创建目录: {rag_model_dir}")
+
+print(f"下载BAAI/bge-m3模型到: {rag_model_dir}")
+
+# 使用ModelScope下载BAAI/bge-m3模型，带重试机制
+if not download_with_retry("modelscope download --model BAAI/bge-m3 --local_dir ./RAG-model"):
+    print("BAAI/bge-m3模型下载失败")
+    # 不终止程序，继续执行其他任务
+else:
+    print("BAAI/bge-m3模型下载成功！")
+
+print("\n所有下载操作全部完成！")
