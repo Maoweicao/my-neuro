@@ -123,6 +123,35 @@ except Exception as e:
     print(f"复制过程中出错: {str(e)}")
     exit(1)
 
+# 3.1 新增：复制G2PWModel到fine_tuning/text文件夹
+print("\n开始复制G2PWModel到fine_tuning/text目录...")
+
+# 创建fine_tuning/text目录结构
+fine_tuning_dir = os.path.join(current_dir, "fine_tuning")
+fine_tuning_text_dir = os.path.join(fine_tuning_dir, "text")
+fine_tuning_g2pw_dir = os.path.join(fine_tuning_text_dir, "G2PWModel")
+
+# 创建目标目录结构
+if not os.path.exists(fine_tuning_dir):
+    os.makedirs(fine_tuning_dir)
+    print(f"创建目录: {fine_tuning_dir}")
+if not os.path.exists(fine_tuning_text_dir):
+    os.makedirs(fine_tuning_text_dir)
+    print(f"创建目录: {fine_tuning_text_dir}")
+
+# 复制文件夹到fine_tuning/text目录
+print(f"复制G2PWModel从 {source_g2pw_dir} 到 {fine_tuning_g2pw_dir}")
+# 如果目标文件夹已存在，先删除
+if os.path.exists(fine_tuning_g2pw_dir):
+    shutil.rmtree(fine_tuning_g2pw_dir)
+# 复制整个文件夹
+try:
+    shutil.copytree(source_g2pw_dir, fine_tuning_g2pw_dir)
+    print("G2PWModel复制到fine_tuning/text目录完成！")
+except Exception as e:
+    print(f"复制G2PWModel到fine_tuning/text目录时出错: {str(e)}")
+    # 这里不终止程序，因为这是额外的复制操作
+
 # 4. 下载并解压pretrained_models.zip到tts-studio/GPT_SoVITS/pretrained_models文件夹
 # 创建目标目录
 pretrained_models_dir = os.path.join(gpt_sovits_dir, "pretrained_models")
