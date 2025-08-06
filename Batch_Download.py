@@ -260,4 +260,25 @@ if not download_with_retry("modelscope download --model BAAI/bge-m3 --local_dir 
 else:
     print("BAAI/bge-m3模型下载成功！")
 
+# 8. 下载UVR5权重文件到fine_tuning/tools/uvr5/uvr5_weights目录
+print("\n开始下载UVR5权重文件...")
+
+# 返回到原始目录
+os.chdir(current_dir)
+
+# 创建fine_tuning/tools/uvr5/uvr5_weights目录结构
+uvr5_weights_dir = os.path.join(current_dir, "fine_tuning", "tools", "uvr5", "uvr5_weights")
+if not os.path.exists(uvr5_weights_dir):
+    os.makedirs(uvr5_weights_dir)
+    print(f"创建目录: {uvr5_weights_dir}")
+
+print(f"下载UVR5权重文件到: {uvr5_weights_dir}")
+
+# 使用ModelScope下载UVR5权重文件，带重试机制
+if not download_with_retry(f"modelscope download --model AI-ModelScope/uvr5_weights HP2_all_vocals.pth --local_dir {uvr5_weights_dir}"):
+    print("UVR5权重文件下载失败")
+    # 不终止程序，因为这是额外的模型
+else:
+    print("UVR5权重文件下载成功！")
+
 print("\n所有下载操作全部完成！")
