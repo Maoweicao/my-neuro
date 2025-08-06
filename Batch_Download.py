@@ -281,4 +281,26 @@ if not download_with_retry(f"modelscope download --model AI-ModelScope/uvr5_weig
 else:
     print("UVR5权重文件下载成功！")
 
+# 9. 下载faster-whisper-medium模型到fine_tuning/tools/asr/models目录
+print("\n开始下载faster-whisper-medium模型...")
+
+# 返回到原始目录
+os.chdir(current_dir)
+
+# 创建fine_tuning/tools/asr/models目录结构
+asr_models_dir = os.path.join(current_dir, "fine_tuning", "tools", "asr", "models")
+faster_whisper_dir = os.path.join(asr_models_dir, "faster-whisper-medium")
+if not os.path.exists(asr_models_dir):
+    os.makedirs(asr_models_dir)
+    print(f"创建目录: {asr_models_dir}")
+
+print(f"下载faster-whisper-medium模型到: {faster_whisper_dir}")
+
+# 使用ModelScope下载faster-whisper-medium模型，带重试机制
+if not download_with_retry(f"modelscope download --model pengzhendong/faster-whisper-medium --local_dir {faster_whisper_dir}"):
+    print("faster-whisper-medium模型下载失败")
+    # 不终止程序，因为这是额外的模型
+else:
+    print("faster-whisper-medium模型下载成功！")
+
 print("\n所有下载操作全部完成！")
