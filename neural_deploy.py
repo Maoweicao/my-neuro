@@ -241,6 +241,7 @@ def download_live2d_model():
 
 def download_vad_models():
     """下载asr的vad"""
+    print("\n========== 下载ASR VAD模型 ==========")
     vad_dir = os.getcwd()
 
     target_dir = os.path.join(vad_dir,'model','torch_hub')
@@ -248,8 +249,7 @@ def download_vad_models():
 
     model_dir = snapshot_download('morelle/my-neuro-vad',local_dir =target_dir)
 
-    print(f'已讲asr vad下载到{model_dir}')
-
+    print(f'已将asr vad下载到{model_dir}')
 
 def download_tts_models():
     """下载TTS相关模型"""
@@ -341,6 +341,35 @@ def download_tts_models():
         print(f"复制过程中出错: {str(e)}")
         return False
     
+    # 3.1 新增：复制G2PWModel到fine_tuning/text文件夹
+    print("\n开始复制G2PWModel到fine_tuning/text目录...")
+    
+    # 创建fine_tuning/text目录结构
+    fine_tuning_dir = os.path.join(current_dir, "fine_tuning")
+    fine_tuning_text_dir = os.path.join(fine_tuning_dir, "text")
+    fine_tuning_g2pw_dir = os.path.join(fine_tuning_text_dir, "G2PWModel")
+    
+    # 创建目标目录结构
+    if not os.path.exists(fine_tuning_dir):
+        os.makedirs(fine_tuning_dir)
+        print(f"创建目录: {fine_tuning_dir}")
+    if not os.path.exists(fine_tuning_text_dir):
+        os.makedirs(fine_tuning_text_dir)
+        print(f"创建目录: {fine_tuning_text_dir}")
+    
+    # 复制文件夹到fine_tuning/text目录
+    print(f"复制G2PWModel从 {source_g2pw_dir} 到 {fine_tuning_g2pw_dir}")
+    # 如果目标文件夹已存在，先删除
+    if os.path.exists(fine_tuning_g2pw_dir):
+        shutil.rmtree(fine_tuning_g2pw_dir)
+    # 复制整个文件夹
+    try:
+        shutil.copytree(source_g2pw_dir, fine_tuning_g2pw_dir)
+        print("G2PWModel复制到fine_tuning/text目录完成！")
+    except Exception as e:
+        print(f"复制G2PWModel到fine_tuning/text目录时出错: {str(e)}")
+        # 这里不终止程序，因为这是额外的复制操作
+    
     # 4. 下载并解压pretrained_models.zip到tts-studio/GPT_SoVITS/pretrained_models文件夹
     # 创建目标目录
     pretrained_models_dir = os.path.join(gpt_sovits_dir, "pretrained_models")
@@ -428,6 +457,70 @@ def download_tts_models():
     else:
         print("fake_neuro_V2模型下载成功！")
     
+    # 7. 下载BAAI/bge-m3模型到RAG-model文件夹
+    print("\n开始下载BAAI/bge-m3模型...")
+    
+    # 返回到原始目录
+    os.chdir(current_dir)
+    
+    # 创建RAG-model目录
+    rag_model_dir = os.path.join(current_dir, "RAG-model")
+    if not os.path.exists(rag_model_dir):
+        os.makedirs(rag_model_dir)
+        print(f"创建目录: {rag_model_dir}")
+    
+    print(f"下载BAAI/bge-m3模型到: {rag_model_dir}")
+    
+    # 使用ModelScope下载BAAI/bge-m3模型，带重试机制
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model BAAI/bge-m3 --local_dir ./RAG-model"):
+        print("BAAI/bge-m3模型下载失败")
+        # 不终止程序，继续执行其他任务
+    else:
+        print("BAAI/bge-m3模型下载成功！")
+    
+    # 8. 下载UVR5权重文件到fine_tuning/tools/uvr5/uvr5_weights目录
+    print("\n开始下载UVR5权重文件...")
+    
+    # 返回到原始目录
+    os.chdir(current_dir)
+    
+    # 创建fine_tuning/tools/uvr5/uvr5_weights目录结构
+    uvr5_weights_dir = os.path.join(current_dir, "fine_tuning", "tools", "uvr5", "uvr5_weights")
+    if not os.path.exists(uvr5_weights_dir):
+        os.makedirs(uvr5_weights_dir)
+        print(f"创建目录: {uvr5_weights_dir}")
+    
+    print(f"下载UVR5权重文件到: {uvr5_weights_dir}")
+    
+    # 使用ModelScope下载UVR5权重文件，带重试机制
+    if not download_with_retry(f"call conda activate my-neuro && modelscope download --model AI-ModelScope/uvr5_weights HP2_all_vocals.pth --local_dir {uvr5_weights_dir}"):
+        print("UVR5权重文件下载失败")
+        # 不终止程序，因为这是额外的模型
+    else:
+        print("UVR5权重文件下载成功！")
+    
+    # 9. 下载faster-whisper-medium模型到fine_tuning/tools/asr/models目录
+    print("\n开始下载faster-whisper-medium模型...")
+    
+    # 返回到原始目录
+    os.chdir(current_dir)
+    
+    # 创建fine_tuning/tools/asr/models目录结构
+    asr_models_dir = os.path.join(current_dir, "fine_tuning", "tools", "asr", "models")
+    faster_whisper_dir = os.path.join(asr_models_dir, "faster-whisper-medium")
+    if not os.path.exists(asr_models_dir):
+        os.makedirs(asr_models_dir)
+        print(f"创建目录: {asr_models_dir}")
+    
+    print(f"下载faster-whisper-medium模型到: {faster_whisper_dir}")
+    
+    # 使用ModelScope下载faster-whisper-medium模型，带重试机制
+    if not download_with_retry(f"call conda activate my-neuro && modelscope download --model pengzhendong/faster-whisper-medium --local_dir {faster_whisper_dir}"):
+        print("faster-whisper-medium模型下载失败")
+        # 不终止程序，因为这是额外的模型
+    else:
+        print("faster-whisper-medium模型下载成功！")
+    
     print("\n所有TTS模型下载操作完成！")
     return True
 
@@ -436,6 +529,10 @@ def main():
     
     # 下载并解压Live 2D模型
     download_live2d_model()
+    
+    # 下载VAD模型
+    download_vad_models()
+    
     # 部署conda环境
     setup_conda_environment()
     install_dependencies()
@@ -451,5 +548,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
