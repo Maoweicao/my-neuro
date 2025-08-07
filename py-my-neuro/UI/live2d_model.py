@@ -4,6 +4,7 @@ Live2D模型控制器 - 负责显示和控制Live2D模型
 
 import os
 import sys
+import time
 import win32gui
 import win32con
 import OpenGL.GL as gl
@@ -105,6 +106,14 @@ class Live2DModel(QOpenGLWidget):
 
         # 显示系统缩放比例
         self.systemScale = QGuiApplication.primaryScreen().devicePixelRatio()
+
+        # 旋转相关状态
+        self.is_rotating = False
+        self.rotate_start_time = 0
+        self.rotate_duration = 1.8  # 旋转持续时间(秒)
+        self.rotation_power = 1.8  # 控制速度曲线的指数
+        self.rotate_start_angle = 0  # 旋转开始时的角度
+        self.rotate_degrees = 0 # 旋转角度
 
         # Live2D模型相关
         self.model = None  # 存储Live2D模型实例
@@ -329,6 +338,28 @@ class Live2DModel(QOpenGLWidget):
             if self.model:
                 # 更新模型参数(物理、动作等)
                 self.model.Update()
+
+                # 丝滑小旋转
+                if self.is_rotating:
+                    elapsed = time.time() - self.rotate_start_time
+                    progress = min(elapsed / self.rotate_duration, 1.0)
+                    
+                    # 应用简单的平滑函数 (确保始终增加)
+                    smoothed_progress = self.get_smooth_progress(progress)
+                    
+                    # 计算当前角度(从起始角度顺时针增加)
+                    current_angle = self.rotate_start_angle + 360 * smoothed_progress
+                    
+                    # 应用旋转 (确保角度持续增加，避免方向变化)
+                    self.rotate_degrees = current_angle
+                    self.model.Rotate(current_angle)
+                    
+                    # 检查动画是否完成
+                    if progress >= 1.0:
+                        self.is_rotating = False
+                        # 确保最终角度为完整360°
+                        self.rotate_degrees = self.rotate_start_angle + 360
+                        self.model.Rotate(self.rotate_degrees)
 
                 # 如果模型动作结束，根据当前状态触发不同动作
                 if self.model.IsMotionFinished():
@@ -634,6 +665,17 @@ class Live2DModel(QOpenGLWidget):
     def __del__(self):
         """析构函数"""
         self.stop_lip_sync()
+
+    def start_spin(self):
+        """开始旋转"""
+        self.is_rotating = True
+        self.rotate_start_time = time.time()
+        self.rotate_start_angle = self.rotate_degrees
+
+    def get_smooth_progress(self, progress):
+        """简单的平滑函数 - 确保始终顺时针"""
+        # 二次缓出函数：开始快，结束慢 (确保始终顺时针)
+        return 1 - (1 - progress) ** self.rotation_power
 
     def set_talking(self, is_talking):
         """设置说话状态
