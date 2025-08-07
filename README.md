@@ -135,12 +135,13 @@ RAG.bat
 ```
 
 
-3.等待上面服务都输出IP后，再点击此链接下载zip文件：
+3.等待上面服务都输出IP后，再打开项目里面的live-2d文件夹：
 
-https://github.com/morettt/my-neuro/releases/download/v4.6.4/live-2d.zip
+<img width="1018" height="1023" alt="image" src="https://github.com/user-attachments/assets/8b71473c-1d0e-4c42-8a27-8e8d5e5baaaa" />
 
 
-下载后解压是这样的，双击打开这个 肥牛.exe 文件
+
+进去后，双击打开这个 肥牛.exe 文件
 
 ![image](https://github.com/user-attachments/assets/634240ac-da9a-4ada-9a1e-b92762e385f0)
 
