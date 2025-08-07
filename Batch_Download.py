@@ -5,10 +5,106 @@ import zipfile
 import time
 import modelscope
 
+import requests
+import sys
+
 # 设置最大重试次数
 MAX_RETRY = 3
 # 重试等待时间（秒）
 RETRY_WAIT = 5
+
+
+# 添加进度条显示函数
+def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None):
+    """显示下载进度条"""
+    bar_length = 40
+    filled_length = int(bar_length * percent / 100)
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+
+    extra_info = ""
+    if mb_downloaded is not None and mb_total is not None:
+        extra_info = f" ({mb_downloaded:.2f}MB/{mb_total:.2f}MB)"
+
+    sys.stdout.write(f"\r{message}: |{bar}| {percent}% 完成{extra_info}")
+    sys.stdout.flush()
+
+
+# 添加下载文件函数
+def download_file(url, file_name=None):
+    """下载文件并显示进度条"""
+    if file_name is None:
+        file_name = url.split('/')[-1]
+
+    print(f"正在下载: {file_name}...")
+    response = requests.get(url, stream=True)
+
+    total_size = int(response.headers.get('content-length', 0))
+    downloaded_size = 0
+
+    with open(file_name, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                file.write(chunk)
+                downloaded_size += len(chunk)
+
+                percent = int(downloaded_size * 100 / total_size) if total_size > 0 else 0
+                mb_downloaded = downloaded_size / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+
+                display_progress_bar(percent, "下载进度", mb_downloaded=mb_downloaded, mb_total=mb_total)
+
+    print("\n下载完成!")
+    return file_name
+
+
+# 添加解压函数
+def extract_zip(zip_file, target_folder):
+    """解压ZIP文件到指定文件夹"""
+    print(f"正在解压 {zip_file} 到 {target_folder}...")
+
+    if not os.path.exists(target_folder):
+        os.makedirs(target_folder)
+        print(f"已创建目标文件夹: {target_folder}")
+
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+            zip_ref.extractall(target_folder)
+        print(f"解压完成！文件已解压到 '{target_folder}' 文件夹")
+        return True
+    except zipfile.BadZipFile:
+        print("错误: 下载的文件不是有效的ZIP格式")
+        return False
+    except Exception as e:
+        print(f"解压过程中出错: {e}")
+        return False
+
+
+# 添加Live2D下载函数（在现有代码的最开始部分添加）
+def download_live2d_model():
+    """下载并解压Live 2D模型到live-2d文件夹"""
+    print("\n========== 下载Live 2D模型 ==========")
+
+    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.4/live-2d.zip"
+    file_name = url.split('/')[-1]
+    target_folder = "live-2d"
+
+    # 下载文件
+    downloaded_file = download_file(url, file_name)
+
+    # 解压文件
+    extract_success = extract_zip(downloaded_file, target_folder)
+
+    # 清理：删除ZIP文件
+    if extract_success and os.path.exists(downloaded_file):
+        os.remove(downloaded_file)
+        print(f"原ZIP文件 {downloaded_file} 已删除")
+
+    return extract_success
+
+
+print("开始下载Live2D模型...")
+download_live2d_model()
+
 
 # 定义下载函数，包含重试机制
 def download_with_retry(command, max_retry=MAX_RETRY, wait_time=RETRY_WAIT):
