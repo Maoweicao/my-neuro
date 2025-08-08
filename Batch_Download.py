@@ -84,7 +84,7 @@ def download_live2d_model():
     """下载并解压Live 2D模型到live-2d文件夹"""
     print("\n========== 下载Live 2D模型 ==========")
 
-    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.4/live-2d.zip"
+    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.5/live-2d.zip"
     file_name = url.split('/')[-1]
     target_folder = "live-2d"
 
@@ -400,3 +400,4 @@ else:
     print("faster-whisper-medium模型下载成功！")
 
 print("\n所有下载操作全部完成！")
+
