@@ -15,16 +15,19 @@ RETRY_WAIT = 5
 
 
 # 添加进度条显示函数
-def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None):
-    """显示下载进度条"""
+def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None, current=None, total=None):
+    """显示通用进度条"""
     bar_length = 40
     filled_length = int(bar_length * percent / 100)
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-
+    
+    # 添加下载信息（如果提供）
     extra_info = ""
     if mb_downloaded is not None and mb_total is not None:
         extra_info = f" ({mb_downloaded:.2f}MB/{mb_total:.2f}MB)"
-
+    elif current is not None and total is not None:
+        extra_info = f" ({current}/{total}个文件)"
+    
     sys.stdout.write(f"\r{message}: |{bar}| {percent}% 完成{extra_info}")
     sys.stdout.flush()
 
@@ -57,20 +60,69 @@ def download_file(url, file_name=None):
     return file_name
 
 
-# 添加解压函数
-def extract_zip(zip_file, target_folder):
-    """解压ZIP文件到指定文件夹"""
-    print(f"正在解压 {zip_file} 到 {target_folder}...")
 
+def extract_zip(zip_file, target_folder):
+    """解压ZIP文件到指定文件夹并显示进度"""
+    print(f"正在解压 {zip_file} 到 {target_folder}...")
+    
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
         print(f"已创建目标文件夹: {target_folder}")
-
+    
     try:
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            zip_ref.extractall(target_folder)
-        print(f"解压完成！文件已解压到 '{target_folder}' 文件夹")
+            # 获取zip文件中的所有文件列表
+            file_list = zip_ref.namelist()
+            total_files = len(file_list)
+            
+            # 逐个解压文件并显示进度
+            for index, file in enumerate(file_list):
+                # 修复中文文件名编码问题
+                try:
+                    # 尝试使用CP437解码然后使用GBK/GB2312重新编码
+                    correct_filename = file.encode('cp437').decode('gbk')
+                    # 创建目标路径
+                    target_path = os.path.join(target_folder, correct_filename)
+                    
+                    # 创建必要的目录
+                    if os.path.dirname(target_path) and not os.path.exists(os.path.dirname(target_path)):
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    
+                    # 提取文件到目标路径
+                    data = zip_ref.read(file)
+                    # 如果是目录项则跳过写入文件
+                    if not correct_filename.endswith('/'):
+                        with open(target_path, 'wb') as f:
+                            f.write(data)
+                except Exception as e:
+                    # 如果编码转换失败，直接使用原始路径
+                    # 先提取到临时位置
+                    zip_ref.extract(file)
+                    
+                    # 如果解压成功，移动文件到目标文件夹
+                    if os.path.exists(file):
+                        target_path = os.path.join(target_folder, file)
+                        # 确保目标目录存在
+                        if os.path.dirname(target_path) and not os.path.exists(os.path.dirname(target_path)):
+                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        # 移动文件
+                        shutil.move(file, target_path)
+                
+                # 计算解压百分比
+                percent = int((index + 1) * 100 / total_files)
+                
+                # 显示进度条
+                display_progress_bar(
+                    percent, 
+                    "解压进度", 
+                    current=index+1, 
+                    total=total_files
+                )
+        
+        print("\n解压完成!")
+        print(f"所有文件已解压到 '{target_folder}' 文件夹")
         return True
+    
     except zipfile.BadZipFile:
         print("错误: 下载的文件不是有效的ZIP格式")
         return False
@@ -400,4 +452,5 @@ else:
     print("faster-whisper-medium模型下载成功！")
 
 print("\n所有下载操作全部完成！")
+
 
