@@ -1,4 +1,4 @@
-# 从零开始的大模型训练
+# 从零训练大语言模型
 
 源码来源：https://github.com/karpathy/nanoGPT
 
