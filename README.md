@@ -170,7 +170,7 @@ python diagnostic_tool.py
 ## 定制tts模型（克隆音色）
 
 该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
-当前模块有bug 等待解决！！
+当前模块有bug 等待提交者解决
 
 ## 定制AI
 
