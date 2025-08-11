@@ -28,7 +28,7 @@ class KnowledgeBaseHandler(FileSystemEventHandler):
             reload_knowledge_base()
 
 
-def load_knowledge_base(file_path="记忆库.txt"):
+def load_knowledge_base(file_path="./live-2d/记忆库.txt"):
     """加载知识库文件 - 使用连续横线分割段落"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -98,7 +98,7 @@ async def startup_event():
     # 启动文件监控
     event_handler = KnowledgeBaseHandler()
     observer = Observer()
-    observer.schedule(event_handler, ".", recursive=False)
+    observer.schedule(event_handler, "./live-2d", recursive=False)
     observer.start()
     print("文件监控启动完成")
 
