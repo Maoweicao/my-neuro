@@ -169,8 +169,53 @@ python diagnostic_tool.py
 
 ## 定制tts模型（克隆音色）
 
-该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
-当前模块有bug 等待提交者解决
+该模块由@jdnoeg基于GPT-SoVITS项目制作
+
+注：本模块需要在完成虚拟环境配置后进行
+
+该模块可以使用一段音频一键克隆你想要的角色的音色
+
+音频要求：长度在10min~30min之间，mp3格式，可以有背景音乐，但是只能有一个说话人
+
+硬件要求：显存至少6G的显卡
+
+1.把你的音频文件放在fine_tuning/input文件夹下，改名为"audio.mp3"，如图
+
+<img width="1708" height="954" alt="image" src="https://github.com/user-attachments/assets/bc420b00-d3cc-45c1-894a-b8e802d3ba83" />
+
+
+第一次用的时候这个位置会有一个占位符.txt，建议删掉，不删也没关系，但是会有些不影响进程的报错
+
+2.这一步需要科学上网运行
+
+双击运行 一键克隆音色.bat ，在弹出的窗口中输入你的音频使用的语言以及你的tts模型的名称（自己起一个，示例使用"1"），如图
+
+<img width="1734" height="926" alt="image" src="https://github.com/user-attachments/assets/bef6b726-1980-444c-b8ed-e70497122f5b" />
+
+
+键盘上随便按一个键就可以继续
+
+在脚本运行期间不要关闭窗口！！！
+
+3.脚本运行完成后，修改配置以使用你训练好的模型
+
+打开run_server.py进行编辑（有IDE的可以用，没有的直接右键记事本打开）
+
+需要修改的地方一共有如图所示的四处：
+
+<img width="2460" height="903" alt="image" src="https://github.com/user-attachments/assets/1662ed3d-e2a9-4753-b1ed-7513ae6d93ee" />
+
+
+红色框的地方全部改成你在步骤2中输入的模型名称，黄色框的地方改成你输入的音频的语言，如下图
+
+<img width="2277" height="942" alt="image" src="https://github.com/user-attachments/assets/7e28f1fe-e3af-4c24-acae-3ea11f8aed04" />
+
+
+修改完成后一定不要忘记保存！！！
+
+关掉文件，双击Game-starts.bat运行服务端，这时候tts使用的就是你训练好的模型了
+
+想改回默认的模型只需要把你修改过的内容再改回原来的样子就行
 
 ## 定制AI
 
