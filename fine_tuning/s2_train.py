@@ -6,7 +6,7 @@ import os
 import utils
 
 hps = utils.get_hparams(stage=2)
-os.environ["CUDA_VISIBLE_DEVICES"] = hps.train.gpu_numbers.replace("-", ",")
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import logging
 
 import torch
@@ -47,7 +47,12 @@ torch.set_float32_matmul_precision("medium")  # 最低精度但最快（也就�
 # from config import pretrained_s2G,pretrained_s2D
 global_step = 0
 
-device = "cpu"  # cuda以外的设备，等mps优化后加入
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def main():
+    # 直接调用，禁用分布式训练
+    run(rank=0, n_gpus=1, hps=hps)
 
 
 def main():
@@ -70,93 +75,40 @@ def main():
 
 def run(rank, n_gpus, hps):
     global global_step
-    if rank == 0:
-        logger = utils.get_logger(hps.data.exp_dir)
-        logger.info(hps)
-        # utils.check_git_hash(hps.s2_ckpt_dir)
-        writer = SummaryWriter(log_dir=hps.s2_ckpt_dir)
-        writer_eval = SummaryWriter(log_dir=os.path.join(hps.s2_ckpt_dir, "eval"))
+    logger = utils.get_logger(hps.data.exp_dir)
+    logger.info(hps)
+    writer = SummaryWriter(log_dir=hps.s2_ckpt_dir)
+    writer_eval = SummaryWriter(log_dir=os.path.join(hps.s2_ckpt_dir, "eval"))
 
-    dist.init_process_group(
-        backend="gloo" if os.name == "nt" or not torch.cuda.is_available() else "nccl",
-        init_method="env://?use_libuv=False",
-        world_size=n_gpus,
-        rank=rank,
-    )
     torch.manual_seed(hps.train.seed)
     if torch.cuda.is_available():
         torch.cuda.set_device(rank)
 
+    # 数据加载（移除 DistributedBucketSampler）
     train_dataset = TextAudioSpeakerLoader(hps.data, version=hps.model.version)
-    train_sampler = DistributedBucketSampler(
-        train_dataset,
-        hps.train.batch_size,
-        [
-            32,
-            300,
-            400,
-            500,
-            600,
-            700,
-            800,
-            900,
-            1000,
-            1100,
-            1200,
-            1300,
-            1400,
-            1500,
-            1600,
-            1700,
-            1800,
-            1900,
-        ],
-        num_replicas=n_gpus,
-        rank=rank,
-        shuffle=True,
-    )
     collate_fn = TextAudioSpeakerCollate(version=hps.model.version)
     train_loader = DataLoader(
         train_dataset,
+        batch_size=hps.train.batch_size,
+        shuffle=True,
         num_workers=5,
-        shuffle=False,
         pin_memory=True,
         collate_fn=collate_fn,
-        batch_sampler=train_sampler,
         persistent_workers=True,
         prefetch_factor=4,
     )
-    # if rank == 0:
-    #     eval_dataset = TextAudioSpeakerLoader(hps.data.validation_files, hps.data, val=True)
-    #     eval_loader = DataLoader(eval_dataset, num_workers=0, shuffle=False,
-    #                              batch_size=1, pin_memory=True,
-    #                              drop_last=False, collate_fn=collate_fn)
 
-    net_g = (
-        SynthesizerTrn(
-            hps.data.filter_length // 2 + 1,
-            hps.train.segment_size // hps.data.hop_length,
-            n_speakers=hps.data.n_speakers,
-            **hps.model,
-        ).cuda(rank)
-        if torch.cuda.is_available()
-        else SynthesizerTrn(
-            hps.data.filter_length // 2 + 1,
-            hps.train.segment_size // hps.data.hop_length,
-            n_speakers=hps.data.n_speakers,
-            **hps.model,
-        ).to(device)
-    )
+    # 模型初始化（移除 DDP）
+    net_g = SynthesizerTrn(
+        hps.data.filter_length // 2 + 1,
+        hps.train.segment_size // hps.data.hop_length,
+        n_speakers=hps.data.n_speakers,
+        **hps.model,
+    ).to(device)
 
-    net_d = (
-        MultiPeriodDiscriminator(hps.model.use_spectral_norm, version=hps.model.version).cuda(rank)
-        if torch.cuda.is_available()
-        else MultiPeriodDiscriminator(hps.model.use_spectral_norm, version=hps.model.version).to(device)
-    )
-    for name, param in net_g.named_parameters():
-        if not param.requires_grad:
-            print(name, "not requires_grad")
+    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm, version=hps.model.version).to(device)
 
+    # 优化器
     te_p = list(map(id, net_g.enc_p.text_embedding.parameters()))
     et_p = list(map(id, net_g.enc_p.encoder_text.parameters()))
     mrte_p = list(map(id, net_g.enc_p.mrte.parameters()))
@@ -165,26 +117,12 @@ def run(rank, n_gpus, hps):
         net_g.parameters(),
     )
 
-    # te_p=net_g.enc_p.text_embedding.parameters()
-    # et_p=net_g.enc_p.encoder_text.parameters()
-    # mrte_p=net_g.enc_p.mrte.parameters()
-
     optim_g = torch.optim.AdamW(
-        # filter(lambda p: p.requires_grad, net_g.parameters()),###默认所有层lr一致
         [
             {"params": base_params, "lr": hps.train.learning_rate},
-            {
-                "params": net_g.enc_p.text_embedding.parameters(),
-                "lr": hps.train.learning_rate * hps.train.text_low_lr_rate,
-            },
-            {
-                "params": net_g.enc_p.encoder_text.parameters(),
-                "lr": hps.train.learning_rate * hps.train.text_low_lr_rate,
-            },
-            {
-                "params": net_g.enc_p.mrte.parameters(),
-                "lr": hps.train.learning_rate * hps.train.text_low_lr_rate,
-            },
+            {"params": net_g.enc_p.text_embedding.parameters(), "lr": hps.train.learning_rate * hps.train.text_low_lr_rate},
+            {"params": net_g.enc_p.encoder_text.parameters(), "lr": hps.train.learning_rate * hps.train.text_low_lr_rate},
+            {"params": net_g.enc_p.mrte.parameters(), "lr": hps.train.learning_rate * hps.train.text_low_lr_rate},
         ],
         hps.train.learning_rate,
         betas=hps.train.betas,
@@ -196,22 +134,15 @@ def run(rank, n_gpus, hps):
         betas=hps.train.betas,
         eps=hps.train.eps,
     )
-    if torch.cuda.is_available():
-        net_g = DDP(net_g, device_ids=[rank], find_unused_parameters=True)
-        net_d = DDP(net_d, device_ids=[rank], find_unused_parameters=True)
-    else:
-        net_g = net_g.to(device)
-        net_d = net_d.to(device)
 
-    try:  # 如果能加载自动resume
+    # 加载检查点（移除 DDP 相关逻辑）
+    try:
         _, _, _, epoch_str = utils.load_checkpoint(
             utils.latest_checkpoint_path("%s/logs_s2_%s" % (hps.data.exp_dir, hps.model.version), "D_*.pth"),
             net_d,
             optim_d,
-        )  # D多半加载没事
-        if rank == 0:
-            logger.info("loaded D")
-        # _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g,load_opt=0)
+        )
+        logger.info("loaded D")
         _, _, _, epoch_str = utils.load_checkpoint(
             utils.latest_checkpoint_path("%s/logs_s2_%s" % (hps.data.exp_dir, hps.model.version), "G_*.pth"),
             net_g,
@@ -219,100 +150,43 @@ def run(rank, n_gpus, hps):
         )
         epoch_str += 1
         global_step = (epoch_str - 1) * len(train_loader)
-        # epoch_str = 1
-        # global_step = 0
-    except:  # 如果首次不能加载，加载pretrain
-        # traceback.print_exc()
+    except:
         epoch_str = 1
         global_step = 0
-        if (
-            hps.train.pretrained_s2G != ""
-            and hps.train.pretrained_s2G != None
-            and os.path.exists(hps.train.pretrained_s2G)
-        ):
-            if rank == 0:
-                logger.info("loaded pretrained %s" % hps.train.pretrained_s2G)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2G,
-                net_g.module.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                )
-                if torch.cuda.is_available()
-                else net_g.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                ),
-            )  ##测试不加载优化器
-        if (
-            hps.train.pretrained_s2D != ""
-            and hps.train.pretrained_s2D != None
-            and os.path.exists(hps.train.pretrained_s2D)
-        ):
-            if rank == 0:
-                logger.info("loaded pretrained %s" % hps.train.pretrained_s2D)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2D,
-                net_d.module.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"], strict=False
-                )
-                if torch.cuda.is_available()
-                else net_d.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"],
-                ),
-            )
+        if hps.train.pretrained_s2G and os.path.exists(hps.train.pretrained_s2G):
+            logger.info("loaded pretrained %s" % hps.train.pretrained_s2G)
+            net_g.load_state_dict(torch.load(hps.train.pretrained_s2G, map_location="cpu")["weight"], strict=False)
+        if hps.train.pretrained_s2D and os.path.exists(hps.train.pretrained_s2D):
+            logger.info("loaded pretrained %s" % hps.train.pretrained_s2D)
+            net_d.load_state_dict(torch.load(hps.train.pretrained_s2D, map_location="cpu")["weight"], strict=False)
 
-    # scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
-    # scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
-
-    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
-        optim_g,
-        gamma=hps.train.lr_decay,
-        last_epoch=-1,
-    )
-    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(
-        optim_d,
-        gamma=hps.train.lr_decay,
-        last_epoch=-1,
-    )
-    for _ in range(epoch_str):
+    # 学习率调度器
+    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay)
+    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay)
+    for _ in range(epoch_str - 1):
         scheduler_g.step()
         scheduler_d.step()
 
     scaler = GradScaler(enabled=hps.train.fp16_run)
 
-    print("start training from epoch %s" % epoch_str)
+    # 训练循环
     for epoch in range(epoch_str, hps.train.epochs + 1):
-        if rank == 0:
-            train_and_evaluate(
-                rank,
-                epoch,
-                hps,
-                [net_g, net_d],
-                [optim_g, optim_d],
-                [scheduler_g, scheduler_d],
-                scaler,
-                # [train_loader, eval_loader], logger, [writer, writer_eval])
-                [train_loader, None],
-                logger,
-                [writer, writer_eval],
-            )
-        else:
-            train_and_evaluate(
-                rank,
-                epoch,
-                hps,
-                [net_g, net_d],
-                [optim_g, optim_d],
-                [scheduler_g, scheduler_d],
-                scaler,
-                [train_loader, None],
-                None,
-                None,
-            )
+        train_and_evaluate(
+            rank,
+            epoch,
+            hps,
+            [net_g, net_d],
+            [optim_g, optim_d],
+            [scheduler_g, scheduler_d],
+            scaler,
+            [train_loader, None],
+            logger,
+            [writer, writer_eval],
+        )
         scheduler_g.step()
         scheduler_d.step()
-    print("training done")
+
+    logger.info("Training done.")
 
 
 def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loaders, logger, writers):
@@ -323,7 +197,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     if writers is not None:
         writer, writer_eval = writers
 
-    train_loader.batch_sampler.set_epoch(epoch)
+    # train_loader.batch_sampler.set_epoch(epoch)
     global global_step
 
     net_g.train()
