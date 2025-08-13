@@ -30,7 +30,7 @@ servers = [
     },
     {
         "name": "TTS服务端",
-        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
+        "command": f"call conda activate my-neuro && cd tts-studio && python move_nltk.py && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
         "log_file": "logs/tts.log"
     },
     {
@@ -154,3 +154,4 @@ def cleanup(processes):
 if __name__ == "__main__":
     print("===== 服务端启动脚本 =====")
     start_servers()
+
