@@ -248,7 +248,7 @@ python diagnostic_tool.py
 
 QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
-- [@jdnoeg]([https://github.com/jonnytri53](https://github.com/jdnoeg))
+- [@jdnoeg](https://github.com/jdnoeg)
 
 感谢以下用户的资金赞助：
 
