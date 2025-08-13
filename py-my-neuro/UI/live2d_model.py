@@ -5,6 +5,7 @@ Live2D模型控制器 - 负责显示和控制Live2D模型
 import os
 import sys
 import time
+import random
 import win32gui
 import win32con
 import OpenGL.GL as gl
@@ -121,6 +122,11 @@ class Live2DModel(QOpenGLWidget):
         self.is_listening = False  # 是否正在聆听
         self.current_expression = ""  # 当前表情
 
+        # Live2D参数相关
+        self.current_values = {} # 存储参数当前值的字典 {param_name: value}
+        self.target_values = {}  # 存储参数目标值的字典 {param_name: value}
+        self.param_limits = {}   # 存储参数限制范围的字典 {param_name: (min_val, max_val)}
+
         # 初始化WavHandler用于嘴型同步
         self.lip_sync_intensity = 3.0  # 嘴型动作强度系数
 
@@ -205,6 +211,8 @@ class Live2DModel(QOpenGLWidget):
             if self.model:
                 self.model.SetScale(self.scale)
 
+            self._init_parameter()
+
             # 启动高帧率定时器
             self.startTimer(int(1000 / 60))  # 启动60FPS定时器
 
@@ -229,6 +237,16 @@ class Live2DModel(QOpenGLWidget):
             logger.error(f"初始化Live2D模型失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
+
+    def _init_parameter(self):
+        """初始化模型参数"""
+        for i in range(self.model.GetParameterCount()):
+            parameter = self.model.GetParameter(i)
+            if parameter.id in ('ParamEyeLOpen', 'ParamEyeLSmile', 'ParamEyeROpen', 'ParamEyeRSmile', 'ParamBrowLY', 'ParamBrowRY', 'ParamBrowLX', 'ParamBrowRX', 'ParamBrowLAngle', 'ParamBrowRAngle', 'ParamBrowLForm', 'ParamBrowRForm', 'ParamMouthForm', 'ParamMouthOpenY', 'ParamCheek', 'ParamArmLA', 'ParamArmRA', 'ParamArmLB', 'ParamArmRB', 'ParamLeg'):
+                continue
+            self.current_values[parameter.id] = parameter.value
+            self.param_limits[parameter.id] = (parameter.min, parameter.max)
+        self.target_values = self.current_values.copy()
 
     def setup_motion_list(self):
         """初始化动作列表 - 优先TapBody，备选Tap"""
@@ -397,9 +415,11 @@ class Live2DModel(QOpenGLWidget):
             # 获取鼠标相对于窗口的位置
             local_x, local_y = QCursor.pos().x() - self.x(), QCursor.pos().y() - self.y()
 
-            # 如果不是拖拽模式，将鼠标位置传递给模型
-            if not self.drag_mode and self.model:
-                self.model.Drag(local_x, local_y)
+            # 让模型看向鼠标的逻辑
+            # if not self.drag_mode and self.model:
+            #     self.model.Drag(local_x, local_y)
+            if self.model:
+                self.update_all_parameters(8, 0.6)
 
             # 检查鼠标是否在模型区域内 - 修改方法名以避免与属性冲突
             in_model_area = self.check_in_model_area(local_x, local_y)
@@ -676,6 +696,127 @@ class Live2DModel(QOpenGLWidget):
         """简单的平滑函数 - 确保始终顺时针"""
         # 二次缓出函数：开始快，结束慢 (确保始终顺时针)
         return 1 - (1 - progress) ** self.rotation_power
+    
+    def set_random_target(self, param_name, intensity):
+        """
+        为指定参数设置随机目标值
+        
+        参数:
+        param_name: 模型参数名
+        intensity: 随机强度 [0, 1]，0=无变化，1=完全随机范围
+        """
+        min_limit, max_limit = self.param_limits[param_name]
+        # 计算参数范围
+        param_range = max_limit - min_limit
+        # 计算实际随机范围
+        effective_range = param_range * intensity
+        
+        # 计算随机范围的中心点（保持在中点附近）
+        center = (min_limit + max_limit) / 2
+        rand_min = max(min_limit, center - effective_range / 2)
+        rand_max = min(max_limit, center + effective_range / 2)
+        
+        # 生成目标值并保存
+        self.target_values[param_name] = random.uniform(rand_min, rand_max)
+
+    def update_parameter(self, param_name, speed_factor):
+        """
+        更新参数值使其平滑接近目标值
+        
+        参数:
+        param_name: 要更新的参数名
+        speed_factor: 接近速度因子 [0.01, 0.2]，值越大接近越快
+        
+        返回:
+        更新后的参数值
+        """
+        current = self.current_values[param_name]
+        target = self.target_values[param_name]
+        min_limit, max_limit = self.param_limits.get(param_name, (-30, 30))
+
+        # 计算参数范围
+        param_range = max_limit - min_limit
+
+        # 计算基础变化率（基于参数范围）
+        base_rate = param_range * 0.0005  # 参数范围的0.05%
+        # 根据参数范围设置平滑度系数
+        # 范围越小，平滑度越高（变化越慢）
+        if param_range <= 2:  # 小范围参数（如0-1）
+            smoothness = 0.1
+        elif param_range <= 10:  # 中等范围参数
+            smoothness = 0.3
+        else:  # 大范围参数
+            smoothness = 0.5
+        
+        # 计算当前与目标的距离
+        distance = target - current
+        abs_distance = abs(distance)
+
+        # 使用相对阈值（参数范围的1%）
+        relative_threshold = param_range * 0.01
+        
+        # 如果已经非常接近目标，直接设为目标值
+        if abs_distance < relative_threshold:
+            new_value = target
+        else:
+            # 计算缓动因子：使用线性变化确保速度一致
+            # 这样在目标切换时不会有速度突变
+            t = min(1.0, abs_distance / param_range)
+            ease_factor = 1.0  # 使用线性变化
+            
+            # 计算实际变化量
+            change = distance * ease_factor * smoothness * speed_factor
+            
+            # 确保变化量不超过基础变化率
+            max_change = base_rate * speed_factor
+            if abs(change) > max_change:
+                change = max_change if change > 0 else -max_change
+            
+            new_value = current + change
+        
+        # 确保值在允许范围内
+        new_value = max(min(new_value, max_limit), min_limit)
+        
+        # 更新并返回新值
+        self.current_values[param_name] = new_value
+        return new_value
+    
+    def update_all_parameters(self, speed_factor, intensity):
+        """
+        更新所有参数的值
+        """
+        # 更新所有参数
+        for param_name in self.current_values:
+            new_value = self.update_parameter(param_name, speed_factor)
+            self.model.SetParameterValue(param_name, new_value)
+
+         # 检查哪些参数需要新目标值
+        need_new_target = False
+        for param_name in self.current_values:
+            current = self.current_values[param_name]
+            target = self.target_values[param_name]
+            min_limit, max_limit = self.param_limits[param_name]
+            param_range = max_limit - min_limit
+            
+            # 使用相对阈值（参数范围的1%）
+            threshold = param_range * 0.01
+            
+            if abs(current - target) < threshold:
+                # 设置新目标前，先确保参数已接近当前目标
+                self.current_values[param_name] = target
+                need_new_target = True
+        
+        # 为需要新目标的参数设置随机目标
+        if need_new_target:
+            for param_name in self.current_values:
+                current = self.current_values[param_name]
+                target = self.target_values[param_name]
+                min_limit, max_limit = self.param_limits[param_name]
+                param_range = max_limit - min_limit
+                threshold = param_range * 0.01
+                
+                if abs(current - target) < threshold:
+                    self.set_random_target(param_name, intensity)
 
     def set_talking(self, is_talking):
         """设置说话状态
