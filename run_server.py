@@ -30,7 +30,7 @@ servers = [
     },
     {
         "name": "TTS服务端",
-        "command": f"call conda activate my-neuro && cd tts-studio && python move_nltk.py && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
+        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
         "log_file": "logs/tts.log"
     },
     {
@@ -65,7 +65,7 @@ def tail_file(log_path, name):
     '''实时读取日志文件内容并输出到终端'''
     while True:
         try:
-            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(log_path, 'r', encoding='gbk', errors='ignore') as f:
                 f.seek(0, 2)  # 移到文件末尾
                 while True:
                     line = f.readline()
@@ -97,7 +97,7 @@ def start_servers():
 
         try:
             # 打开日志文件(追加模式)
-            with open(log_path, 'a', encoding='utf-8') as log_file:
+            with open(log_path, 'a', encoding='gbk') as log_file:
                 # 启动进程，重定向输出到日志文件
                 process = subprocess.Popen(
                     server["command"],
@@ -154,4 +154,3 @@ def cleanup(processes):
 if __name__ == "__main__":
     print("===== 服务端启动脚本 =====")
     start_servers()
-
