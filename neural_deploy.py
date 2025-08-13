@@ -215,7 +215,7 @@ def install_dependencies():
     
     # 安装pytorch
     print("\n========== 安装PyTorch (CUDA 11.8) ==========")
-    run_in_conda_env("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121")
+    run_in_conda_env("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128")
 
 def download_live2d_model():
     """下载并解压Live 2D模型"""
@@ -521,6 +521,26 @@ def download_tts_models():
     else:
         print("faster-whisper-medium模型下载成功！")
     
+    # 10. 下载nltk_data到tts-studio目录
+    print("\n开始下载nltk_data...")
+    
+    # 返回到原始目录
+    os.chdir(current_dir)
+    
+    # 确保tts-studio目录存在
+    if not os.path.exists(tts_studio_dir):
+        os.makedirs(tts_studio_dir)
+        print(f"创建目录: {tts_studio_dir}")
+    
+    print(f"下载nltk_data到: {tts_studio_dir}")
+    
+    # 使用ModelScope下载nltk_data，带重试机制
+    if not download_with_retry("call conda activate my-neuro && modelscope download --model morelle/nltk_data --local_dir ./tts-studio"):
+        print("nltk_data下载失败")
+        # 不终止程序，因为这是额外的数据
+    else:
+        print("nltk_data下载成功！")
+    
     print("\n所有TTS模型下载操作完成！")
     return True
 
@@ -548,8 +568,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
