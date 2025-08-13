@@ -451,9 +451,24 @@ if not download_with_retry(f"modelscope download --model pengzhendong/faster-whi
 else:
     print("faster-whisper-medium模型下载成功！")
 
+# 10. 下载nltk_data到tts-studio目录
+print("\n开始下载nltk_data...")
+
+# 返回到原始目录
+os.chdir(current_dir)
+
+# 确保tts-studio目录存在
+if not os.path.exists(tts_studio_dir):
+    os.makedirs(tts_studio_dir)
+    print(f"创建目录: {tts_studio_dir}")
+
+print(f"下载nltk_data到: {tts_studio_dir}")
+
+# 使用ModelScope下载nltk_data，带重试机制
+if not download_with_retry("modelscope download --model morelle/nltk_data --local_dir ./tts-studio"):
+    print("nltk_data下载失败")
+    # 不终止程序，因为这是额外的数据
+else:
+    print("nltk_data下载成功！")
+
 print("\n所有下载操作全部完成！")
-
-
-
-
-
