@@ -5,4 +5,4 @@ title 启动所有API服务
 cd %~dp0
 
 echo 正在启动API服务...
-start cmd /k "call conda activate my-neuro && python run_server.py"
+start cmd /k "call conda activate my-neuro && python run_server.py -a '012'"
