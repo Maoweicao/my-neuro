@@ -41,10 +41,10 @@ English Documentation: [English Version](./README_English.md)
 - [ ] 超吊的人机体验(类似真人交互设计，敬请期待)
 - [x] 动作表情：根据对话内容展示不同的表情与动作
 - [x] 集成视觉能力，支持图像识别，并通过语言意图判断何时启动视觉功能
-- [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
+- [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目（此功能由- [@jdnoeg](https://github.com/jdnoeg)）开发
 
 ### 扩展功能
-- [ ] 桌面控制：支持语音控制打开软件等操作
+- [x] 桌面控制：支持语音控制打开软件等操作
 - [x] AI唱歌（功能由： [@jonnytri53](https://github.com/jonnytri53) 资金赞助开发，特此感谢）
 - [ ] 国外直播平台的接入
 - [x] 直播功能：可在哔哩哔哩平台直播
@@ -169,7 +169,7 @@ python diagnostic_tool.py
 
 ## 定制tts模型（克隆音色）
 
-该模块由@jdnoeg基于GPT-SoVITS项目制作
+该模块由- [@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
 
 注：本模块需要在完成虚拟环境配置后进行
 
@@ -248,7 +248,6 @@ python diagnostic_tool.py
 
 QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
-- [@jdnoeg](https://github.com/jdnoeg)
 
 感谢以下用户的资金赞助：
 
