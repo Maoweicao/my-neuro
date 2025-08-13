@@ -1,9 +1,22 @@
+"""
+参数填写说明
+-a 需要开启的服务端，字符串形式的0~3，对应关系如下：
+    '0':ASR
+    '1':TTS
+    '2':bert
+    '3':RAG
+可以填写一个或多个，如：'0'为开启ASR服务端，'02'为开启ASR和bert服务端
+"""
 import subprocess
 import sys
 from pathlib import Path
 import threading
 import time
 import os
+import argparse
+
+parser = argparse.ArgumentParser(description="run server")
+parser.add_argument("--api","-a",help="需要启动的服务端")
 
 with open(os.path.join(os.path.dirname(__file__),'tts-studio/tts-model/neuro/台本.txt'), 'r', encoding='utf-8') as file:
     ref_text = str(file.read())
@@ -24,8 +37,18 @@ servers = [
         "name": "bert服务端",
         "command": "call conda activate my-neuro && python omni_bert_api.py",
         "log_file": "logs/bert.log"
+    },
+    {
+        "name":"RAG服务端",
+        "command": "call conda activate my-neuro && python run_rag.py",
+        "log_file": "logs/rag.log"
     }
 ]
+server_chosen = []
+api = vars(parser.parse_args())["api"]
+for i in range(4):
+    if str(i) in api:
+        server_chosen.append(servers[i])
 
 def clear_log_file(log_path):
     '''清空日志文件'''
@@ -42,7 +65,7 @@ def tail_file(log_path, name):
     '''实时读取日志文件内容并输出到终端'''
     while True:
         try:
-            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(log_path, 'r', encoding='gbk', errors='ignore') as f:
                 f.seek(0, 2)  # 移到文件末尾
                 while True:
                     line = f.readline()
@@ -60,7 +83,7 @@ def start_servers():
     '''启动服务端'''
     processes = []
 
-    for server in servers:
+    for server in server_chosen:
         # 确保日志目录存在
         log_path = Path(server["log_file"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +97,7 @@ def start_servers():
 
         try:
             # 打开日志文件(追加模式)
-            with open(log_path, 'a', encoding='utf-8') as log_file:
+            with open(log_path, 'a', encoding='gbk') as log_file:
                 # 启动进程，重定向输出到日志文件
                 process = subprocess.Popen(
                     server["command"],
