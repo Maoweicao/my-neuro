@@ -214,14 +214,14 @@ def install_dependencies():
     run_in_conda_env("pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple modelscope")
     
     # 安装pytorch
-    print("\n========== 安装PyTorch (CUDA 11.8) ==========")
+    print("\n========== 安装PyTorch (CUDA 12.8) ==========")
     run_in_conda_env("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128")
 
 def download_live2d_model():
     """下载并解压Live 2D模型"""
     print("\n========== 下载Live 2D模型 ==========")
     # GitHub文件下载链接
-    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.8/live-2d.zip"
+    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.9/live-2d.zip"
     # 获取文件名
     file_name = url.split('/')[-1]
     
@@ -568,3 +568,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
