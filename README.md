@@ -167,6 +167,10 @@ python diagnostic_tool.py
 ```
 运行后将会弹出一个窗口，里面包含了后端诊断信息和一键修复按钮，若不能自行解决问题，向客服提供输出信息
 
+## 更新前端
+
+当前端需要更新时，运行 更新前端.bat
+
 ## 定制tts模型（克隆音色）
 
 该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
@@ -255,6 +259,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 

@@ -1,0 +1,224 @@
+import requests
+import os
+import sys
+import zipfile
+import shutil
+import json
+
+
+def now_version():
+    with open(r"live-2d\config.json", 'r', encoding="utf-8") as f:
+        return json.load(f)['version']
+
+
+def get_latest_release():
+    url = "https://api.github.com/repos/morettt/my-neuro/releases/latest"
+    try:
+        # 发送 HTTP 请求
+        response = requests.get(url, headers={"Accept": "application/vnd.github+json"})
+        response.raise_for_status()  # 检查请求是否成功
+
+        # 解析 JSON 数据
+        data = response.json()
+        # 提取 tag_name 字段并去掉 "v" 前缀
+        version = data["tag_name"]
+        return version
+
+    except requests.RequestException as e:
+        return f"请求错误: {e}"
+    except KeyError:
+        return "未找到版本信息"
+    except Exception as e:
+        return f"解析错误: {e}"
+
+
+# 添加进度条显示函数
+def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None, current=None, total=None):
+    """显示通用进度条"""
+    bar_length = 40
+    filled_length = int(bar_length * percent / 100)
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+
+    # 添加下载信息（如果提供）
+    extra_info = ""
+    if mb_downloaded is not None and mb_total is not None:
+        extra_info = f" ({mb_downloaded:.2f}MB/{mb_total:.2f}MB)"
+    elif current is not None and total is not None:
+        extra_info = f" ({current}/{total}个文件)"
+
+    sys.stdout.write(f"\r{message}: |{bar}| {percent}% 完成{extra_info}")
+    sys.stdout.flush()
+
+
+# 添加下载文件函数
+def download_file(url, file_name=None):
+    """下载文件并显示进度条"""
+    if file_name is None:
+        file_name = url.split('/')[-1]
+
+    print(f"正在下载: {file_name}...")
+    response = requests.get(url, stream=True)
+
+    total_size = int(response.headers.get('content-length', 0))
+    downloaded_size = 0
+
+    with open(file_name, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                file.write(chunk)
+                downloaded_size += len(chunk)
+
+                percent = int(downloaded_size * 100 / total_size) if total_size > 0 else 0
+                mb_downloaded = downloaded_size / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+
+                display_progress_bar(percent, "下载进度", mb_downloaded=mb_downloaded, mb_total=mb_total)
+
+    print("\n下载完成!")
+    return file_name
+
+
+def extract_zip(zip_file, target_folder):
+    """解压ZIP文件到指定文件夹并显示进度"""
+    print(f"正在解压 {zip_file} 到 {target_folder}...")
+
+    if not os.path.exists(target_folder):
+        os.makedirs(target_folder)
+        print(f"已创建目标文件夹: {target_folder}")
+
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+            # 获取zip文件中的所有文件列表
+            file_list = zip_ref.namelist()
+            total_files = len(file_list)
+
+            # 逐个解压文件并显示进度
+            for index, file in enumerate(file_list):
+                # 修复中文文件名编码问题
+                try:
+                    # 尝试使用CP437解码然后使用GBK/GB2312重新编码
+                    correct_filename = file.encode('cp437').decode('gbk')
+                    # 创建目标路径
+                    target_path = os.path.join(target_folder, correct_filename)
+
+                    # 创建必要的目录
+                    if os.path.dirname(target_path) and not os.path.exists(os.path.dirname(target_path)):
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+                    # 提取文件到目标路径
+                    data = zip_ref.read(file)
+                    # 如果是目录项则跳过写入文件
+                    if not correct_filename.endswith('/'):
+                        with open(target_path, 'wb') as f:
+                            f.write(data)
+                except Exception as e:
+                    # 如果编码转换失败，直接使用原始路径
+                    # 先提取到临时位置
+                    zip_ref.extract(file)
+
+                    # 如果解压成功，移动文件到目标文件夹
+                    if os.path.exists(file):
+                        target_path = os.path.join(target_folder, file)
+                        # 确保目标目录存在
+                        if os.path.dirname(target_path) and not os.path.exists(os.path.dirname(target_path)):
+                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        # 移动文件
+                        shutil.move(file, target_path)
+
+                # 计算解压百分比
+                percent = int((index + 1) * 100 / total_files)
+
+                # 显示进度条
+                display_progress_bar(
+                    percent,
+                    "解压进度",
+                    current=index + 1,
+                    total=total_files
+                )
+
+        print("\n解压完成!")
+        print(f"所有文件已解压到 '{target_folder}' 文件夹")
+        return True
+
+    except zipfile.BadZipFile:
+        print("错误: 下载的文件不是有效的ZIP格式")
+        return False
+    except Exception as e:
+        print(f"解压过程中出错: {e}")
+        return False
+
+
+# 添加Live2D下载函数（在现有代码的最开始部分添加）
+def download_live2d_model(version):
+    """下载并解压Live 2D模型到live-2d文件夹"""
+    print("\n========== 下载Live 2D模型 ==========")
+
+    url = f"https://github.com/morettt/my-neuro/releases/download/{version}/live-2d.zip"
+    file_name = url.split('/')[-1]
+    target_folder = "live-2d"
+
+    # 下载文件
+    downloaded_file = download_file(url, file_name)
+
+    # 解压文件
+    extract_success = extract_zip(downloaded_file, target_folder)
+
+    # 清理：删除ZIP文件
+    if extract_success and os.path.exists(downloaded_file):
+        os.remove(downloaded_file)
+        print(f"原ZIP文件 {downloaded_file} 已删除")
+
+    return extract_success
+
+
+def backup_and_restore_memory(latest_version):
+    # 定义路径
+    folder_path = "live-2d"
+    memory_file = os.path.join(folder_path, "记忆库.txt")
+
+    # 读取记忆库.txt内容
+    try:
+        with open(memory_file, 'r', encoding='utf-8') as file:
+            memory_content = file.read()
+        print("成功读取记忆库内容，已备份")
+    except FileNotFoundError:
+        print(f"错误：{memory_file} 不存在")
+        return
+    except Exception as e:
+        print(f"读取文件时出错: {e}")
+        return
+
+    # 删除整个live-2d文件夹
+    try:
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+            print(f"成功删除 {folder_path} 文件夹")
+    except Exception as e:
+        print(f"删除文件夹时出错: {e}")
+        return
+
+    # 下载最新文件
+    download_live2d_model(latest_version)
+
+    # 重新创建记忆库.txt
+    try:
+        with open(memory_file, 'w', encoding='utf-8') as file:
+            file.write(memory_content)
+        print("成功恢复记忆库内容")
+    except Exception as e:
+        print(f"恢复文件时出错: {e}")
+
+
+current_version = now_version()
+
+
+if __name__ == "__main__":
+    latest_version = get_latest_release()
+    if "错误" in latest_version or "未找到" in latest_version:
+        print(latest_version)
+    elif latest_version == current_version:
+        print(f"当前版本：{current_version} 已是最新版本")
+    else:
+        print(f"找到最新版本：{latest_version}")
+        print("开始下载最新版本...")
+        backup_and_restore_memory(latest_version)
