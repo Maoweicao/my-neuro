@@ -58,5 +58,6 @@
   "mcp": {
     "enabled": true,
     "server_url": "http://localhost:3000"
-  }
+  },
+  "version": "v4.6.9"
 }
