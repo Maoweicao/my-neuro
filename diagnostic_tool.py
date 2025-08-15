@@ -70,7 +70,7 @@ class DiagnosticTool:
             if model_files:
                 self.results.append(("BERT 模型", "通过", f"已检测到模型文件: {', '.join(model_files)}"))
             else:
-                self.results.append(("BERT 模型", "失败", "未检测到模型文件，请运行 Batch_Download.py 下载"))
+                self.results.append(("BERT 模型", "失败", "未检测到模型文件，请运行 python Batch_Download.py 下载"))
         except FileNotFoundError:
             self.results.append(("BERT 模型", "失败", "未找到 bert-model 文件夹，请确保项目目录完整"))
 
@@ -119,9 +119,9 @@ class DiagnosticTool:
                 import jieba
                 self.results.append(("Jieba 库", "通过", f"已安装 jieba 库，版本: {jieba.__version__}"))
             except ImportError:
-                self.results.append(("Jieba 库", "失败", "无法加载 jieba 库，请安装 jieba_fast-0.53-cp311-cp311-win_amd64.whl"))
+                self.results.append(("Jieba 库", "失败", "无法加载 jieba 库，请运行 python jieba_fast-0.53-cp311-cp311-win_amd64.whl"))
         else:
-            self.results.append(("Jieba 库", "失败", "未安装 jieba 库，请安装 jieba_fast-0.53-cp311-cp311-win_amd64.whl"))
+            self.results.append(("Jieba 库", "失败", "未安装 jieba 库，请运行 python jieba_fast-0.53-cp311-cp311-win_amd64.whl"))
 
     def check_ffmpeg(self):
         """检查 ffmpeg 是否安装"""
@@ -181,10 +181,10 @@ class DiagnosticTool:
         elif "BERT 模型" in issue:
             try:
                 subprocess.run("call conda activate my-neuro && python Batch_Download.py", shell=True, check=True)
-                self.results.append(("BERT 模型", "修复成功", "已运行 Batch_Download.py 下载模型"))
+                self.results.append(("BERT 模型", "修复成功", "已运行 python Batch_Download.py 下载模型"))
                 self.logger.info("修复成功: 已下载 BERT 模型")
             except subprocess.CalledProcessError:
-                self.results.append(("BERT 模型", "修复失败", "运行 Batch_Download.py 失败，请手动运行"))
+                self.results.append(("BERT 模型", "修复失败", "运行 python Batch_Download.py 失败，请手动运行"))
                 self.logger.error("修复失败: Batch_Download.py")
         elif "PyTorch 版本" in issue:
             try:
