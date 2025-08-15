@@ -89,13 +89,13 @@ anaconda的安装流程可以参考这个视频，讲的很详细：https://www.
 
 
 
-## 原版启动步骤
+### 原版启动步骤
 如果上面的一键处理出问题了。那么建议一步一步按照下方的操作方法。虽然麻烦。但是如果出错了。
 
 也能立刻定位出错的位置，从而针对性的解决
 
 
-# 1. 按顺序依次执行以下指令（打开终端在项目路径下运行）
+## 1. 按顺序依次执行以下指令（打开终端在项目路径下运行）
 ```bash
 conda create -n my-neuro python=3.11 -y
 
@@ -116,9 +116,9 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 python Batch_Download.py
 ```
 
-# 2.鼠标双击这3个东西
+## 2.鼠标双击这3个东西
 
-## (开启后不要关掉！这几个bat文件是后端服务，需要保持开启状态)
+### (开启后不要关掉！这几个bat文件是后端服务，需要保持开启状态)
 
 ```bash
 bert.bat
@@ -259,6 +259,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
