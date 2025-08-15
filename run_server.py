@@ -18,8 +18,10 @@ import argparse
 parser = argparse.ArgumentParser(description="run server")
 parser.add_argument("--api","-a",help="需要启动的服务端")
 
-with open(os.path.join(os.path.dirname(__file__),'tts-studio/tts-model/neuro/台本.txt'), 'r', encoding='utf-8') as file:
-    ref_text = str(file.read())
+
+# 参考音频文本
+tts_default_text = "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday."
+tts_Language = 'en' #默认英语（en）中文（zh）日语（ja）
 
 # 服务端配置列表
 servers = [
@@ -30,7 +32,7 @@ servers = [
     },
     {
         "name": "TTS服务端",
-        "command": f"call conda activate my-neuro && cd tts-studio && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt \"{ref_text}\" -dl \"zh\"",
+        "command": f'call conda activate my-neuro && cd tts-studio && python move_nltk.py && python tts_api.py -p 5000 -s tts-model/merge.pth -dr tts-model/neuro/01.wav -dt "{tts_default_text}" -dl "{tts_Language}"',
         "log_file": "logs/tts.log"
     },
     {
@@ -44,6 +46,7 @@ servers = [
         "log_file": "logs/rag.log"
     }
 ]
+
 server_chosen = []
 api = vars(parser.parse_args())["api"]
 for i in range(4):
