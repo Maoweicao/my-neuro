@@ -41,13 +41,12 @@ English Documentation: [English Version](./README_English.md)
 - [ ] 超吊的人机体验(类似真人交互设计，敬请期待)
 - [x] 动作表情：根据对话内容展示不同的表情与动作
 - [x] 集成视觉能力，支持图像识别，并通过语言意图判断何时启动视觉功能
-- [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目（此功能由- [@jdnoeg](https://github.com/jdnoeg)）开发
+- [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
 
 ### 扩展功能
-- [x] 桌面控制：支持语音控制打开软件等操作
+- [ ] 桌面控制：支持语音控制打开软件等操作
 - [x] AI唱歌（功能由： [@jonnytri53](https://github.com/jonnytri53) 资金赞助开发，特此感谢）
 - [ ] 国外直播平台的接入
-- [ ] AI用外语说话，同时能显示中文字幕（可自选开启或关闭），方便tts模型母语是外语的角色使用。
 - [x] 直播功能：可在哔哩哔哩平台直播
 - [ ] AI讲课：选择一个主题，让AI给你讲课。中途可提问。偏门课程可植入资料到数据库让AI理解
 - [x] 替换各类live 2d模型
@@ -56,7 +55,7 @@ English Documentation: [English Version](./README_English.md)
 - [x] 主动对话：根据上下文主动发起对话。目前版本V1
 - [x] 联网接入，实时搜索最新信息
 - [x] 手机app应用：可在安卓手机上对话的肥牛
-- [ ] 播放音效库中的音效，由模型自己决定播放何种音效
+- [x] 播放音效库中的音效，由模型自己决定播放何种音效
 - [ ] 游戏陪玩，模型和用户共同游玩配合、双人、解密等游戏。目前实验游戏为：你画我猜、大富翁、galgame、我的世界等游戏
 - [x] 长期记忆，让模型记住你的关键信息，你的个性，脾气
 
@@ -170,7 +169,7 @@ python diagnostic_tool.py
 
 ## 定制tts模型（克隆音色）
 
-该模块由- [@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
+该模块由[@jdnoeg](https://github.com/jdnoeg)基于GPT-SoVITS项目制作
 
 注：本模块需要在完成虚拟环境配置后进行
 
@@ -251,12 +250,12 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 
 感谢以下用户的资金赞助：
-
 - [@jonnytri53](https://github.com/jonnytri53) - 感谢您的支持！ 为本项目捐赠的50美元
 - [@蒜头头头](https://space.bilibili.com/92419729?spm_id_from=333.337.0.0) 感谢您的大力支持！为本项目捐赠的1000人民币
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
