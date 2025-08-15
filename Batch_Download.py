@@ -20,14 +20,14 @@ def display_progress_bar(percent, message="", mb_downloaded=None, mb_total=None,
     bar_length = 40
     filled_length = int(bar_length * percent / 100)
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    
+
     # 添加下载信息（如果提供）
     extra_info = ""
     if mb_downloaded is not None and mb_total is not None:
         extra_info = f" ({mb_downloaded:.2f}MB/{mb_total:.2f}MB)"
     elif current is not None and total is not None:
         extra_info = f" ({current}/{total}个文件)"
-    
+
     sys.stdout.write(f"\r{message}: |{bar}| {percent}% 完成{extra_info}")
     sys.stdout.flush()
 
@@ -60,21 +60,20 @@ def download_file(url, file_name=None):
     return file_name
 
 
-
 def extract_zip(zip_file, target_folder):
     """解压ZIP文件到指定文件夹并显示进度"""
     print(f"正在解压 {zip_file} 到 {target_folder}...")
-    
+
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
         print(f"已创建目标文件夹: {target_folder}")
-    
+
     try:
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             # 获取zip文件中的所有文件列表
             file_list = zip_ref.namelist()
             total_files = len(file_list)
-            
+
             # 逐个解压文件并显示进度
             for index, file in enumerate(file_list):
                 # 修复中文文件名编码问题
@@ -83,11 +82,11 @@ def extract_zip(zip_file, target_folder):
                     correct_filename = file.encode('cp437').decode('gbk')
                     # 创建目标路径
                     target_path = os.path.join(target_folder, correct_filename)
-                    
+
                     # 创建必要的目录
                     if os.path.dirname(target_path) and not os.path.exists(os.path.dirname(target_path)):
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    
+
                     # 提取文件到目标路径
                     data = zip_ref.read(file)
                     # 如果是目录项则跳过写入文件
@@ -98,7 +97,7 @@ def extract_zip(zip_file, target_folder):
                     # 如果编码转换失败，直接使用原始路径
                     # 先提取到临时位置
                     zip_ref.extract(file)
-                    
+
                     # 如果解压成功，移动文件到目标文件夹
                     if os.path.exists(file):
                         target_path = os.path.join(target_folder, file)
@@ -107,22 +106,22 @@ def extract_zip(zip_file, target_folder):
                             os.makedirs(os.path.dirname(target_path), exist_ok=True)
                         # 移动文件
                         shutil.move(file, target_path)
-                
+
                 # 计算解压百分比
                 percent = int((index + 1) * 100 / total_files)
-                
+
                 # 显示进度条
                 display_progress_bar(
-                    percent, 
-                    "解压进度", 
-                    current=index+1, 
+                    percent,
+                    "解压进度",
+                    current=index + 1,
                     total=total_files
                 )
-        
+
         print("\n解压完成!")
         print(f"所有文件已解压到 '{target_folder}' 文件夹")
         return True
-    
+
     except zipfile.BadZipFile:
         print("错误: 下载的文件不是有效的ZIP格式")
         return False
@@ -136,12 +135,19 @@ def download_live2d_model():
     """下载并解压Live 2D模型到live-2d文件夹"""
     print("\n========== 下载Live 2D模型 ==========")
 
-    url = "https://github.com/morettt/my-neuro/releases/download/v4.6.9/live-2d.zip"
-    file_name = url.split('/')[-1]
+    #通过github官方api获取实时的发布包信息
+    api_url = "https://api.github.com/repos/morettt/my-neuro/releases/latest"
+    response = requests.get(api_url)
+    data = response.json()
+
+    #获取可直接下载的发布包链接和发布包名称
+    url = data['assets'][0]['browser_download_url'], data['assets'][0]['name']
+    #这个是子文件夹的live-2d里面，会在这个文件夹下面解压发布包zip
     target_folder = "live-2d"
 
+    live2d_url, filename = url
     # 下载文件
-    downloaded_file = download_file(url, file_name)
+    downloaded_file = download_file(live2d_url, filename)
 
     # 解压文件
     extract_success = extract_zip(downloaded_file, target_folder)
@@ -163,15 +169,15 @@ def download_with_retry(command, max_retry=MAX_RETRY, wait_time=RETRY_WAIT):
     print(f"执行命令: {command}")
     for attempt in range(max_retry):
         if attempt > 0:
-            print(f"第 {attempt+1} 次尝试下载...")
-        
+            print(f"第 {attempt + 1} 次尝试下载...")
+
         result = subprocess.Popen(
             command,
             shell=True,
             stdout=None,
             stderr=None
         ).wait()
-        
+
         if result == 0:
             print("下载成功!")
             return True
@@ -180,9 +186,10 @@ def download_with_retry(command, max_retry=MAX_RETRY, wait_time=RETRY_WAIT):
             if attempt < max_retry - 1:
                 print(f"等待 {wait_time} 秒后重试...")
                 time.sleep(wait_time)
-    
+
     print(f"经过 {max_retry} 次尝试后，下载仍然失败")
     return False
+
 
 # 获取当前工作目录
 current_dir = os.getcwd()
@@ -313,7 +320,8 @@ os.chdir(current_dir)
 print(f"下载GPT-SoVITS预训练模型到: {gpt_sovits_dir}")
 
 # 使用ModelScope下载GPT-SoVITS预训练模型，带重试机制
-if not download_with_retry("modelscope download --model AI-ModelScope/GPT-SoVITS --local_dir ./tts-studio/GPT_SoVITS/pretrained_models"):
+if not download_with_retry(
+        "modelscope download --model AI-ModelScope/GPT-SoVITS --local_dir ./tts-studio/GPT_SoVITS/pretrained_models"):
     print("GPT-SoVITS预训练模型下载失败，终止程序")
     exit(1)
 
@@ -347,7 +355,7 @@ if os.path.exists(source_pretrained_dir) and os.listdir(source_pretrained_dir):
         for item in os.listdir(source_pretrained_dir):
             source_item = os.path.join(source_pretrained_dir, item)
             target_item = os.path.join(tts_pretrained_dir, item)
-            
+
             # 如果是文件夹，递归复制整个文件夹
             if os.path.isdir(source_item):
                 if os.path.exists(target_item):
@@ -358,7 +366,7 @@ if os.path.exists(source_pretrained_dir) and os.listdir(source_pretrained_dir):
             else:
                 shutil.copy2(source_item, target_item)
                 print(f"已复制文件: {item}")
-        
+
         print("预训练模型复制完成")
     except Exception as e:
         print(f"复制预训练模型时出错: {str(e)}")
@@ -423,7 +431,8 @@ if not os.path.exists(uvr5_weights_dir):
 print(f"下载UVR5权重文件到: {uvr5_weights_dir}")
 
 # 使用ModelScope下载UVR5权重文件，带重试机制
-if not download_with_retry(f"modelscope download --model AI-ModelScope/uvr5_weights HP2_all_vocals.pth --local_dir {uvr5_weights_dir}"):
+if not download_with_retry(
+        f"modelscope download --model AI-ModelScope/uvr5_weights HP2_all_vocals.pth --local_dir {uvr5_weights_dir}"):
     print("UVR5权重文件下载失败")
     # 不终止程序，因为这是额外的模型
 else:
@@ -445,7 +454,8 @@ if not os.path.exists(asr_models_dir):
 print(f"下载faster-whisper-medium模型到: {faster_whisper_dir}")
 
 # 使用ModelScope下载faster-whisper-medium模型，带重试机制
-if not download_with_retry(f"modelscope download --model pengzhendong/faster-whisper-medium --local_dir {faster_whisper_dir}"):
+if not download_with_retry(
+        f"modelscope download --model pengzhendong/faster-whisper-medium --local_dir {faster_whisper_dir}"):
     print("faster-whisper-medium模型下载失败")
     # 不终止程序，因为这是额外的模型
 else:
@@ -472,4 +482,3 @@ else:
     print("nltk_data下载成功！")
 
 print("\n所有下载操作全部完成！")
-
