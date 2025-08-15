@@ -129,13 +129,13 @@ TTS.bat
 
 
 ```
-2.5.可选（双击这个会提升模型的长期记忆功能，但是显存相对来说要增加1.5G）
+可选（双击这个会提升模型的长期记忆功能，但是显存相对来说要增加1.5G）
 ```bash
 RAG.bat
 ```
 
 
-3.等待上面服务都输出IP后，再打开项目里面的live-2d文件夹：
+### 3.等待上面服务都输出IP后，再打开项目里面的live-2d文件夹：
 
 <img width="1018" height="1023" alt="image" src="https://github.com/user-attachments/assets/8b71473c-1d0e-4c42-8a27-8e8d5e5baaaa" />
 
@@ -259,6 +259,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
