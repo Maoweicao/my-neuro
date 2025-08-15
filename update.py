@@ -148,17 +148,35 @@ def extract_zip(zip_file, target_folder):
         return False
 
 
-# 添加Live2D下载函数（在现有代码的最开始部分添加）
-def download_live2d_model(version):
+# 修正后的Live2D下载函数
+def download_live2d_model():
     """下载并解压Live 2D模型到live-2d文件夹"""
     print("\n========== 下载Live 2D模型 ==========")
 
-    url = f"https://github.com/morettt/my-neuro/releases/download/{version}/live-2d.zip"
-    file_name = url.split('/')[-1]
+    try:
+        # 获取最新发布信息
+        api_url = "https://api.github.com/repos/morettt/my-neuro/releases/latest"
+        response = requests.get(api_url)
+        response.raise_for_status()
+        data = response.json()
+
+        # 检查是否有assets
+        if not data.get('assets'):
+            print("错误：未找到可下载的文件")
+            return False
+
+        # 提取下载URL和文件名
+        live2d_url = data['assets'][0]['browser_download_url']
+        filename = data['assets'][0]['name']
+
+    except Exception as e:
+        print(f"获取下载链接失败: {e}")
+        return False
+
     target_folder = "live-2d"
 
     # 下载文件
-    downloaded_file = download_file(url, file_name)
+    downloaded_file = download_file(live2d_url, filename)
 
     # 解压文件
     extract_success = extract_zip(downloaded_file, target_folder)
@@ -171,22 +189,22 @@ def download_live2d_model(version):
     return extract_success
 
 
-def backup_and_restore_memory(latest_version):
-    # 定义路径
+def backup_and_restore_memory():
     folder_path = "live-2d"
     memory_file = os.path.join(folder_path, "记忆库.txt")
+    memory_content = None  # 用来标记是否有备份内容
 
-    # 读取记忆库.txt内容
-    try:
-        with open(memory_file, 'r', encoding='utf-8') as file:
-            memory_content = file.read()
-        print("成功读取记忆库内容，已备份")
-    except FileNotFoundError:
-        print(f"错误：{memory_file} 不存在")
-        return
-    except Exception as e:
-        print(f"读取文件时出错: {e}")
-        return
+    # 尝试读取记忆库内容（如果存在的话）
+    if os.path.exists(memory_file):
+        try:
+            with open(memory_file, 'r', encoding='utf-8') as file:
+                memory_content = file.read()
+            print("成功读取记忆库内容，已备份")
+        except Exception as e:
+            print(f"读取记忆库文件时出错: {e}")
+            memory_content = None
+    else:
+        print("记忆库文件不存在，跳过备份")
 
     # 删除整个live-2d文件夹
     try:
@@ -198,19 +216,21 @@ def backup_and_restore_memory(latest_version):
         return
 
     # 下载最新文件
-    download_live2d_model(latest_version)
+    download_live2d_model()
 
-    # 重新创建记忆库.txt
-    try:
-        with open(memory_file, 'w', encoding='utf-8') as file:
-            file.write(memory_content)
-        print("成功恢复记忆库内容")
-    except Exception as e:
-        print(f"恢复文件时出错: {e}")
+    # 只有原来存在记忆库文件时才恢复
+    if memory_content is not None:
+        try:
+            with open(memory_file, 'w', encoding='utf-8') as file:
+                file.write(memory_content)
+            print("成功恢复记忆库内容")
+        except Exception as e:
+            print(f"恢复文件时出错: {e}")
+    else:
+        print("无需恢复记忆库文件")
 
 
 current_version = now_version()
-
 
 if __name__ == "__main__":
     latest_version = get_latest_release()
@@ -221,4 +241,4 @@ if __name__ == "__main__":
     else:
         print(f"找到最新版本：{latest_version}")
         print("开始下载最新版本...")
-        backup_and_restore_memory(latest_version)
+        backup_and_restore_memory()
