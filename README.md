@@ -118,7 +118,9 @@ python Batch_Download.py
 
 ### 接下来直接在项目路径下双击这3个bat文件就行了
 
-2.鼠标双击这3个东西(开启后不要关掉！这个是后端需要保持开启状态)
+2.鼠标双击这3个东西
+
+## (开启后不要关掉！这个是后端需要保持开启状态)
 
 ```bash
 bert.bat
@@ -259,6 +261,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
