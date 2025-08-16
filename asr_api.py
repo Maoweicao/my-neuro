@@ -6,9 +6,54 @@ import torch
 import json
 import numpy as np
 import os
+import sys
+import re
 from datetime import datetime
 from queue import Queue
 from modelscope.hub.snapshot_download import snapshot_download
+
+# 保存原始的stdout和stderr
+original_stdout = sys.stdout
+original_stderr = sys.stderr
+
+
+# 创建一个可以同时写到文件和终端的类，并过滤ANSI颜色码
+class TeeOutput:
+    def __init__(self, file1, file2):
+        self.file1 = file1
+        self.file2 = file2
+        # 用于匹配ANSI颜色码的正则表达式
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+    def write(self, data):
+        # 终端输出保持原样（带颜色）
+        self.file1.write(data)
+        # 文件输出去掉颜色码
+        clean_data = self.ansi_escape.sub('', data)
+        self.file2.write(clean_data)
+        self.file1.flush()
+        self.file2.flush()
+
+    def flush(self):
+        self.file1.flush()
+        self.file2.flush()
+
+    def isatty(self):
+        return self.file1.isatty()
+
+    def fileno(self):
+        return self.file1.fileno()
+
+
+# 创建logs目录
+LOGS_DIR = "logs"
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
+
+# 设置双重输出
+log_file = open(os.path.join(LOGS_DIR, 'asr.log'), 'w', encoding='utf-8')  # 保存到logs文件夹
+sys.stdout = TeeOutput(original_stdout, log_file)
+sys.stderr = TeeOutput(original_stderr, log_file)
 
 app = FastAPI()
 
@@ -55,16 +100,18 @@ model_state = {
     "punc_model": None
 }
 
+
 def download_vad_models():
     """下载asr的vad"""
     vad_dir = os.getcwd()
 
-    target_dir = os.path.join(vad_dir,'model','torch_hub')
-    os.makedirs(target_dir,exist_ok=True)
+    target_dir = os.path.join(vad_dir, 'model', 'torch_hub')
+    os.makedirs(target_dir, exist_ok=True)
 
-    model_dir = snapshot_download('morelle/my-neuro-vad',local_dir=target_dir)
+    model_dir = snapshot_download('morelle/my-neuro-vad', local_dir=target_dir)
 
     print(f'已将asr vad下载到{model_dir}')
+
 
 # 使用 FastAPI 的生命周期事件装饰器
 @app.on_event("startup")
@@ -74,7 +121,7 @@ async def startup_event():
     # 检查VAD模型目录是否存在
     torch_hub_dir = os.path.join(MODEL_DIR, "torch_hub")
     local_vad_path = os.path.join(torch_hub_dir, "snakers4_silero-vad_master")
-    
+
     # 如果VAD模型目录不存在，则下载
     if not os.path.exists(local_vad_path):
         print("未找到VAD模型目录，开始下载...")
