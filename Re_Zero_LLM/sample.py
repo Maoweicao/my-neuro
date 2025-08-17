@@ -4,7 +4,7 @@ from model import GPT, Model_args
 from transformers import AutoTokenizer
 
 # 配置参数
-checkpoint_save_dir = './checkpoints'
+checkpoint_save_dir = 'checkpoints'
 device = 'cuda'
 device_type = 'cuda'
 dtype = 'bfloat16'
@@ -12,7 +12,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 
 # 生成参数
 top_k = 50
-max_new_tokens = 50
+max_new_tokens = 300
 
 print("加载模型...")
 
@@ -36,7 +36,7 @@ model.eval()
 model.to(device)
 
 # 加载tokenizer
-tokenizer_path = "./tokenizer/Qwen2.5-7B-Instruct"
+tokenizer_path = "tokenizer/Qwen2.5-7B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True)
 
 print("模型加载完成！")
