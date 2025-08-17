@@ -3,7 +3,7 @@ import numpy as np
 from transformers import AutoTokenizer
 
 # 使用本地Qwen2.5 tokenizer
-tokenizer_path = "/root/my_llm/tokenizer/Qwen2.5-7B-Instruct"
+tokenizer_path = "../../tokenizer/Qwen2.5-7B-Instruct"
 print(f"正在加载本地tokenizer: {tokenizer_path}")
 tokenizer = AutoTokenizer.from_pretrained(
     tokenizer_path,
