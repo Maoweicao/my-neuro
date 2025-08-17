@@ -8,15 +8,15 @@ import time
 
 # 模型参数
 block_size = 128 # 窗口大小GPT2为1024
-batch_size = 32 # 暂定，之后再看显存占用
+batch_size = 16 # 暂定，之后再看显存占用
 n_layer = 12
 n_head = 6
 n_embed = 768
 bias = False
 dropout = 0.0
-dataset_path = './data/dmbj'
+dataset_path = 'data/dmbj'
 init_from = 'scratch' # 'scratch' or 'resume' # 从头训练还是继续
-checkpoint_save_dir = './checkpoints'
+checkpoint_save_dir = 'checkpoints'
 eval_iters = 200
 eval_interval = 200 # 每n步eval和保存checkpoint一次
 
@@ -27,7 +27,7 @@ lr_decay_iters = 2000  # 延长衰减周期
 min_lr = 3e-5
 
 # 优化器参数
-max_iters = 2000 # 增加训练步数
+max_iters = 20000 # 增加训练步数
 weight_decay = 1e-1
 betas = (0.9,0.95)
 grad_clip = 1.0 # 梯度裁剪
@@ -65,7 +65,7 @@ assert init_from == 'scratch' or init_from == 'resume'
 if init_from == 'scratch': 
     print("从头训练模型")
     # 根据prepare.py的输出，最大token ID是151603，所以设置为151604
-    model_args['vocab_size'] = 151604  # 修正词汇表大小
+    model_args['vocab_size'] = 200000  # 修正词汇表大小
     gpt_args = Model_args(**model_args)
     model = GPT(gpt_args)
 
