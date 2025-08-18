@@ -8,9 +8,48 @@ from sklearn.metrics.pairwise import cosine_similarity
 import uvicorn
 import time
 import os
+import sys
+import re
 import threading
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
+# 保存原始stdout和stderr
+original_stdout = sys.stdout
+original_stderr = sys.stderr
+
+# 创建双重输出类
+class TeeOutput:
+    def __init__(self, file1, file2):
+        self.file1 = file1
+        self.file2 = file2
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+    def write(self, data):
+        self.file1.write(data)
+        clean_data = self.ansi_escape.sub('', data)
+        self.file2.write(clean_data)
+        self.file1.flush()
+        self.file2.flush()
+
+    def flush(self):
+        self.file1.flush()
+        self.file2.flush()
+
+    def isatty(self):
+        return self.file1.isatty()
+
+    def fileno(self):
+        return self.file1.fileno()
+
+# 设置日志
+LOGS_DIR = "logs"
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
+
+log_file = open(os.path.join(LOGS_DIR, 'rag.log'), 'w', encoding='utf-8')
+sys.stdout = TeeOutput(original_stdout, log_file)
+sys.stderr = TeeOutput(original_stderr, log_file)
 
 # 全局变量
 model = None
@@ -37,7 +76,6 @@ def load_knowledge_base(file_path="./live-2d/记忆库.txt"):
         paragraphs = []
 
         # 使用正则表达式匹配10个以上连续的横线
-        import re
         # 匹配10个或更多连续的横线（可能前后有空格）
         separator_pattern = r'\s*-{10,}\s*'
 
