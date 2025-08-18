@@ -143,6 +143,43 @@ import argparse
 import os,re
 import sys
 
+# 保存原始stdout和stderr
+original_stdout = sys.stdout
+original_stderr = sys.stderr
+
+# 创建双重输出类
+class TeeOutput:
+    def __init__(self, file1, file2):
+        self.file1 = file1
+        self.file2 = file2
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+    def write(self, data):
+        self.file1.write(data)
+        clean_data = self.ansi_escape.sub('', data)
+        self.file2.write(clean_data)
+        self.file1.flush()
+        self.file2.flush()
+
+    def flush(self):
+        self.file1.flush()
+        self.file2.flush()
+
+    def isatty(self):
+        return self.file1.isatty()
+
+    def fileno(self):
+        return self.file1.fileno()
+
+# 设置日志
+LOGS_DIR = "../logs"
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
+
+log_file = open(os.path.join(LOGS_DIR, 'tts.log'), 'w', encoding='utf-8')
+sys.stdout = TeeOutput(original_stdout, log_file)
+sys.stderr = TeeOutput(original_stderr, log_file)
+
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 sys.path.append("%s/GPT_SoVITS" % (now_dir))
@@ -578,8 +615,8 @@ def get_tts_wav(ref_wav_path, prompt_text, prompt_language, text, text_language,
         if stream_mode == "normal":
             audio_bytes, audio_chunk = read_clean_buffer(audio_bytes)
             yield audio_chunk
-    
-    if not stream_mode == "normal": 
+
+    if not stream_mode == "normal":
         if media_type == "wav":
             audio_bytes = pack_wav(audio_bytes,hps.data.sampling_rate)
         yield audio_bytes.getvalue()
