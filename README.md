@@ -44,7 +44,7 @@ English Documentation: [English Version](./README_English.md)
 - [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
 
 ### 扩展功能
-- [ ] 桌面控制：支持语音控制打开软件等操作
+- [x] 桌面控制：支持语音控制打开软件等操作
 - [x] AI唱歌（功能由： [@jonnytri53](https://github.com/jonnytri53) 资金赞助开发，特此感谢）
 - [ ] 国外直播平台的接入
 - [x] 直播功能：可在哔哩哔哩平台直播
@@ -260,6 +260,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
