@@ -4,7 +4,7 @@ import re
 import pyopenjtalk
 import os
 import hashlib
-current_file_path = os.path.dirname(__file__)
+
 def get_hash(fp: str) -> str:
     hash_md5 = hashlib.md5()
     with open(fp, "rb") as f:
@@ -12,19 +12,60 @@ def get_hash(fp: str) -> str:
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-USERDIC_CSV_PATH = os.path.join(current_file_path, "ja_userdic", "userdict.csv")
-USERDIC_BIN_PATH = os.path.join(current_file_path, "ja_userdic", "user.dict")
-USERDIC_HASH_PATH = os.path.join(current_file_path, "ja_userdic", "userdict.md5")
+# 使用纯相对路径 - 相对于当前工作目录
+USERDIC_CSV_PATH = "text/ja_userdic/userdict.csv"
+USERDIC_BIN_PATH = "text/ja_userdic/user.dict"
+USERDIC_HASH_PATH = "text/ja_userdic/userdict.md5"
+
+print(f"尝试使用相对路径:")
+print(f"CSV: {USERDIC_CSV_PATH}")
+print(f"BIN: {USERDIC_BIN_PATH}")
+print(f"当前工作目录: {os.getcwd()}")
+
 # 如果没有用户词典，就生成一个；如果有，就检查md5，如果不一样，就重新生成
 if os.path.exists(USERDIC_CSV_PATH):
-    if not os.path.exists(USERDIC_BIN_PATH) or get_hash(USERDIC_CSV_PATH) != open(USERDIC_HASH_PATH, "r",encoding='utf-8').read():
-        pyopenjtalk.mecab_dict_index(USERDIC_CSV_PATH, USERDIC_BIN_PATH)
-        with open(USERDIC_HASH_PATH, "w", encoding='utf-8') as f:
-            f.write(get_hash(USERDIC_CSV_PATH))
+    try:
+        need_rebuild = False
+        
+        if not os.path.exists(USERDIC_BIN_PATH):
+            print("用户词典不存在，需要生成")
+            need_rebuild = True
+        elif not os.path.exists(USERDIC_HASH_PATH):
+            print("MD5文件不存在，需要重新生成")
+            need_rebuild = True
+        else:
+            current_hash = get_hash(USERDIC_CSV_PATH)
+            with open(USERDIC_HASH_PATH, "r", encoding='utf-8') as f:
+                stored_hash = f.read().strip()
+            if current_hash != stored_hash:
+                print("CSV文件已修改，需要重新生成词典")
+                need_rebuild = True
+        
+        if need_rebuild:
+            print(f"正在生成用户词典: {USERDIC_CSV_PATH} -> {USERDIC_BIN_PATH}")
+            pyopenjtalk.mecab_dict_index(USERDIC_CSV_PATH, USERDIC_BIN_PATH)
+            
+            # 保存新的hash
+            with open(USERDIC_HASH_PATH, "w", encoding='utf-8') as f:
+                f.write(get_hash(USERDIC_CSV_PATH))
+            print("用户词典生成成功")
+        else:
+            print("用户词典已是最新版本")
+            
+    except Exception as e:
+        print(f"生成用户词典时出错: {e}")
 
+# 加载用户词典
 if os.path.exists(USERDIC_BIN_PATH):
-    pyopenjtalk.update_global_jtalk_with_user_dict(USERDIC_BIN_PATH)    
-
+    try:
+        print(f"正在加载用户词典: {USERDIC_BIN_PATH}")
+        pyopenjtalk.update_global_jtalk_with_user_dict(USERDIC_BIN_PATH)
+        print("✅ 用户词典加载成功！")
+    except Exception as e:
+        print(f"❌ 用户词典加载失败: {e}")
+        print("将使用默认词典")
+else:
+    print("用户词典文件不存在，使用默认词典")
 
 from text.symbols import punctuation
 # Regular expression matching Japanese without punctuation marks:
