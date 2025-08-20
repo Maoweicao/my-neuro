@@ -44,6 +44,7 @@ English Documentation: [English Version](./README_English.md)
 - [x] 动作表情：根据对话内容展示不同的表情与动作
 - [x] 集成视觉能力，支持图像识别，并通过语言意图判断何时启动视觉功能
 - [x] 声音模型（TTS）训练支持，默认使用gpt-sovits开源项目
+- [x] 字幕显示中文。音频播放是外语。可自由开启关闭（适用于TTS模型本身就是外语的角色）
 
 ### 扩展功能
 - [x] 桌面控制：支持语音控制打开软件等操作
@@ -262,6 +263,7 @@ QQ群:感谢 菊花茶洋参 帮忙制作肥牛app的封面
 
 感谢大佬开源十分好用的tts：
 GPT-SoVITS：https://github.com/RVC-Boss/GPT-SoVITS
+
 
 
 
