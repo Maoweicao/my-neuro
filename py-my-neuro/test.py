@@ -253,16 +253,17 @@ class set_pyqt(QWidget):
         self.ui = uic.loadUi('main.ui')
 
         # 隐藏状态栏
-        self.ui.statusbar.hide()
+        if hasattr(self.ui, 'statusbar'):
+            self.ui.statusbar.hide()
 
         # 创建一个容器来装标题栏和原UI
         container = QWidget()
         # 给容器设置背景色和圆角
         container.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
-                    stop:0 rgba(250, 249, 245, 255), 
-                    stop:0.5 rgba(245, 243, 235, 255), 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(250, 249, 245, 255),
+                    stop:0.5 rgba(245, 243, 235, 255),
                     stop:1 rgba(240, 238, 230, 255));
                 border-radius: 25px;
             }
@@ -308,6 +309,9 @@ class set_pyqt(QWidget):
         # 设置最小尺寸为1x1，允许任意缩小
         self.setMinimumSize(1, 1)
 
+        # 调整侧边栏占比：将 sidebar 宽度设为总宽度的 0.33，并让内容区获得更多空间
+        self.adjust_sidebar_ratio(0.33)
+
         # 保持原来的功能
         self.set_btu()
         self.set_config()
@@ -343,6 +347,10 @@ class set_pyqt(QWidget):
             # 所有子部件与子布局
             for child in root_widget.findChildren(QWidget):
                 try:
+                    # 保留 sidebar 的原始尺寸约束，避免被放宽后过度变宽
+                    if getattr(child, 'objectName', lambda: '')() == 'sidebar':
+                        continue
+
                     child.setMinimumSize(0, 0)
                     child.setMaximumSize(16777215, 16777215)
                     if hasattr(child, 'setSizePolicy'):
@@ -362,6 +370,50 @@ class set_pyqt(QWidget):
         except Exception:
             # 放宽失败时静默忽略，不影响主流程
             pass
+
+    def adjust_sidebar_ratio(self, ratio: float = 0.33):
+        """按比例设置侧边栏宽度，并为布局设置伸缩比。
+        - ratio: 侧边栏占总宽度比例，例如 0.33
+        - 为水平布局设置 sidebar:content = 0:1，使内容区优先生长。
+        """
+        try:
+            sidebar = getattr(self.ui, 'sidebar', None)
+            # 估算总宽度（优先使用 centralwidget 宽度，其次窗口宽度，最后屏幕可用宽度 * 0.82）
+            central = getattr(self.ui, 'centralwidget', None)
+            total_w = 0
+            if central is not None and central.width() > 0:
+                total_w = central.width()
+            elif self.width() > 0:
+                total_w = self.width()
+            else:
+                try:
+                    total_w = int(QGuiApplication.primaryScreen().availableGeometry().width() * 0.82)
+                except Exception:
+                    total_w = 1280
+
+            # 设置侧边栏宽度
+            if sidebar is not None and total_w > 0:
+                target_w = max(240, int(total_w * ratio))  # 至少保留 120px 可用空间
+                print(f"Setting sidebar width: {target_w}")
+                sidebar.setMinimumWidth(target_w)
+                sidebar.setMaximumWidth(target_w)
+                sidebar.setFixedWidth(target_w)
+
+            # 设置水平布局伸缩策略：sidebar 尽量保持最小，content 占据其余空间
+            layout = central.layout() if central is not None else None
+            if isinstance(layout, QHBoxLayout):
+                layout.setStretch(0, 0)  # sidebar
+                layout.setStretch(1, 1)  # content
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        """在窗口尺寸变化时保持侧边栏为 33% 宽度。"""
+        try:
+            self.adjust_sidebar_ratio(0.33)
+        except Exception:
+            pass
+        super().resizeEvent(event)
 
     def load_styles(self):
         """加载样式文件"""
