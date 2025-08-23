@@ -1,0 +1,77 @@
+# =====================
+# 基础忽略
+# =====================
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# 常见编辑器/系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志与运行时输出
+logs/
+*.log
+
+# 打包/构建产物
+build/
+dist/
+
+# =====================
+# 按批处理与脚本下载/生成的内容忽略
+# =====================
+# Live2D 模型（Batch_Download.py）
+/live-2d/**
+!/live-2d/记忆库.txt
+
+# Omni BERT 模型（Batch_Download.py）
+/omni_bert/**
+
+# G2PW 模型（Batch_Download.py）
+/tts-studio/text/G2PWModel/**
+/tts-studio/GPT_SoVITS/text/G2PWModel/**
+/fine_tuning/text/G2PWModel/**
+
+# GPT-SoVITS 预训练模型（Batch_Download.py）
+/tts-studio/GPT_SoVITS/pretrained_models/**
+/tts-studio/pretrained_models/**
+
+# TTS 模型（Batch_Download.py）
+/tts-studio/tts-model/**
+
+# RAG 模型（Batch_Download.py）
+/RAG-model/**
+!/RAG-model/zwf.txt
+
+# UVR5 权重（Batch_Download.py）
+/fine_tuning/tools/uvr5/uvr5_weights/**
+
+# ASR 模型（Batch_Download.py）
+/fine_tuning/tools/asr/models/**
+
+# NLTK 数据（Batch_Download.py）
+/tts-studio/nltk_data/**
+
+# 一键克隆音色 & 训练输出
+/fine_tuning/output/**
+
+# 其他大型模型/占位目录（仓库中保留占位文件，忽略其余）
+/model/**
+!/model/占用.txt
+
+/bert-model/**
+!/bert-model/占位符.txt
+
+/SoVITS_weights_v2/**
+
+# =====================
+# 可选：虚拟环境（如有）
+# =====================
+.venv/
+venv/
+env/
