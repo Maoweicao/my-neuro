@@ -275,6 +275,9 @@ class set_pyqt(QWidget):
         self.title_bar = CustomTitleBar(self)
         container_layout.addWidget(self.title_bar)
 
+        # 在嵌入前放宽 main.ui 的尺寸限制，避免 .ui 文件中的固定大小影响自适应
+        self.relax_size_constraints(self.ui)
+
         # 添加原始UI
         container_layout.addWidget(self.ui)
 
@@ -289,8 +292,18 @@ class set_pyqt(QWidget):
         # 加载页面内容
         self.load_pages()
 
-        # 设置窗口大小
-        self.resize(1800, 1200)
+        # 设置窗口初始大小：按可用屏幕的比例显示（例如 82%），并居中
+        try:
+            screen_geo = QGuiApplication.primaryScreen().availableGeometry()
+            target_w = int(screen_geo.width() * 0.82)
+            target_h = int(screen_geo.height() * 0.82)
+            target_size = QSize(target_w, target_h)
+            # 居中到可用区域
+            aligned_rect = QStyle.alignedRect(Qt.LeftToRight, Qt.AlignCenter, target_size, screen_geo)
+            self.setGeometry(aligned_rect)
+        except Exception:
+            # 回退：如果获取屏幕信息失败，则使用一个合理默认值
+            self.resize(1280, 800)
 
         # 设置最小尺寸为1x1，允许任意缩小
         self.setMinimumSize(1, 1)
@@ -308,6 +321,47 @@ class set_pyqt(QWidget):
 
         # 设置动画控制按钮
         self.setup_motion_buttons()
+
+    def relax_size_constraints(self, root_widget: QWidget):
+        """放宽从 .ui 加载的控件的尺寸限制，忽略固定大小设置并启用可伸缩策略。
+        - 清除 fixedSize：重置 min/max
+        - 布局改为无限制（NoConstraint）
+        - 尺寸策略改为 Expanding（尽量填充容器）
+        """
+        try:
+            # 自身
+            root_widget.setMinimumSize(0, 0)
+            root_widget.setMaximumSize(16777215, 16777215)
+            if hasattr(root_widget, 'setSizePolicy'):
+                root_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+            # 根布局
+            layout = root_widget.layout()
+            if layout:
+                layout.setSizeConstraint(QLayout.SetNoConstraint)
+
+            # 所有子部件与子布局
+            for child in root_widget.findChildren(QWidget):
+                try:
+                    child.setMinimumSize(0, 0)
+                    child.setMaximumSize(16777215, 16777215)
+                    if hasattr(child, 'setSizePolicy'):
+                        # 对按钮/输入框等使用 Preferred 垂直策略，避免过度拉伸
+                        vertical_policy = QSizePolicy.Preferred
+                        if isinstance(child, (QFrame, QStackedWidget, QScrollArea, QGroupBox, QTabWidget)):
+                            vertical_policy = QSizePolicy.Expanding
+                        child.setSizePolicy(QSizePolicy.Expanding, vertical_policy)
+                except Exception:
+                    pass
+
+            for lay in root_widget.findChildren(QLayout):
+                try:
+                    lay.setSizeConstraint(QLayout.SetNoConstraint)
+                except Exception:
+                    pass
+        except Exception:
+            # 放宽失败时静默忽略，不影响主流程
+            pass
 
     def load_styles(self):
         """加载样式文件"""
