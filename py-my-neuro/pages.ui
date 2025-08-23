@@ -13,6 +13,154 @@
   <property name="windowTitle">
    <string>Pages</string>
   </property>
+  <property name="styleSheet">
+    <string notr="true">QLabel#sectionTitle {
+    color: rgb(114, 95, 77);
+    font-size: 28px;
+}
+QLabel#subTitle {
+    background-color: transparent;
+    color: rgb(114, 95, 77);
+}
+
+QLineEdit, QTextEdit, QComboBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(250, 249, 245, 255), stop:1 rgba(248, 247, 242, 255));
+    border: 1px solid rgba(180, 175, 165, 200);
+    font-size: 22px;
+    font-family: &quot;Microsoft YaHei&quot;, &quot;SimHei&quot;, sans-serif;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+    border: 2px solid rgb(140, 135, 125);
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(215, 213, 205, 255), stop:1 rgba(225, 223, 215, 255));
+}
+
+QCheckBox {
+    font-weight: bold;
+    spacing: 12px;
+}
+QCheckBox::indicator {
+    border-radius: 4px;
+    border: 2px solid rgb(140, 135, 125);
+}
+QCheckBox::indicator:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(120, 115, 105, 255), stop:1 rgba(100, 95, 85, 255));
+    border: 2px solid rgb(80, 75, 65);
+}
+
+QPushButton#startButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(144, 238, 144, 255), stop:1 rgba(152, 251, 152, 255));
+    color: rgb(34, 139, 34);
+}
+QPushButton#stopButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255, 182, 193, 255), stop:1 rgba(255, 160, 122, 255));
+    color: rgb(139, 69, 19);
+}
+QPushButton#motionButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(173, 216, 230, 255), stop:1 rgba(135, 206, 250, 255));
+    color: rgb(25, 25, 112);
+}
+QPushButton#motionButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(135, 206, 250, 255), stop:1 rgba(100, 149, 237, 255));
+    color: rgb(0, 0, 139);
+}
+
+/* 上传区域按钮样式（用于声音克隆页） */
+QPushButton#uploadButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(230, 245, 255, 255), stop:0.3 rgba(225, 240, 250, 255), stop:0.7 rgba(220, 235, 245, 255), stop:1 rgba(215, 230, 240, 255));
+    border: 2px dashed rgba(100, 150, 200, 180);
+    color: rgb(70, 70, 90);
+    padding: 24px;
+}
+QPushButton#uploadButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(200, 230, 255, 255), stop:0.5 rgba(190, 220, 250, 255), stop:1 rgba(180, 210, 245, 255));
+    border: 2px dashed rgba(80, 130, 180, 220);
+}
+
+/* 声音克隆页 - 选项卡与下拉框专属样式（仅作用于 page_voice_clone 内） */
+QWidget#page_voice_clone QTabWidget::pane {
+   border: 2px solid rgba(180, 175, 165, 200);
+   border-radius: 10px;
+   padding: 6px;
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(252, 251, 248, 255), stop:1 rgba(245, 243, 238, 255));
+}
+QWidget#page_voice_clone QTabBar::tab {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(240, 237, 230, 255), stop:1 rgba(230, 227, 220, 255));
+   color: rgb(90, 80, 70);
+   border: 1px solid rgba(180, 175, 165, 200);
+   border-bottom-color: rgba(180, 175, 165, 200);
+   border-top-left-radius: 8px;
+   border-top-right-radius: 8px;
+   padding: 10px 18px;
+   margin-right: 8px;
+   min-width: 160px;
+   font-size: 20px;
+}
+QWidget#page_voice_clone QTabBar::tab:selected {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(225, 223, 215, 255), stop:1 rgba(215, 213, 205, 255));
+   color: rgb(60, 55, 50);
+   border-bottom-color: transparent;
+}
+QWidget#page_voice_clone QTabBar::tab:hover {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(235, 232, 225, 255), stop:1 rgba(225, 222, 215, 255));
+}
+QWidget#page_voice_clone QTabBar::tab:!selected {
+   margin-top: 6px; /* 让未选中的标签稍微下沉，突出选中态 */
+}
+
+/* 声音克隆页 - 下拉框（语言选择等） */
+QWidget#page_voice_clone QComboBox {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(250, 249, 245, 255), stop:1 rgba(246, 245, 240, 255));
+   border: 1px solid rgba(180, 175, 165, 200);
+   border-radius: 8px;
+   padding: 6px 40px 6px 12px; /* 右侧留给下拉按钮 */
+   font-size: 20px;
+   color: rgb(70, 65, 60);
+   min-height: 36px;
+}
+QWidget#page_voice_clone QComboBox:focus {
+   border: 2px solid rgb(140, 135, 125);
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(230, 228, 220, 255), stop:1 rgba(235, 233, 225, 255));
+}
+QWidget#page_voice_clone QComboBox::drop-down {
+   subcontrol-origin: padding;
+   subcontrol-position: top right;
+   width: 34px;
+   border-left: 1px solid rgba(180, 175, 165, 180);
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(238, 235, 228, 255), stop:1 rgba(230, 227, 220, 255));
+   border-top-right-radius: 8px;
+   border-bottom-right-radius: 8px;
+}
+QWidget#page_voice_clone QComboBox::down-arrow {
+   image: none; /* 无图标，保持简洁 */
+   width: 0px; height: 0px;
+}
+/* 弹出选单 */
+QWidget#page_voice_clone QComboBox QAbstractItemView {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(252, 251, 248, 255), stop:1 rgba(242, 240, 236, 255));
+   border: 1px solid rgba(180, 175, 165, 200);
+   outline: 0;
+   selection-background-color: rgba(215, 213, 205, 255);
+   selection-color: rgb(40, 40, 40);
+}
+QWidget#page_voice_clone QComboBox QAbstractItemView::item {
+   padding: 8px 12px;
+   min-height: 28px;
+}
+QWidget#page_voice_clone QComboBox QAbstractItemView::item:selected {
+   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+      stop:0 rgba(225, 223, 215, 255), stop:1 rgba(215, 213, 205, 255));
+   color: rgb(40, 40, 40);
+}
+   </string>
+  </property>
 
   <widget class="QWidget" name="page">
    <layout class="QVBoxLayout" name="page_layout">
@@ -698,6 +846,172 @@
     </item>
    </layout>
   </widget>
+
+    <!-- 声音克隆页面 -->
+    <widget class="QWidget" name="page_voice_clone">
+     <layout class="QVBoxLayout" name="page_voice_clone_layout">
+        <property name="spacing"><number>30</number></property>
+        <property name="leftMargin"><number>40</number></property>
+        <property name="topMargin"><number>40</number></property>
+        <property name="rightMargin"><number>40</number></property>
+        <property name="bottomMargin"><number>40</number></property>
+
+        <item>
+         <widget class="QTabWidget" name="tabWidget_voice">
+            <property name="currentIndex"><number>0</number></property>
+
+            <widget class="QWidget" name="tab_tts_switch">
+             <attribute name="title"><string>TTS模型更换</string></attribute>
+             <layout class="QVBoxLayout" name="tab_tts_switch_layout">
+                <property name="spacing"><number>20</number></property>
+
+                <!-- 顶部两个上传区 -->
+                <item>
+                 <layout class="QHBoxLayout" name="upload_row">
+                    <property name="spacing"><number>20</number></property>
+
+                    <!-- 模型文件（.pth） -->
+                    <item>
+                     <layout class="QVBoxLayout" name="col_model">
+                        <item>
+                         <widget class="QLabel" name="label_model_title">
+                            <property name="text"><string>模型文件 (.pth)</string></property>
+                            <property name="objectName"><string>subTitle</string></property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QPushButton" name="pushButton_select_model">
+                            <property name="objectName"><string>uploadButton</string></property>
+                            <property name="minimumSize"><size><width>400</width><height>120</height></size></property>
+                            <property name="text"><string>选择模型文件
+或拖拽文件到此处</string></property>
+                            <property name="acceptDrops"><bool>true</bool></property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QLabel" name="label_model_status">
+                            <property name="text"><string>未上传模型文件 (.pth)</string></property>
+                         </widget>
+                        </item>
+                     </layout>
+                    </item>
+
+                    <!-- 参考音频（.wav） -->
+                    <item>
+                     <layout class="QVBoxLayout" name="col_audio">
+                        <item>
+                         <widget class="QLabel" name="label_audio_title">
+                            <property name="text"><string>参考音频 (.wav)</string></property>
+                            <property name="objectName"><string>subTitle</string></property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QPushButton" name="pushButton_select_audio">
+                            <property name="objectName"><string>uploadButton</string></property>
+                            <property name="minimumSize"><size><width>400</width><height>120</height></size></property>
+                            <property name="text"><string>选择音频文件
+或拖拽文件到此处</string></property>
+                            <property name="acceptDrops"><bool>true</bool></property>
+                         </widget>
+                        </item>
+                        <item>
+                         <widget class="QLabel" name="label_audio_status">
+                            <property name="text"><string>未上传参考音频 (.wav)</string></property>
+                         </widget>
+                        </item>
+                     </layout>
+                    </item>
+                 </layout>
+                </item>
+
+                <!-- 角色名 + 语言选择 -->
+                <item>
+                 <layout class="QHBoxLayout" name="row_role_lang">
+                    <property name="spacing"><number>20</number></property>
+                    <item>
+                     <widget class="QLabel" name="label_role">
+                        <property name="text"><string>角色名称：</string></property>
+                        <property name="objectName"><string>subTitle</string></property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QLineEdit" name="lineEdit_character_name">
+                        <property name="placeholderText"><string>输入角色名称，用于生成bat文件名</string></property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QLabel" name="label_lang">
+                        <property name="text"><string>参考音频语种：</string></property>
+                        <property name="objectName"><string>subTitle</string></property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="comboBox_language">
+                        <item><property name="text"><string>zh - 中文</string></property></item>
+                        <item><property name="text"><string>en - 英文</string></property></item>
+                        <item><property name="text"><string>ja - 日语</string></property></item>
+                        <item><property name="text"><string>ko - 韩语</string></property></item>
+                     </widget>
+                    </item>
+                 </layout>
+                </item>
+
+                <!-- 参考音频的文本内容 -->
+                <item>
+                 <widget class="QLabel" name="label_voice_text_title">
+                    <property name="text"><string>参考音频的文本内容：</string></property>
+                    <property name="objectName"><string>subTitle</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QTextEdit" name="textEdit_voice_text">
+                    <property name="minimumSize"><size><width>0</width><height>200</height></size></property>
+                    <property name="placeholderText"><string>请输入参考音频对应的文本内容</string></property>
+                 </widget>
+                </item>
+
+                <!-- 生成按钮 -->
+                <item>
+                 <layout class="QHBoxLayout" name="row_generate">
+                    <item>
+                     <spacer name="spacer_gen_left"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer>
+                    </item>
+                    <item>
+                     <widget class="QPushButton" name="pushButton_generate_bat">
+                        <property name="minimumSize"><size><width>300</width><height>60</height></size></property>
+                        <property name="text"><string>生成TTS的bat文件</string></property>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer name="spacer_gen_right"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer>
+                    </item>
+                 </layout>
+                </item>
+
+                <!-- 状态栏文本 -->
+                <item>
+                 <widget class="QLabel" name="label_bat_status">
+                    <property name="text"><string>状态：请上传文件并生成配置</string></property>
+                 </widget>
+                </item>
+             </layout>
+            </widget>
+
+            <widget class="QWidget" name="tab_tts_train">
+             <attribute name="title"><string>一键训练TTS模型</string></attribute>
+             <layout class="QVBoxLayout" name="tab_tts_train_layout">
+                <item>
+                 <widget class="QLabel" name="label_train_placeholder">
+                    <property name="text"><string>训练功能占位（可后续补充）</string></property>
+                 </widget>
+                </item>
+             </layout>
+            </widget>
+
+         </widget>
+        </item>
+     </layout>
+    </widget>
 
  </widget>
  <resources/>

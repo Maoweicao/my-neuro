@@ -7,6 +7,109 @@ from PyQt5 import uic
 import subprocess
 import time
 import os
+import glob
+import shutil
+import re
+import socket
+
+
+# 在这里添加新函数（来自 live-2d/test.py 的新增能力）
+def get_base_path():
+    """获取程序基础路径，兼容开发环境和打包后的exe。
+    - 打包后返回 exe 所在目录的上级目录
+    - 开发环境返回当前文件所在目录的上级目录
+    """
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        return os.path.dirname(exe_dir)
+    else:
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_app_path():
+    """获取程序运行的主目录，无论是开发环境还是打包后的exe"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+class LogReader(QThread):
+    """读取日志文件的线程，自动等待文件生成并兼容多种编码。"""
+    log_signal = pyqtSignal(str)
+
+    def __init__(self, log_file_path: str, poll_interval: float = 0.2):
+        super().__init__()
+        self.log_file_path = log_file_path
+        self.running = True
+        self.poll_interval = poll_interval
+
+    def run(self):
+        # 等待文件出现或被停止
+        while not os.path.exists(self.log_file_path) and self.running:
+            self.msleep(int(self.poll_interval * 1000))
+
+        if not self.running:
+            return
+
+        encodings = ['utf-8', 'gbk', 'ansi', 'latin-1']
+        file_handle = None
+
+        # 尝试不同编码打开
+        for encoding in encodings:
+            try:
+                file_handle = open(self.log_file_path, 'r', encoding=encoding, errors='replace')
+                break
+            except Exception:
+                continue
+
+        if not file_handle:
+            # 最后退回到二进制读取
+            try:
+                file_handle = open(self.log_file_path, 'rb')
+            except Exception as e:
+                self.log_signal.emit(f"无法打开日志文件: {e}")
+                return
+
+        try:
+            # 定位到末尾，开始追尾
+            if 'b' not in getattr(file_handle, 'mode', ''):
+                file_handle.seek(0, os.SEEK_END)
+                while self.running:
+                    line = file_handle.readline()
+                    if line:
+                        self.log_signal.emit(line.rstrip('\n'))
+                    else:
+                        self.msleep(int(self.poll_interval * 1000))
+            else:
+                # 二进制模式：按行读取并尽量解码
+                file_handle.seek(0, os.SEEK_END)
+                while self.running:
+                    line = file_handle.readline()
+                    if line:
+                        text = None
+                        for enc in encodings:
+                            try:
+                                text = line.decode(enc)
+                                break
+                            except Exception:
+                                continue
+                        if text is None:
+                            text = line.decode('latin-1', errors='replace')
+                        self.log_signal.emit(text.rstrip('\n'))
+                    else:
+                        self.msleep(int(self.poll_interval * 1000))
+        except Exception:
+            # 避免线程崩溃，静默退出
+            pass
+        finally:
+            try:
+                file_handle.close()
+            except Exception:
+                pass
+
+    def stop(self):
+        self.running = False
 
 
 class ToastNotification(QLabel):
@@ -223,8 +326,26 @@ class set_pyqt(QWidget):
         super().__init__()
         self.live2d_process = None
         self.mcp_process = None
+        # 新增：后台终端与服务进程
+        self.terminal_process = None  # TTS服务
+        self.asr_process = None
+        self.bert_process = None
+        self.rag_process = None
+        # 新增：声音克隆状态
+        self.voice_clone_process = None
+        self.selected_model_path = None
+        self.selected_audio_path = None
         self.config_path = 'config_mod\config.json'
         self.config = self.load_config()
+
+        # 新增：日志读取器与日志路径
+        self.log_readers = {}
+        self.log_file_paths = {
+            'asr': os.path.join('..', 'logs', 'asr.log'),
+            'tts': os.path.join('..', 'logs', 'tts.log'),
+            'bert': os.path.join('..', 'logs', 'bert.log'),
+            'rag': os.path.join('..', 'logs', 'rag.log'),
+        }
 
         # 调整大小相关变量
         self.resizing = False
@@ -325,6 +446,10 @@ class set_pyqt(QWidget):
 
         # 设置动画控制按钮
         self.setup_motion_buttons()
+        # 初始化 Live2D 模型列表（若UI存在）
+        self.init_live2d_models()
+        # 启动时检查服务状态（若UI存在）
+        self.check_all_service_status()
 
     def relax_size_constraints(self, root_widget: QWidget):
         """放宽从 .ui 加载的控件的尺寸限制，忽略固定大小设置并启用可伸缩策略。
@@ -429,7 +554,7 @@ class set_pyqt(QWidget):
         pages_widget = uic.loadUi('pages.ui')
 
         # 提取各个页面并添加到stackedWidget
-        page_names = ['page', 'page_2', 'page_3', 'page_dialog', 'page_5', 'page_6', 'page_4']
+        page_names = ['page', 'page_2', 'page_3', 'page_dialog', 'page_5', 'page_6', 'page_4', 'page_voice_clone']
 
         for page_name in page_names:
             page = getattr(pages_widget, page_name)
@@ -451,7 +576,19 @@ class set_pyqt(QWidget):
             'checkBox', 'lineEdit_interval',
             'start_singing_btn', 'stop_singing_btn',
             'checkBox_2', 'lineEdit_6',
-            'checkBox_asr', 'checkBox_tts', 'checkBox_subtitle', 'checkBox_live2d'
+            'checkBox_asr', 'checkBox_tts', 'checkBox_subtitle', 'checkBox_live2d',
+            # 新增：Live2D模型选择与服务/终端控制相关控件（若存在则绑定）
+            'comboBox_live2d_models',
+            'pushButton_start_terminal', 'pushButton_stop_terminal',
+            'pushButton_start_asr', 'pushButton_stop_asr',
+            'pushButton_start_bert', 'pushButton_stop_bert',
+            'pushButton_start_rag', 'pushButton_stop_rag',
+            'textEdit_tts_log', 'textEdit_asr_log', 'textEdit_bert_log', 'textEdit_rag_log',
+            'label_terminal_status', 'label_asr_status', 'label_bert_status', 'label_rag_status',
+            # 声音克隆页常用控件
+            'textEdit_voice_text', 'lineEdit_character_name', 'comboBox_language',
+            'pushButton_generate_bat', 'pushButton_select_model', 'pushButton_select_audio',
+            'label_model_status', 'label_audio_status', 'label_bat_status'
         ]
 
         # 在所有页面中查找并绑定控件
@@ -469,6 +606,30 @@ class set_pyqt(QWidget):
             self.ui.start_singing_btn.clicked.connect(lambda: self.trigger_motion(5))  # 开始唱歌
         if hasattr(self.ui, 'stop_singing_btn'):
             self.ui.stop_singing_btn.clicked.connect(lambda: self.trigger_motion(7))  # 停止唱歌
+        # 终端/服务按钮（若存在则绑定）
+        if hasattr(self.ui, 'pushButton_start_terminal'):
+            self.ui.pushButton_start_terminal.clicked.connect(self.start_terminal)
+        if hasattr(self.ui, 'pushButton_stop_terminal'):
+            self.ui.pushButton_stop_terminal.clicked.connect(self.stop_terminal)
+        if hasattr(self.ui, 'pushButton_start_asr'):
+            self.ui.pushButton_start_asr.clicked.connect(self.start_asr)
+        if hasattr(self.ui, 'pushButton_stop_asr'):
+            self.ui.pushButton_stop_asr.clicked.connect(self.stop_asr)
+        if hasattr(self.ui, 'pushButton_start_bert'):
+            self.ui.pushButton_start_bert.clicked.connect(self.start_bert)
+        if hasattr(self.ui, 'pushButton_stop_bert'):
+            self.ui.pushButton_stop_bert.clicked.connect(self.stop_bert)
+        if hasattr(self.ui, 'pushButton_start_rag'):
+            self.ui.pushButton_start_rag.clicked.connect(self.start_rag)
+        if hasattr(self.ui, 'pushButton_stop_rag'):
+            self.ui.pushButton_stop_rag.clicked.connect(self.stop_rag)
+        # 声音克隆按钮（若存在则绑定）
+        if hasattr(self.ui, 'pushButton_generate_bat'):
+            self.ui.pushButton_generate_bat.clicked.connect(self.generate_voice_clone_bat)
+        if hasattr(self.ui, 'pushButton_select_model'):
+            self.ui.pushButton_select_model.clicked.connect(self.select_model_file)
+        if hasattr(self.ui, 'pushButton_select_audio'):
+            self.ui.pushButton_select_audio.clicked.connect(self.select_audio_file)
 
     def trigger_motion(self, motion_index):
         """触发指定动作"""
@@ -572,6 +733,22 @@ class set_pyqt(QWidget):
 
         except Exception as e:
             print(f"发送快捷键失败: {e}")
+
+    # ===== 服务与日志 =====
+    def update_service_log(self, service_name: str, text: str):
+        """更新指定服务的日志显示（如果对应的文本框存在）"""
+        log_widgets = {
+            'asr': getattr(self.ui, 'textEdit_asr_log', None),
+            'tts': getattr(self.ui, 'textEdit_tts_log', None),
+            'bert': getattr(self.ui, 'textEdit_bert_log', None),
+            'rag': getattr(self.ui, 'textEdit_rag_log', None),
+        }
+        widget = log_widgets.get(service_name)
+        if widget:
+            widget.append(text)
+            sb = widget.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
 
     def read_live2d_logs(self):
         """读取桌宠进程的标准输出"""
@@ -746,6 +923,22 @@ class set_pyqt(QWidget):
         self.ui.pushButton_8.clicked.connect(self.start_live_2d)
         self.ui.pushButton_7.clicked.connect(self.close_live_2d)
         self.ui.pushButton_clearLog.clicked.connect(self.clear_logs)
+        # 新增：声音克隆按钮跳转
+        if hasattr(self.ui, 'pushButton_voice_clone'):
+            # 尝试根据对象名跳转，否则回退索引查找
+            def goto_voice_clone():
+                # 优先通过对象直接切换
+                page = getattr(self.ui, 'page_voice_clone', None)
+                if page:
+                    self.ui.stackedWidget.setCurrentWidget(page)
+                    return
+                # 回退：按名查找
+                for i in range(self.ui.stackedWidget.count()):
+                    w = self.ui.stackedWidget.widget(i)
+                    if w.objectName() == 'page_voice_clone':
+                        self.ui.stackedWidget.setCurrentIndex(i)
+                        return
+            self.ui.pushButton_voice_clone.clicked.connect(goto_voice_clone)
 
     def clear_logs(self):
         """清空日志功能"""
@@ -755,6 +948,436 @@ class set_pyqt(QWidget):
         self.ui.textEdit.clear()
         # 显示提示
         self.toast.show_message("日志已清空", 1500)
+
+    # ===== 声音克隆（Voice Clone） =====
+    def voice_clone_dragEnterEvent(self, event: QDragEnterEvent):
+        """拖放进入（仅当目标控件绑定了该事件时生效）"""
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile():
+                fp = url.toLocalFile().lower()
+                if fp.endswith('.pth') or fp.endswith('.wav'):
+                    event.acceptProposedAction()
+
+    def voice_clone_dropEvent(self, event: QDropEvent):
+        """处理声音克隆区域的文件拖放"""
+        try:
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    filename = os.path.basename(file_path)
+                    # 目标1：py-my-neuro/Voice_Model_Factory
+                    vm_dir = os.path.join(get_app_path(), 'Voice_Model_Factory')
+                    os.makedirs(vm_dir, exist_ok=True)
+                    dest_path = os.path.join(vm_dir, filename)
+                    shutil.copy2(file_path, dest_path)
+                    # 目标2：live-2d/Voice_Model_Factory（同级目录下）
+                    root_dir = os.path.dirname(get_app_path())
+                    live2d_vm_dir = os.path.join(root_dir, 'live-2d', 'Voice_Model_Factory')
+                    try:
+                        os.makedirs(live2d_vm_dir, exist_ok=True)
+                        dest_live2d = os.path.join(live2d_vm_dir, filename)
+                        shutil.copy2(file_path, dest_live2d)
+                    except Exception:
+                        dest_live2d = None
+                    if filename.lower().endswith('.pth'):
+                        # 优先使用 live-2d 中的路径（若拷贝成功）
+                        self.selected_model_path = dest_live2d or dest_path
+                        if hasattr(self.ui, 'label_model_status'):
+                            self.ui.label_model_status.setText(f"已上传：{filename}")
+                    if filename.lower().endswith('.wav'):
+                        self.selected_audio_path = dest_live2d or dest_path
+                        if hasattr(self.ui, 'label_audio_status'):
+                            self.ui.label_audio_status.setText(f"已上传：{filename}")
+            self.toast.show_message('文件已导入到 Voice_Model_Factory', 1500)
+        except Exception as e:
+            self.toast.show_message(f'拖拽处理失败：{e}', 3000)
+
+    def select_model_file(self):
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(self, '选择模型文件', '', 'PyTorch模型文件 (*.pth);;所有文件 (*)')
+            if not file_path:
+                return
+            # 目标1：py-my-neuro/Voice_Model_Factory
+            vm_dir = os.path.join(get_app_path(), 'Voice_Model_Factory')
+            os.makedirs(vm_dir, exist_ok=True)
+            filename = os.path.basename(file_path)
+            dest_path = os.path.join(vm_dir, filename)
+            shutil.copy2(file_path, dest_path)
+            # 目标2：live-2d/Voice_Model_Factory
+            root_dir = os.path.dirname(get_app_path())
+            live2d_vm_dir = os.path.join(root_dir, 'live-2d', 'Voice_Model_Factory')
+            try:
+                os.makedirs(live2d_vm_dir, exist_ok=True)
+                dest_live2d = os.path.join(live2d_vm_dir, filename)
+                shutil.copy2(file_path, dest_live2d)
+            except Exception:
+                dest_live2d = None
+            self.selected_model_path = dest_live2d or dest_path
+            if hasattr(self.ui, 'label_model_status'):
+                self.ui.label_model_status.setText(f"已上传：{filename}")
+            self.toast.show_message('模型文件已保存到 Voice_Model_Factory', 1500)
+        except Exception as e:
+            self.toast.show_message(f"选择模型文件失败：{e}", 3000)
+
+    def select_audio_file(self):
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(self, '选择音频文件', '', '音频文件 (*.wav);;所有文件 (*)')
+            if not file_path:
+                return
+            # 目标1：py-my-neuro/Voice_Model_Factory
+            vm_dir = os.path.join(get_app_path(), 'Voice_Model_Factory')
+            os.makedirs(vm_dir, exist_ok=True)
+            filename = os.path.basename(file_path)
+            dest_path = os.path.join(vm_dir, filename)
+            shutil.copy2(file_path, dest_path)
+            # 目标2：live-2d/Voice_Model_Factory
+            root_dir = os.path.dirname(get_app_path())
+            live2d_vm_dir = os.path.join(root_dir, 'live-2d', 'Voice_Model_Factory')
+            try:
+                os.makedirs(live2d_vm_dir, exist_ok=True)
+                dest_live2d = os.path.join(live2d_vm_dir, filename)
+                shutil.copy2(file_path, dest_live2d)
+            except Exception:
+                dest_live2d = None
+            self.selected_audio_path = dest_live2d or dest_path
+            if hasattr(self.ui, 'label_audio_status'):
+                self.ui.label_audio_status.setText(f"已上传：{filename}")
+        except Exception as e:
+            self.toast.show_message(f"选择音频文件失败：{e}", 3000)
+
+    def generate_voice_clone_bat(self):
+        try:
+            text = getattr(self.ui, 'textEdit_voice_text', None).toPlainText().strip() if hasattr(self.ui, 'textEdit_voice_text') else ''
+            character_name = getattr(self.ui, 'lineEdit_character_name', None).text().strip() if hasattr(self.ui, 'lineEdit_character_name') else ''
+            if not text or not character_name or not self.selected_model_path or not self.selected_audio_path:
+                self.toast.show_message('请先完善文本/角色名并上传模型与参考音频', 2000)
+                return
+            language_widget = getattr(self.ui, 'comboBox_language', None)
+            language = language_widget.currentText().split(' - ')[0] if language_widget and language_widget.currentText() else 'zh'
+            # 生成到 py-my-neuro/Voice_Model_Factory 目录
+            vm_dir = os.path.join(get_app_path(), 'Voice_Model_Factory')
+            os.makedirs(vm_dir, exist_ok=True)
+            bat_path = os.path.join(vm_dir, f"{character_name}_TTS.bat")
+            # 优先定位到 live-2d 下的路径（便于与预期脚本一致）
+            root_dir = os.path.dirname(get_app_path())
+            live2d_vm_dir = os.path.join(root_dir, 'live-2d', 'Voice_Model_Factory')
+            model_name = os.path.basename(self.selected_model_path)
+            audio_name = os.path.basename(self.selected_audio_path)
+            model_path_for_cmd = os.path.join(live2d_vm_dir, model_name)
+            audio_path_for_cmd = os.path.join(live2d_vm_dir, audio_name)
+            if not os.path.exists(model_path_for_cmd):
+                model_path_for_cmd = self.selected_model_path
+            if not os.path.exists(audio_path_for_cmd):
+                audio_path_for_cmd = self.selected_audio_path
+            # 组装命令（与期望尽量一致，不加引号）
+            cmd = (
+                f"python tts_api.py -p 5000 -d cuda -s {model_path_for_cmd} "
+                f"-dr {audio_path_for_cmd} -dt \"{text}\" -dl {language}\n"
+            )
+            with open(bat_path, 'w', encoding='gbk') as f:
+                f.write('@echo off\n')
+                f.write('call conda activate my-neuro\n')
+                f.write('cd ..\\..\\tts-studio\n')
+                f.write(cmd)
+                f.write('pause\n')
+            if hasattr(self.ui, 'label_bat_status'):
+                self.ui.label_bat_status.setText(f"已生成：Voice_Model_Factory/{character_name}_TTS.bat")
+            self.toast.show_message(f"生成成功：{character_name}_TTS.bat", 1500)
+        except Exception as e:
+            self.toast.show_message(f"生成失败：{e}", 3000)
+
+    def start_voice_tts(self):
+        try:
+            character_name = getattr(self.ui, 'lineEdit_character_name', None).text().strip() if hasattr(self.ui, 'lineEdit_character_name') else ''
+            if not character_name:
+                self.toast.show_message('请填写角色名', 1500)
+                return
+            # 生成位置在 py-my-neuro/Voice_Model_Factory
+            bat_path = os.path.join(get_app_path(), 'Voice_Model_Factory', f"{character_name}_TTS.bat")
+            if not os.path.exists(bat_path):
+                self.toast.show_message('未找到bat文件，请先生成', 1500)
+                return
+            if self.voice_clone_process and self.voice_clone_process.poll() is None:
+                self.toast.show_message('声音克隆已在运行', 1500)
+                return
+            self.voice_clone_process = subprocess.Popen(bat_path, shell=True, cwd=os.path.dirname(bat_path), creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            if hasattr(self.ui, 'label_voice_tts_status'):
+                self.ui.label_voice_tts_status.setText('状态：声音克隆服务正在运行')
+            self.toast.show_message('声音克隆服务启动成功', 1500)
+        except Exception as e:
+            self.toast.show_message(f"启动声音克隆失败：{e}", 3000)
+
+    def stop_voice_tts(self):
+        try:
+            subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%tts_api%\'" delete', shell=True, capture_output=True)
+            self.voice_clone_process = None
+            if hasattr(self.ui, 'label_voice_tts_status'):
+                self.ui.label_voice_tts_status.setText('状态：声音克隆服务未启动')
+            self.toast.show_message('声音克隆服务已关闭', 1500)
+        except Exception as e:
+            self.toast.show_message(f"关闭声音克隆失败：{e}", 3000)
+
+    # ===== 终端控制室：TTS/ASR/BERT/RAG =====
+    def _ensure_log_file(self, key: str):
+        log_file = self.log_file_paths.get(key)
+        if not log_file:
+            return None
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        with open(log_file, 'w', encoding='utf-8'):
+            pass
+        return log_file
+
+    def start_terminal(self):
+        try:
+            if self.terminal_process and self.terminal_process.poll() is None:
+                self.toast.show_message('TTS服务已在运行', 1500)
+                return
+            base_path = get_base_path()
+            bat_file = os.path.join(base_path, 'TTS.bat')
+            if not os.path.exists(bat_file):
+                self.toast.show_message('未找到 TTS.bat', 1500)
+                return
+            log_file = self._ensure_log_file('tts')
+            if 'tts' in self.log_readers:
+                try:
+                    self.log_readers['tts'].stop()
+                except Exception:
+                    pass
+            if log_file:
+                self.log_readers['tts'] = LogReader(log_file)
+                self.log_readers['tts'].log_signal.connect(lambda t: self.update_service_log('tts', t))
+                self.log_readers['tts'].start()
+            self.terminal_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            if hasattr(self.ui, 'label_terminal_status'):
+                self.ui.label_terminal_status.setText('状态：TTS服务正在运行')
+            self.toast.show_message('TTS服务启动成功', 1500)
+        except Exception as e:
+            self.toast.show_message(f"启动TTS失败：{e}", 3000)
+
+    def stop_terminal(self):
+        try:
+            if 'tts' in self.log_readers:
+                try:
+                    self.log_readers['tts'].stop()
+                except Exception:
+                    pass
+            subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%TTS%\'" delete', shell=True, capture_output=True)
+            self.terminal_process = None
+            if hasattr(self.ui, 'label_terminal_status'):
+                self.ui.label_terminal_status.setText('状态：TTS服务未启动')
+            self.toast.show_message('TTS服务已关闭', 1500)
+        except Exception as e:
+            self.toast.show_message(f"关闭TTS失败：{e}", 3000)
+
+    def start_asr(self):
+        try:
+            if self.asr_process and self.asr_process.poll() is None:
+                self.toast.show_message('ASR已在运行', 1500)
+                return
+            base_path = get_base_path()
+            bat_file = os.path.join(base_path, 'ASR.bat')
+            if not os.path.exists(bat_file):
+                self.toast.show_message('未找到 ASR.bat', 1500)
+                return
+            log_file = self._ensure_log_file('asr')
+            if 'asr' in self.log_readers:
+                try:
+                    self.log_readers['asr'].stop()
+                except Exception:
+                    pass
+            if log_file:
+                self.log_readers['asr'] = LogReader(log_file)
+                self.log_readers['asr'].log_signal.connect(lambda t: self.update_service_log('asr', t))
+                self.log_readers['asr'].start()
+            self.asr_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            if hasattr(self.ui, 'label_asr_status'):
+                self.ui.label_asr_status.setText('状态：ASR服务正在运行')
+            self.toast.show_message('ASR服务启动成功', 1500)
+        except Exception as e:
+            self.toast.show_message(f"启动ASR失败：{e}", 3000)
+
+    def stop_asr(self):
+        try:
+            if 'asr' in self.log_readers:
+                try:
+                    self.log_readers['asr'].stop()
+                except Exception:
+                    pass
+            subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%ASR%\'" delete', shell=True, capture_output=True)
+            self.asr_process = None
+            if hasattr(self.ui, 'label_asr_status'):
+                self.ui.label_asr_status.setText('状态：ASR服务未启动')
+            self.toast.show_message('ASR服务已关闭', 1500)
+        except Exception as e:
+            self.toast.show_message(f"关闭ASR失败：{e}", 3000)
+
+    def start_bert(self):
+        try:
+            if self.bert_process and self.bert_process.poll() is None:
+                self.toast.show_message('BERT已在运行', 1500)
+                return
+            base_path = get_base_path()
+            bat_file = os.path.join(base_path, 'bert.bat')
+            if not os.path.exists(bat_file):
+                self.toast.show_message('未找到 bert.bat', 1500)
+                return
+            log_file = self._ensure_log_file('bert')
+            if 'bert' in self.log_readers:
+                try:
+                    self.log_readers['bert'].stop()
+                except Exception:
+                    pass
+            if log_file:
+                self.log_readers['bert'] = LogReader(log_file)
+                self.log_readers['bert'].log_signal.connect(lambda t: self.update_service_log('bert', t))
+                self.log_readers['bert'].start()
+            self.bert_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            if hasattr(self.ui, 'label_bert_status'):
+                self.ui.label_bert_status.setText('状态：BERT服务正在运行')
+            self.toast.show_message('BERT服务启动成功', 1500)
+        except Exception as e:
+            self.toast.show_message(f"启动BERT失败：{e}", 3000)
+
+    def stop_bert(self):
+        try:
+            if 'bert' in self.log_readers:
+                try:
+                    self.log_readers['bert'].stop()
+                except Exception:
+                    pass
+            subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%bert%\'" delete', shell=True, capture_output=True)
+            self.bert_process = None
+            if hasattr(self.ui, 'label_bert_status'):
+                self.ui.label_bert_status.setText('状态：BERT服务未启动')
+            self.toast.show_message('BERT服务已关闭', 1500)
+        except Exception as e:
+            self.toast.show_message(f"关闭BERT失败：{e}", 3000)
+
+    def start_rag(self):
+        try:
+            if self.rag_process and self.rag_process.poll() is None:
+                self.toast.show_message('RAG已在运行', 1500)
+                return
+            base_path = get_base_path()
+            bat_file = os.path.join(base_path, 'RAG.bat')
+            if not os.path.exists(bat_file):
+                self.toast.show_message('未找到 RAG.bat', 1500)
+                return
+            log_file = self._ensure_log_file('rag')
+            if 'rag' in self.log_readers:
+                try:
+                    self.log_readers['rag'].stop()
+                except Exception:
+                    pass
+            if log_file:
+                self.log_readers['rag'] = LogReader(log_file)
+                self.log_readers['rag'].log_signal.connect(lambda t: self.update_service_log('rag', t))
+                self.log_readers['rag'].start()
+            self.rag_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            if hasattr(self.ui, 'label_rag_status'):
+                self.ui.label_rag_status.setText('状态：RAG服务正在运行')
+            self.toast.show_message('RAG服务启动成功', 1500)
+        except Exception as e:
+            self.toast.show_message(f"启动RAG失败：{e}", 3000)
+
+    def stop_rag(self):
+        try:
+            if 'rag' in self.log_readers:
+                try:
+                    self.log_readers['rag'].stop()
+                except Exception:
+                    pass
+            subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%RAG%\'" delete', shell=True, capture_output=True)
+            self.rag_process = None
+            if hasattr(self.ui, 'label_rag_status'):
+                self.ui.label_rag_status.setText('状态：RAG服务未启动')
+            self.toast.show_message('RAG服务已关闭', 1500)
+        except Exception as e:
+            self.toast.show_message(f"关闭RAG失败：{e}", 3000)
+
+    # ===== Live2D 模型选择（启动页） =====
+    def init_live2d_models(self):
+        self.refresh_model_list()
+
+    def scan_live2d_models(self):
+        models = []
+        models_dir = os.path.join(get_app_path(), '2D')
+        if os.path.exists(models_dir):
+            for folder in os.listdir(models_dir):
+                if os.path.isdir(os.path.join(models_dir, folder)):
+                    models.append(folder)
+        return models
+
+    def refresh_model_list(self):
+        combo = getattr(self.ui, 'comboBox_live2d_models', None)
+        if not combo:
+            return
+        models = self.scan_live2d_models()
+        combo.clear()
+        if not models:
+            combo.addItem('未找到任何模型')
+        else:
+            combo.addItems(models)
+        # 读取 main.js 中 priorityFolders 提示当前设置
+        try:
+            main_js_path = os.path.join(get_app_path(), 'main.js')
+            if os.path.exists(main_js_path):
+                with open(main_js_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                m = re.search(r"const\s+priorityFolders\s*=\s*\[(.*?)\]", content, re.S)
+                if m:
+                    # 不改变UI，仅作为后续扩展点
+                    pass
+        except Exception:
+            pass
+
+    # ===== 服务状态检查（可选） =====
+    def check_all_service_status(self):
+        # 如果没有任何状态标签，直接返回
+        has_any = any(hasattr(self.ui, name) for name in ['label_terminal_status','label_asr_status','label_bert_status','label_rag_status'])
+        if not has_any:
+            return
+        self.check_service_status('tts', 5000, 'label_terminal_status')
+        self.check_service_status('asr', 1000, 'label_asr_status')
+        self.check_service_status('bert', 6007, 'label_bert_status')
+        self.check_service_status('rag', 8002, 'label_rag_status')
+
+    def check_service_status(self, service_name: str, port: int, status_label: str):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.8)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            label = getattr(self.ui, status_label, None)
+            if not label:
+                return
+            if result == 0:
+                label.setText(f"状态：{service_name.upper()}服务正在运行")
+                self.update_status_indicator(service_name, True)
+            else:
+                label.setText(f"状态：{service_name.upper()}服务未启动")
+                self.update_status_indicator(service_name, False)
+        except Exception:
+            label = getattr(self.ui, status_label, None)
+            if label:
+                label.setText(f"状态：{service_name.upper()}服务未启动")
+            self.update_status_indicator(service_name, False)
+
+    def update_status_indicator(self, service_name: str, is_running: bool):
+        indicators = {
+            'tts': 'label_tts_status_indicator',
+            'asr': 'label_asr_status_indicator',
+            'bert': 'label_bert_status_indicator',
+            'rag': 'label_rag_status_indicator',
+        }
+        name = indicators.get(service_name)
+        if not name:
+            return
+        indicator = getattr(self.ui, name, None)
+        if indicator:
+            color = '#52c41a' if is_running else '#f5222d'
+            indicator.setStyleSheet(f"background-color:{color};border-radius:6px;min-width:12px;min-height:12px;")
 
     def set_config(self):
         """设置配置到UI控件 - 适配新配置格式"""

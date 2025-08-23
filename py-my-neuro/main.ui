@@ -13,6 +13,91 @@
   <property name="windowTitle">
    <string>AI桌宠控制中心</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(250, 249, 245, 255), stop:0.5 rgba(245, 243, 235, 255), stop:1 rgba(240, 238, 230, 255));
+    border-radius: 25px;
+}
+
+QWidget#centralwidget {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(248, 247, 242, 255), stop:0.3 rgba(242, 240, 232, 255), stop:0.7 rgba(245, 243, 235, 255), stop:1 rgba(250, 248, 240, 255));
+    border-radius: 25px;
+}
+
+QFrame#sidebar {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(235, 233, 225, 200), stop:0.5 rgba(230, 228, 220, 200), stop:1 rgba(225, 223, 215, 200));
+    border: 1px solid rgba(200, 195, 185, 150);
+    border-radius: 20px;
+    margin: 5px;
+}
+
+QPushButton#navButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(220, 218, 210, 180), stop:1 rgba(215, 213, 205, 180));
+    color: rgb(114, 95, 77);
+    text-align: left;
+    padding: 20px 25px;
+    border: 1px solid rgba(180, 175, 165, 120);
+    border-radius: 12px;
+    font-size: 20px;
+    font-family: &quot;Microsoft YaHei&quot;, &quot;SimHei&quot;, sans-serif;
+    font-weight: bold;
+    margin: 5px 0px;
+}
+QPushButton#navButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(210, 205, 195, 220), stop:1 rgba(200, 195, 185, 220));
+    color: rgb(60, 55, 45);
+    border: 1px solid rgba(160, 155, 145, 180);
+}
+QPushButton#navButton:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(190, 185, 175, 255), stop:1 rgba(180, 175, 165, 255));
+    color: rgb(40, 35, 25);
+    font-weight: bold;
+    border: 2px solid rgba(120, 115, 105, 220);
+}
+
+QFrame#contentArea {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(240, 238, 230, 200), stop:0.5 rgba(235, 233, 225, 200), stop:1 rgba(230, 228, 220, 200));
+    border: 1px solid rgba(200, 195, 185, 180);
+    border-radius: 20px;
+    margin: 10px;
+    padding: 0px;
+}
+
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(250, 249, 245, 255), stop:0.5 rgba(248, 247, 242, 255), stop:1 rgba(245, 244, 240, 255));
+    color: rgb(114, 95, 77);
+    font-size: 20px;
+    font-family: &quot;Microsoft YaHei&quot;, &quot;SimHei&quot;, sans-serif;
+}
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(180, 175, 165, 255), stop:1 rgba(170, 165, 155, 255));
+    color: rgb(40, 35, 25);
+}
+
+QPushButton#saveConfigButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(200, 195, 185, 255), stop:0.5 rgba(190, 185, 175, 255), stop:1 rgba(210, 205, 195, 255));
+    color: rgb(70, 65, 55);
+}
+QPushButton#saveConfigButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(170, 165, 155, 255), stop:1 rgba(160, 155, 145, 255));
+    color: rgb(40, 35, 25);
+}
+
+QMenuBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(235, 233, 225, 255), stop:1 rgba(230, 228, 220, 255));
+    color: rgb(70, 65, 55);
+}
+QMenuBar::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(200, 195, 185, 255), stop:1 rgba(180, 175, 165, 255));
+    color: rgb(40, 35, 25);
+}
+
+QStatusBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(235, 233, 225, 255), stop:1 rgba(230, 228, 220, 255));
+    color: rgb(70, 65, 55);
+}
+   </string>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QHBoxLayout" name="horizontalLayout">
     <property name="spacing">
@@ -151,6 +236,19 @@
          </property>
         </widget>
        </item>
+    <item>
+     <widget class="QPushButton" name="pushButton_voice_clone">
+      <property name="objectName">
+       <string>navButton</string>
+      </property>
+      <property name="text">
+       <string>声音克隆</string>
+      </property>
+      <property name="checkable">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
        <item>
         <spacer name="verticalSpacer_2">
          <property name="orientation">
