@@ -179,8 +179,47 @@ QWidget#page_voice_clone QComboBox QAbstractItemView::item:selected {
     <property name="bottomMargin">
      <number>40</number>
     </property>
-    <item>
-     <layout class="QHBoxLayout" name="button_layout">
+   <item>
+    <layout class="QHBoxLayout" name="live2d_model_row">
+     <property name="spacing">
+      <number>20</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="label_live2d_model">
+      <property name="text">
+       <string>Live2D模型选择：</string>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>120</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="objectName">
+       <string>subTitle</string>
+      </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_live2d_models"/>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_live2d">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>40</width>
+        <height>20</height>
+       </size>
+      </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="button_layout">
       <property name="spacing">
        <number>20</number>
       </property>

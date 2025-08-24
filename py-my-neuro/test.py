@@ -494,6 +494,9 @@ class set_pyqt(QWidget):
         self.init_live2d_models()
         # 启动时检查服务状态（若UI存在）
         self.check_all_service_status()
+        # 绑定拖拽上传目标
+        self.setup_drag_drop_targets()
+
 
     def relax_size_constraints(self, root_widget: QWidget):
         """放宽从 .ui 加载的控件的尺寸限制，忽略固定大小设置并启用可伸缩策略。
@@ -611,6 +614,10 @@ class set_pyqt(QWidget):
 
         # 绑定页面中的控件
         self.bind_page_widgets()
+        try:
+            self.log_signal.emit(f"[Live2D] load_pages: stackedWidget 页数={self.ui.stackedWidget.count()}")
+        except Exception:
+            pass
 
     def bind_page_widgets(self):
         """绑定页面中的控件到主UI对象"""
@@ -639,12 +646,37 @@ class set_pyqt(QWidget):
         ]
 
         # 在所有页面中查找并绑定控件
+        combo_found = False
         for i in range(self.ui.stackedWidget.count()):
             page = self.ui.stackedWidget.widget(i)
             for widget_name in widget_names:
                 widget = page.findChild(QWidget, widget_name)
                 if widget:
                     setattr(self.ui, widget_name, widget)
+                    if widget_name == 'comboBox_live2d_models':
+                        combo_found = True
+        if combo_found:
+            try:
+                self.log_signal.emit('[Live2D] bind_page_widgets: 已找到 comboBox_live2d_models 并绑定')
+            except Exception:
+                pass
+        else:
+            try:
+                self.log_signal.emit('[Live2D] bind_page_widgets: 未发现 comboBox_live2d_models')
+            except Exception:
+                pass
+
+    def setup_drag_drop_targets(self):
+        """为声音克隆上传按钮安装事件过滤器以支持拖拽。"""
+        btn_model = getattr(self.ui, 'pushButton_select_model', None)
+        btn_audio = getattr(self.ui, 'pushButton_select_audio', None)
+        for btn in (btn_model, btn_audio):
+            if isinstance(btn, QWidget):
+                try:
+                    btn.setAcceptDrops(True)
+                    btn.installEventFilter(self)
+                except Exception:
+                    pass
 
     def setup_motion_buttons(self):
         """设置动画控制按钮"""
@@ -883,6 +915,26 @@ class set_pyqt(QWidget):
                 self.resize_edge = None
                 self.setCursor(Qt.ArrowCursor)
                 return True
+
+        # 声音克隆页拖拽处理（按钮级）
+        try:
+            if event.type() == QEvent.DragEnter:
+                if obj is getattr(self.ui, 'pushButton_select_model', None) or obj is getattr(self.ui, 'pushButton_select_audio', None):
+                    md = event.mimeData()
+                    if md and md.hasUrls():
+                        # 简单校验扩展名
+                        url = md.urls()[0]
+                        if url.isLocalFile():
+                            fp = url.toLocalFile().lower()
+                            if fp.endswith(('.pth', '.wav')):
+                                event.acceptProposedAction()
+                                return True
+            elif event.type() == QEvent.Drop:
+                if obj is getattr(self.ui, 'pushButton_select_model', None) or obj is getattr(self.ui, 'pushButton_select_audio', None):
+                    self.voice_clone_dropEvent(event)
+                    return True
+        except Exception:
+            pass
 
         return super().eventFilter(obj, event)
 
@@ -1383,39 +1435,198 @@ class set_pyqt(QWidget):
 
     # ===== Live2D 模型选择（启动页） =====
     def init_live2d_models(self):
+        try:
+            self.log_signal.emit('[Live2D] 初始化模型下拉...')
+        except Exception:
+            pass
         self.refresh_model_list()
+        combo = self.get_live2d_combo()
+        if combo:
+            try:
+                combo.currentTextChanged.connect(self.on_live2d_model_changed)
+                self.log_signal.emit('[Live2D] 下拉框信号绑定完成')
+            except Exception as e:
+                try:
+                    self.log_signal.emit(f'[Live2D] 绑定信号失败: {e}')
+                except Exception:
+                    pass
+        else:
+            try:
+                self.log_signal.emit('[Live2D] 未找到下拉框控件 comboBox_live2d_models')
+            except Exception:
+                pass
 
     def scan_live2d_models(self):
         models = []
-        models_dir = os.path.join(get_app_path(), '2D')
-        if os.path.exists(models_dir):
-            for folder in os.listdir(models_dir):
-                if os.path.isdir(os.path.join(models_dir, folder)):
-                    models.append(folder)
+        # 首选 live-2d/2D 目录（位于工作区根目录下）
+        candidates = [
+            os.path.join(get_base_path(), 'live-2d', '2D'),
+            # 兜底：当前应用目录下的 2D（如果有人放在这里）
+            os.path.join(get_app_path(), '2D'),
+            # 兜底：工作区根目录直接存在 2D 目录
+            os.path.join(get_base_path(), '2D'),
+        ]
+        seen = set()
+        try:
+            self.log_signal.emit('[Live2D] 扫描模型目录:')
+            for d in candidates:
+                self.log_signal.emit(f'  - {d}  exists={os.path.exists(d)}')
+        except Exception:
+            pass
+        for models_dir in candidates:
+            if os.path.exists(models_dir):
+                try:
+                    for folder in os.listdir(models_dir):
+                        full = os.path.join(models_dir, folder)
+                        if os.path.isdir(full) and folder not in seen:
+                            seen.add(folder)
+                            models.append(folder)
+                except Exception as e:
+                    try:
+                        self.log_signal.emit(f'[Live2D] 列表目录失败 {models_dir}: {e}')
+                    except Exception:
+                        pass
+        try:
+            self.log_signal.emit(f'[Live2D] 共发现模型: {len(models)} -> {models}')
+        except Exception:
+            pass
         return models
 
     def refresh_model_list(self):
-        combo = getattr(self.ui, 'comboBox_live2d_models', None)
+        combo = self.get_live2d_combo()
         if not combo:
+            try:
+                self.log_signal.emit('[Live2D] refresh_model_list: 未找到下拉框，跳过')
+            except Exception:
+                pass
             return
         models = self.scan_live2d_models()
         combo.clear()
         if not models:
             combo.addItem('未找到任何模型')
+            try:
+                self.log_signal.emit('[Live2D] 未找到任何模型，已填充占位项')
+            except Exception:
+                pass
         else:
             combo.addItems(models)
+            try:
+                self.log_signal.emit(f'[Live2D] 已填充 {len(models)} 个模型到下拉框')
+            except Exception:
+                pass
         # 读取 main.js 中 priorityFolders 提示当前设置
         try:
-            main_js_path = os.path.join(get_app_path(), 'main.js')
+            # 读取 live-2d/main.js（优先）
+            main_js_path = os.path.join(get_base_path(), 'live-2d', 'main.js')
             if os.path.exists(main_js_path):
                 with open(main_js_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                 m = re.search(r"const\s+priorityFolders\s*=\s*\[(.*?)\]", content, re.S)
-                if m:
-                    # 不改变UI，仅作为后续扩展点
+                # 若配置中有保存的模型名，优先选中
+                ui_conf = self.config.get('ui', {}) if isinstance(self.config, dict) else {}
+                preferred = ui_conf.get('live2d_model') if isinstance(ui_conf, dict) else None
+                try:
+                    self.log_signal.emit(f'[Live2D] main.js 路径: {main_js_path}  hasPref={bool(preferred)}  preferred={preferred}')
+                except Exception:
                     pass
+                if preferred and preferred in models:
+                    idx = combo.findText(preferred)
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+                        try:
+                            self.log_signal.emit(f'[Live2D] 已根据配置选中: {preferred}')
+                        except Exception:
+                            pass
         except Exception:
             pass
+
+    def get_live2d_combo(self):
+        """稳健地找到 Live2D 下拉框，优先使用已绑定属性，否则全局查找。"""
+        combo = getattr(self.ui, 'comboBox_live2d_models', None)
+        if combo:
+            return combo
+        try:
+            combo = self.ui.findChild(QComboBox, 'comboBox_live2d_models')
+            if combo:
+                setattr(self.ui, 'comboBox_live2d_models', combo)
+                try:
+                    self.log_signal.emit('[Live2D] 通过 findChild 找到 comboBox_live2d_models')
+                except Exception:
+                    pass
+                return combo
+        except Exception:
+            pass
+        # 兜底：遍历所有页查找
+        try:
+            for i in range(self.ui.stackedWidget.count()):
+                page = self.ui.stackedWidget.widget(i)
+                combo = page.findChild(QComboBox, 'comboBox_live2d_models')
+                if combo:
+                    setattr(self.ui, 'comboBox_live2d_models', combo)
+                    try:
+                        self.log_signal.emit('[Live2D] 在某个页面中找到 comboBox_live2d_models')
+                    except Exception:
+                        pass
+                    return combo
+        except Exception:
+            pass
+        return None
+
+    def on_live2d_model_changed(self, model_name: str):
+        """当下拉选中改变时：写入配置并尝试更新 main.js 的 priorityFolders。"""
+        if not model_name or model_name == '未找到任何模型':
+            return
+        # 更新内存配置并保存
+        if 'ui' not in self.config:
+            self.config['ui'] = {}
+        self.config['ui']['live2d_model'] = model_name
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
+        # 写 main.js
+        try:
+            self._write_priority_folder_to_main_js(model_name)
+        except Exception:
+            pass
+
+    def _write_priority_folder_to_main_js(self, model_name: str):
+        """将所选模型写入 main.js 的 priorityFolders 首位，保留其余顺序。"""
+        # 定位到 live-2d/main.js
+        main_js_path = os.path.join(get_base_path(), 'live-2d', 'main.js')
+        if not os.path.exists(main_js_path):
+            try:
+                self.log_signal.emit(f'[Live2D] 未找到 main.js: {main_js_path}')
+            except Exception:
+                pass
+            return
+        try:
+            with open(main_js_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # 提取现有列表
+            m = re.search(r"(const\s+priorityFolders\s*=\s*)\[(.*?)\]", content, re.S)
+            models = self.scan_live2d_models()
+            others = [x for x in models if x != model_name]
+            new_list = ', '.join([f'"{model_name}"'] + [f'"{x}"' for x in others])
+            if m:
+                prefix = m.group(1)
+                new_content = re.sub(r"const\s+priorityFolders\s*=\s*\[(.*?)\]",
+                                     f"{prefix}[{new_list}]", content, flags=re.S)
+            else:
+                # 不存在则在文件顶部插入一行声明
+                new_content = f"const priorityFolders = [{new_list}];\n" + content
+            with open(main_js_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            try:
+                self.log_signal.emit(f'[Live2D] 已更新 main.js priorityFolders -> 首选: {model_name}')
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self.log_signal.emit('[Live2D] 写 main.js 失败')
+            except Exception:
+                pass
 
     # ===== 服务状态检查（可选） =====
     def check_all_service_status(self):
@@ -1510,6 +1721,16 @@ class set_pyqt(QWidget):
         self.ui.checkBox_asr.setChecked(inputs.get('asr', {}).get('enabled', True))
         self.ui.checkBox_tts.setChecked(features.get('cut_text_tts', True))
 
+        # Live2D模型下拉回显
+        combo = getattr(self.ui, 'comboBox_live2d_models', None)
+        if combo:
+            ui_conf = self.config.get('ui', {})
+            preferred = ui_conf.get('live2d_model') if isinstance(ui_conf, dict) else None
+            if preferred is not None:
+                idx = combo.findText(preferred)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+
     def save_config(self):
         """保存配置 - 适配新配置格式"""
         current_config = self.load_config()
@@ -1589,6 +1810,20 @@ class set_pyqt(QWidget):
             if key not in current_config['features']:
                 current_config['features'][key] = value
 
+        # 保存 Live2D 模型选择
+        combo = getattr(self.ui, 'comboBox_live2d_models', None)
+        if combo:
+            if 'ui' not in current_config:
+                current_config['ui'] = {}
+            name = combo.currentText().strip()
+            if name and name != '未找到任何模型':
+                current_config['ui']['live2d_model'] = name
+                # 同步写 main.js
+                try:
+                    self._write_priority_folder_to_main_js(name)
+                except Exception:
+                    pass
+
         # 保存配置文件
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(current_config, f, ensure_ascii=False, indent=4)
@@ -1615,8 +1850,9 @@ class set_pyqt(QWidget):
     def start_mcp(self):
         """启动MCP服务器"""
         try:
-            import os
-            mcp_path = ".\\server-tools"
+            # live-2d 下的 server-tools
+            root_dir = os.path.dirname(get_app_path())
+            mcp_path = os.path.join(root_dir, 'live-2d', 'server-tools')
             server_file = os.path.join(mcp_path, "server.js")
 
             # 检查文件是否存在
@@ -1661,10 +1897,8 @@ class set_pyqt(QWidget):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 startupinfo=startupinfo,
-                # 关键变化: 不使用universal_newlines，不指定encoding
-                # 使用二进制模式读取输出
                 universal_newlines=False,
-                bufsize=0,  # 无缓冲
+                bufsize=0,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
             )
 
