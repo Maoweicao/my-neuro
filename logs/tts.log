@@ -1,12 +1,1 @@
-WARNING:  未指定GPT模型路径, fallback后当前值: GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt
-INFO:     默认参考音频路径: F:\my-neuro\live-2d\Voice_Model_Factory\参考语音1.wav
-INFO:     默认参考音频文本: 您可以在军械库控制台来购买升级方案，完成任务会获得资金奖励，并解锁新的单位。通过军械库控制台购买的升级方案能永久使用，无需再次购买或在战场上研究。有时也能通过军械库控制台购买新的单位，此类为永久购买，您可以在执行任务时生成或训练他们。
-INFO:     默认参考音频语种: zh
-INFO:     半精: True
-INFO:     编码格式: wav
-sovits版本: v2
-INFO:     Number of parameter: 77.49M
-INFO:     Started server process [25388]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+
