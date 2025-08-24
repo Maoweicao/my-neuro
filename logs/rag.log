@@ -1,1 +1,11 @@
+F:\my-neuro\run_rag.py:117: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
 
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [20392]
+INFO:     Waiting for application startup.
+启动BGE API服务...
+加载模型...

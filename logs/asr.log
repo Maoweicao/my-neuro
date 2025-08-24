@@ -1,1 +1,10 @@
-
+INFO:     Started server process [9828]
+INFO:     Waiting for application startup.
+正在加载模型...
+VAD模型目录已存在，跳过下载步骤
+正在从本地加载VAD模型...
+VAD模型加载完成
+正在加载ASR模型...
+funasr version: 1.2.7.
+Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
+You are using the latest version of funasr-1.2.7

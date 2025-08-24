@@ -1013,6 +1013,130 @@ QWidget#page_voice_clone QComboBox QAbstractItemView::item:selected {
      </layout>
     </widget>
 
+   <!-- 终端控制室页面 -->
+   <widget class="QWidget" name="page_terminal_room">
+    <layout class="QHBoxLayout" name="terminal_room_layout">
+      <property name="spacing"><number>20</number></property>
+      <property name="leftMargin"><number>20</number></property>
+      <property name="topMargin"><number>20</number></property>
+      <property name="rightMargin"><number>20</number></property>
+      <property name="bottomMargin"><number>20</number></property>
+
+      <!-- 左侧四个面板 -->
+      <item>
+       <layout class="QVBoxLayout" name="terminal_panels">
+         <property name="spacing"><number>18</number></property>
+      
+         <!-- TTS -->
+         <item>
+          <widget class="QGroupBox" name="group_tts">
+            <property name="title"><string>🎵 TTS语音合成</string></property>
+            <layout class="QVBoxLayout" name="group_tts_layout">
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="label_tts_title"><property name="text"><string>状态：TTS服务未启动</string></property><property name="objectName"><string>label_terminal_status</string></property></widget></item>
+             <item>
+               <layout class="QHBoxLayout" name="row_tts_btns">
+                <item><widget class="QPushButton" name="pushButton_start_terminal"><property name="text"><string>启动TTS</string></property></widget></item>
+                <item><widget class="QPushButton" name="pushButton_stop_terminal"><property name="text"><string>停止TTS</string></property></widget></item>
+               </layout>
+             </item>
+            </layout>
+          </widget>
+         </item>
+
+         <!-- ASR -->
+         <item>
+          <widget class="QGroupBox" name="group_asr">
+            <property name="title"><string>🎙️ ASR语音识别</string></property>
+            <layout class="QVBoxLayout" name="group_asr_layout">
+             <item><widget class="QLabel" name="label_asr_status"><property name="text"><string>状态：ASR服务未启动</string></property></widget></item>
+             <item>
+               <layout class="QHBoxLayout" name="row_asr_btns">
+                <item><widget class="QPushButton" name="pushButton_start_asr"><property name="text"><string>启动ASR</string></property></widget></item>
+                <item><widget class="QPushButton" name="pushButton_stop_asr"><property name="text"><string>停止ASR</string></property></widget></item>
+               </layout>
+             </item>
+            </layout>
+          </widget>
+         </item>
+
+         <!-- BERT -->
+         <item>
+          <widget class="QGroupBox" name="group_bert">
+            <property name="title"><string>🤖 BERT模型服务</string></property>
+            <layout class="QVBoxLayout" name="group_bert_layout">
+             <item><widget class="QLabel" name="label_bert_status"><property name="text"><string>状态：BERT服务未启动</string></property></widget></item>
+             <item>
+               <layout class="QHBoxLayout" name="row_bert_btns">
+                <item><widget class="QPushButton" name="pushButton_start_bert"><property name="text"><string>启动BERT</string></property></widget></item>
+                <item><widget class="QPushButton" name="pushButton_stop_bert"><property name="text"><string>停止BERT</string></property></widget></item>
+               </layout>
+             </item>
+            </layout>
+          </widget>
+         </item>
+
+         <!-- RAG -->
+         <item>
+          <widget class="QGroupBox" name="group_rag">
+            <property name="title"><string>📚 RAG知识库</string></property>
+            <layout class="QVBoxLayout" name="group_rag_layout">
+             <item><widget class="QLabel" name="label_rag_status"><property name="text"><string>状态：RAG服务未启动</string></property></widget></item>
+             <item>
+               <layout class="QHBoxLayout" name="row_rag_btns">
+                <item><widget class="QPushButton" name="pushButton_start_rag"><property name="text"><string>启动</string></property></widget></item>
+                <item><widget class="QPushButton" name="pushButton_stop_rag"><property name="text"><string>停止</string></property></widget></item>
+               </layout>
+             </item>
+            </layout>
+          </widget>
+         </item>
+
+         <item>
+          <spacer name="terminal_left_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer>
+         </item>
+       </layout>
+      </item>
+
+      <!-- 右侧日志选项卡 -->
+      <item>
+       <widget class="QTabWidget" name="tabWidget_terminal_logs">
+         <property name="tabPosition"><enum>QTabWidget::North</enum></property>
+         <property name="currentIndex"><number>0</number></property>
+
+         <widget class="QWidget" name="tab_tts_log">
+          <attribute name="title"><string>🎵 TTS日志</string></attribute>
+          <layout class="QVBoxLayout" name="tab_tts_log_layout">
+            <item><widget class="QTextEdit" name="textEdit_tts_log"><property name="readOnly"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+
+         <widget class="QWidget" name="tab_asr_log">
+          <attribute name="title"><string>🎙️ ASR日志</string></attribute>
+          <layout class="QVBoxLayout" name="tab_asr_log_layout">
+            <item><widget class="QTextEdit" name="textEdit_asr_log"><property name="readOnly"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+
+         <widget class="QWidget" name="tab_bert_log">
+          <attribute name="title"><string>🤖 BERT日志</string></attribute>
+          <layout class="QVBoxLayout" name="tab_bert_log_layout">
+            <item><widget class="QTextEdit" name="textEdit_bert_log"><property name="readOnly"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+
+         <widget class="QWidget" name="tab_rag_log">
+          <attribute name="title"><string>📚 RAG日志</string></attribute>
+          <layout class="QVBoxLayout" name="tab_rag_log_layout">
+            <item><widget class="QTextEdit" name="textEdit_rag_log"><property name="readOnly"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+
+       </widget>
+      </item>
+    </layout>
+   </widget>
+
  </widget>
  <resources/>
  <connections/>

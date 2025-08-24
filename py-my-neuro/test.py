@@ -112,6 +112,49 @@ class LogReader(QThread):
         self.running = False
 
 
+class ProcessReader(QThread):
+    """读取子进程标准输出/错误的线程，按行发射到UI。"""
+    line_signal = pyqtSignal(str)
+
+    def __init__(self, process: subprocess.Popen, poll_interval: float = 0.05):
+        super().__init__()
+        self.process = process
+        self.poll_interval = poll_interval
+        self.running = True
+
+    def run(self):
+        try:
+            encodings = ['utf-8', 'gbk', 'ansi', 'latin-1']
+            stdout = self.process.stdout
+            if stdout is None:
+                return
+            while self.running:
+                line = stdout.readline()
+                if not line:
+                    if self.process.poll() is not None:
+                        break
+                    self.msleep(int(self.poll_interval * 1000))
+                    continue
+                text = None
+                if isinstance(line, bytes):
+                    for enc in encodings:
+                        try:
+                            text = line.decode(enc)
+                            break
+                        except Exception:
+                            continue
+                    if text is None:
+                        text = line.decode('latin-1', errors='replace')
+                else:
+                    text = str(line)
+                self.line_signal.emit(text.rstrip('\r\n'))
+        except Exception:
+            pass
+
+    def stop(self):
+        self.running = False
+
+
 class ToastNotification(QLabel):
     """自定义Toast提示"""
 
@@ -340,6 +383,7 @@ class set_pyqt(QWidget):
 
         # 新增：日志读取器与日志路径
         self.log_readers = {}
+        self.proc_readers = {}
         self.log_file_paths = {
             'asr': os.path.join('..', 'logs', 'asr.log'),
             'tts': os.path.join('..', 'logs', 'tts.log'),
@@ -554,7 +598,10 @@ class set_pyqt(QWidget):
         pages_widget = uic.loadUi('pages.ui')
 
         # 提取各个页面并添加到stackedWidget
-        page_names = ['page', 'page_2', 'page_3', 'page_dialog', 'page_5', 'page_6', 'page_4', 'page_voice_clone']
+        page_names = [
+            'page', 'page_2', 'page_3', 'page_dialog', 'page_5', 'page_6',
+            'page_4', 'page_voice_clone', 'page_terminal_room'
+        ]
 
         for page_name in page_names:
             page = getattr(pages_widget, page_name)
@@ -939,6 +986,19 @@ class set_pyqt(QWidget):
                         self.ui.stackedWidget.setCurrentIndex(i)
                         return
             self.ui.pushButton_voice_clone.clicked.connect(goto_voice_clone)
+        # 新增：终端控制室跳转
+        if hasattr(self.ui, 'pushButton_terminal_room'):
+            def goto_terminal_room():
+                page = getattr(self.ui, 'page_terminal_room', None)
+                if page:
+                    self.ui.stackedWidget.setCurrentWidget(page)
+                    return
+                for i in range(self.ui.stackedWidget.count()):
+                    w = self.ui.stackedWidget.widget(i)
+                    if w.objectName() == 'page_terminal_room':
+                        self.ui.stackedWidget.setCurrentIndex(i)
+                        return
+            self.ui.pushButton_terminal_room.clicked.connect(goto_terminal_room)
 
     def clear_logs(self):
         """清空日志功能"""
@@ -1138,17 +1198,24 @@ class set_pyqt(QWidget):
             if not os.path.exists(bat_file):
                 self.toast.show_message('未找到 TTS.bat', 1500)
                 return
-            log_file = self._ensure_log_file('tts')
-            if 'tts' in self.log_readers:
+            # 启动进程并捕获控制台输出
+            if 'tts' in self.proc_readers:
                 try:
-                    self.log_readers['tts'].stop()
+                    self.proc_readers['tts'].stop()
                 except Exception:
                     pass
-            if log_file:
-                self.log_readers['tts'] = LogReader(log_file)
-                self.log_readers['tts'].log_signal.connect(lambda t: self.update_service_log('tts', t))
-                self.log_readers['tts'].start()
-            self.terminal_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            self.terminal_process = subprocess.Popen(
+                bat_file,
+                shell=True,
+                cwd=base_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+            self.proc_readers['tts'] = ProcessReader(self.terminal_process)
+            self.proc_readers['tts'].line_signal.connect(lambda t: self.update_service_log('tts', t))
+            self.proc_readers['tts'].start()
             if hasattr(self.ui, 'label_terminal_status'):
                 self.ui.label_terminal_status.setText('状态：TTS服务正在运行')
             self.toast.show_message('TTS服务启动成功', 1500)
@@ -1157,9 +1224,9 @@ class set_pyqt(QWidget):
 
     def stop_terminal(self):
         try:
-            if 'tts' in self.log_readers:
+            if 'tts' in self.proc_readers:
                 try:
-                    self.log_readers['tts'].stop()
+                    self.proc_readers['tts'].stop()
                 except Exception:
                     pass
             subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%TTS%\'" delete', shell=True, capture_output=True)
@@ -1180,17 +1247,23 @@ class set_pyqt(QWidget):
             if not os.path.exists(bat_file):
                 self.toast.show_message('未找到 ASR.bat', 1500)
                 return
-            log_file = self._ensure_log_file('asr')
-            if 'asr' in self.log_readers:
+            if 'asr' in self.proc_readers:
                 try:
-                    self.log_readers['asr'].stop()
+                    self.proc_readers['asr'].stop()
                 except Exception:
                     pass
-            if log_file:
-                self.log_readers['asr'] = LogReader(log_file)
-                self.log_readers['asr'].log_signal.connect(lambda t: self.update_service_log('asr', t))
-                self.log_readers['asr'].start()
-            self.asr_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            self.asr_process = subprocess.Popen(
+                bat_file,
+                shell=True,
+                cwd=base_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+            self.proc_readers['asr'] = ProcessReader(self.asr_process)
+            self.proc_readers['asr'].line_signal.connect(lambda t: self.update_service_log('asr', t))
+            self.proc_readers['asr'].start()
             if hasattr(self.ui, 'label_asr_status'):
                 self.ui.label_asr_status.setText('状态：ASR服务正在运行')
             self.toast.show_message('ASR服务启动成功', 1500)
@@ -1199,9 +1272,9 @@ class set_pyqt(QWidget):
 
     def stop_asr(self):
         try:
-            if 'asr' in self.log_readers:
+            if 'asr' in self.proc_readers:
                 try:
-                    self.log_readers['asr'].stop()
+                    self.proc_readers['asr'].stop()
                 except Exception:
                     pass
             subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%ASR%\'" delete', shell=True, capture_output=True)
@@ -1222,17 +1295,23 @@ class set_pyqt(QWidget):
             if not os.path.exists(bat_file):
                 self.toast.show_message('未找到 bert.bat', 1500)
                 return
-            log_file = self._ensure_log_file('bert')
-            if 'bert' in self.log_readers:
+            if 'bert' in self.proc_readers:
                 try:
-                    self.log_readers['bert'].stop()
+                    self.proc_readers['bert'].stop()
                 except Exception:
                     pass
-            if log_file:
-                self.log_readers['bert'] = LogReader(log_file)
-                self.log_readers['bert'].log_signal.connect(lambda t: self.update_service_log('bert', t))
-                self.log_readers['bert'].start()
-            self.bert_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            self.bert_process = subprocess.Popen(
+                bat_file,
+                shell=True,
+                cwd=base_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+            self.proc_readers['bert'] = ProcessReader(self.bert_process)
+            self.proc_readers['bert'].line_signal.connect(lambda t: self.update_service_log('bert', t))
+            self.proc_readers['bert'].start()
             if hasattr(self.ui, 'label_bert_status'):
                 self.ui.label_bert_status.setText('状态：BERT服务正在运行')
             self.toast.show_message('BERT服务启动成功', 1500)
@@ -1241,9 +1320,9 @@ class set_pyqt(QWidget):
 
     def stop_bert(self):
         try:
-            if 'bert' in self.log_readers:
+            if 'bert' in self.proc_readers:
                 try:
-                    self.log_readers['bert'].stop()
+                    self.proc_readers['bert'].stop()
                 except Exception:
                     pass
             subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%bert%\'" delete', shell=True, capture_output=True)
@@ -1264,17 +1343,23 @@ class set_pyqt(QWidget):
             if not os.path.exists(bat_file):
                 self.toast.show_message('未找到 RAG.bat', 1500)
                 return
-            log_file = self._ensure_log_file('rag')
-            if 'rag' in self.log_readers:
+            if 'rag' in self.proc_readers:
                 try:
-                    self.log_readers['rag'].stop()
+                    self.proc_readers['rag'].stop()
                 except Exception:
                     pass
-            if log_file:
-                self.log_readers['rag'] = LogReader(log_file)
-                self.log_readers['rag'].log_signal.connect(lambda t: self.update_service_log('rag', t))
-                self.log_readers['rag'].start()
-            self.rag_process = subprocess.Popen(bat_file, shell=True, cwd=base_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            self.rag_process = subprocess.Popen(
+                bat_file,
+                shell=True,
+                cwd=base_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=False,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+            self.proc_readers['rag'] = ProcessReader(self.rag_process)
+            self.proc_readers['rag'].line_signal.connect(lambda t: self.update_service_log('rag', t))
+            self.proc_readers['rag'].start()
             if hasattr(self.ui, 'label_rag_status'):
                 self.ui.label_rag_status.setText('状态：RAG服务正在运行')
             self.toast.show_message('RAG服务启动成功', 1500)
@@ -1283,9 +1368,9 @@ class set_pyqt(QWidget):
 
     def stop_rag(self):
         try:
-            if 'rag' in self.log_readers:
+            if 'rag' in self.proc_readers:
                 try:
-                    self.log_readers['rag'].stop()
+                    self.proc_readers['rag'].stop()
                 except Exception:
                     pass
             subprocess.run('wmic process where "name=\'python.exe\' and commandline like \'%RAG%\'" delete', shell=True, capture_output=True)

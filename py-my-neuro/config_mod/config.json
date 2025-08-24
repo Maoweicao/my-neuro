@@ -27,7 +27,7 @@
             "real_time": true
         },
         "keyboard": {
-            "enabled": false,
+            "enabled": true,
             "priority": 2
         },
         "danmu": {
