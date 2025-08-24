@@ -76,3 +76,33 @@ dist/
 venv/
 env/
 ai_live2d/test/1.wav
+ai_live2d/RAG/models_for_rag/models--cross-encoder--mmarco-mMiniLMv2-L12-H384-v1/snapshots/1427fd652930e4ba29e8149678df786c240d8825/model.safetensors
+ai_live2d/RAG/models_for_rag/models--cross-encoder--mmarco-mMiniLMv2-L12-H384-v1/snapshots/1427fd652930e4ba29e8149678df786c240d8825/sentencepiece.bpe.model
+# Ignore large model artifacts and local caches
+ai_live2d/RAG/models_for_rag/
+ai_live2d/models/
+
+# Common ML model formats (prevent accidental commits)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pb
+*.h5
+*.tflite
+*.gguf
+*.ggml
+*.model
+*.bpe.model
+
+# Test assets
+ai_live2d/test/*.wav
+
+# venvs and lock files
+.venv/
+venv/
+__pycache__/
+*.pyc
+.python-version
