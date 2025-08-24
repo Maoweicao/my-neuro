@@ -6,22 +6,22 @@ INFO:     半精: True
 INFO:     编码格式: wav
 sovits版本: v2
 INFO:     Number of parameter: 77.49M
-INFO:     Started server process [1592]
+INFO:     Started server process [34636]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:62908 - "POST / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58881 - "POST / HTTP/1.1" 200 OK
 当前使用g2pw进行拼音推理
 Building prefix dict from the default dictionary ...
 DEBUG:jieba_fast:Building prefix dict from the default dictionary ...
 Loading model from cache C:\Users\MAOWEI~1\AppData\Local\Temp\jieba.cache
 DEBUG:jieba_fast:Loading model from cache C:\Users\MAOWEI~1\AppData\Local\Temp\jieba.cache
-Loading model cost 0.764 seconds.
-DEBUG:jieba_fast:Loading model cost 0.764 seconds.
+Loading model cost 0.806 seconds.
+DEBUG:jieba_fast:Loading model cost 0.806 seconds.
 Prefix dict has been built succesfully.
 DEBUG:jieba_fast:Prefix dict has been built succesfully.
-  0%|                                                                                         | 0/1500 [00:00<?, ?it/s]  0%|                                                                                 | 1/1500 [00:00<03:51,  6.48it/s]  0%|3                                                                                | 7/1500 [00:00<00:49, 30.19it/s]  1%|7                                                                               | 14/1500 [00:00<00:34, 43.65it/s]T2S Decoding EOS [243 -> 263]
-  1%|#                                                                               | 19/1500 [00:00<00:37, 39.74it/s]
-INFO:     127.0.0.1:62908 - "POST / HTTP/1.1" 200 OK
-  0%|                                                                                         | 0/1500 [00:00<?, ?it/s]  0%|3                                                                                | 6/1500 [00:00<00:28, 52.10it/s]  1%|6                                                                               | 12/1500 [00:00<00:27, 53.67it/s]  1%|9                                                                               | 18/1500 [00:00<00:26, 55.68it/s]  2%|#3                                                                              | 25/1500 [00:00<00:25, 58.53it/s]  2%|#7                                                                              | 32/1500 [00:00<00:24, 59.89it/s]  3%|##                                                                              | 39/1500 [00:00<00:23, 61.05it/s]T2S Decoding EOS [243 -> 284]
-  3%|##1                                                                             | 40/1500 [00:00<00:25, 57.64it/s]
+  0%|          | 0/1500 [00:00<?, ?it/s]  0%|          | 1/1500 [00:00<04:18,  5.81it/s]  0%|          | 6/1500 [00:00<01:01, 24.39it/s]  1%|          | 11/1500 [00:00<00:46, 32.15it/s]  1%|1         | 16/1500 [00:00<00:40, 36.96it/s]T2S Decoding EOS [243 -> 261]
+  1%|1         | 17/1500 [00:00<00:48, 30.69it/s]
+INFO:     127.0.0.1:58881 - "POST / HTTP/1.1" 200 OK
+  0%|          | 0/1500 [00:00<?, ?it/s]  0%|          | 5/1500 [00:00<00:33, 44.03it/s]  1%|          | 10/1500 [00:00<00:32, 46.17it/s]  1%|1         | 16/1500 [00:00<00:30, 49.21it/s]  1%|1         | 22/1500 [00:00<00:28, 52.56it/s]  2%|1         | 28/1500 [00:00<00:27, 53.85it/s]T2S Decoding EOS [243 -> 272]
+  2%|1         | 28/1500 [00:00<00:29, 50.10it/s]

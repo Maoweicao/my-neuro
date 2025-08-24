@@ -80,26 +80,79 @@ class BatWorker(QThread):
     def run(self):
         """执行BAT文件并实时捕获输出"""
         try:
-            self.process = subprocess.Popen(
-                self.bat_path,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=True,
-                text=True,
-                encoding='utf-8',  # Windows中文环境常用编码
-                bufsize=1
-            )
-            
+            # 如果是 .bat，优先用 PowerShell 点源 Run-MyNeuro.ps1 或 .venv 激活后再执行
+            if isinstance(self.bat_path, str) and self.bat_path.lower().endswith('.bat'):
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                bat_dir = os.path.dirname(os.path.abspath(self.bat_path))
+                bat_abs = os.path.abspath(self.bat_path)
+                # PowerShell 单引号内转义：将 ' 替换为 ''
+                bat_ps = bat_abs.replace("'", "''")
+                ps_cmd = (
+                    "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                    "\"& {"
+                    " $ErrorActionPreference='Continue';"
+                    f" $base = '{base_dir}';"
+                    " $run = Join-Path $base 'Run-MyNeuro.ps1';"
+                    " $usedRun = $false;"
+                    " if (Test-Path $run) { . $run; $usedRun = $true }"
+                    " elseif (Test-Path (Join-Path $base '.venv\\Scripts\\Activate.ps1')) { . (Join-Path $base '.venv\\Scripts\\Activate.ps1') }"
+                    " if ($usedRun -and $env:VIRTUAL_ENV) {"
+                    "   Write-Host '解除上层VIRTUAL_ENV以优先使用my-neuro环境';"
+                    "   $env:PATH = ($env:PATH -split ';' | Where-Object {$_ -notlike '*ai_live2d\\.venv*'}) -join ';';"
+                    "   $env:VIRTUAL_ENV = $null;"
+                    " }"
+                    f"; Set-Location -Path '{bat_dir}';"
+                    "; Write-Host '=== 环境检查 ===';"
+                    "; Write-Host ('PWD: ' + (Get-Location).Path);"
+                    "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
+                    "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
+                    "; Get-Command python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('python cmd: ' + $_.Source) };"
+                    "; & python -c 'import sys, importlib.util as u; print(\"python:\", sys.version); print(\"pip:\", \"ok\" if u.find_spec(\"pip\") else \"missing\"); print(\"py3langid:\", \"ok\" if u.find_spec(\"py3langid\") else \"missing\")';"
+                    "; Write-Host '=== 启动脚本 ===';"
+                    f" & '{bat_ps}'"
+                    " }\""
+                )
+                # 强制切换到 UTF-8 代码页后再执行，避免中文乱码
+                wrapped = f"chcp 65001 >NUL & {ps_cmd}"
+                self.process = subprocess.Popen(
+                    wrapped,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    shell=True,
+                    bufsize=0,
+                    cwd=bat_dir
+                )
+            else:
+                wrapped = f"chcp 65001 >NUL & {self.bat_path}"
+                self.process = subprocess.Popen(
+                    wrapped,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    shell=True,
+                    bufsize=0
+                )
+
             # 实时读取输出
-            while self.is_running:
-                output = self.process.stdout.readline()
-                if not output:
+            while self.is_running and self.process and self.process.stdout:
+                raw = self.process.stdout.readline()
+                if not raw:
                     break
+                if isinstance(raw, bytes):
+                    try:
+                        s = raw.decode('utf-8')
+                    except UnicodeDecodeError:
+                        try:
+                            s = raw.decode('gbk', errors='replace')
+                        except Exception:
+                            s = raw.decode('utf-8', errors='replace')
+                else:
+                    s = raw
+                s = s.strip()
                 # 打印带颜色的输出到控制台
-                self.print_colored(output.strip())
+                self.print_colored(s)
                 # 发送原始输出到UI
-                self.output_signal.emit(output.strip())
-            
+                self.output_signal.emit(s)
+
             # 等待进程结束
             if self.process:
                 self.process.wait()
@@ -107,7 +160,6 @@ class BatWorker(QThread):
             self.output_signal.emit(f"错误: {str(e)}")
         finally:
             self.finished_signal.emit()
-
     def print_colored(self, text):
         """根据日志级别打印带颜色的文本"""
         if "DEBUG" in text:
@@ -259,6 +311,23 @@ class Interface(ScrollArea):
         if event.type() == QEvent.LayoutRequest:
             self.updateButtonPosition()
         return super().event(event)
+
+    # --- Default no-op handlers for subclasses that don't use floating buttons ---
+    def save_config(self):
+        """Default stub: subclasses can override. Keeps signal connections valid."""
+        pass
+
+    def reload_config(self):
+        """Default stub: subclasses can override."""
+        pass
+
+    def start_bat_msg(self):
+        """Default stub: subclasses can override."""
+        pass
+
+    def close_bat_msg(self):
+        """Default stub: subclasses can override."""
+        pass
 
 class Widget(Interface):
 
@@ -1102,6 +1171,215 @@ class SystemTrayIcon(QSystemTrayIcon):
         self.parent().show()
         
 
+class StreamReader(QThread):
+    """读取子进程标准输出的线程"""
+    line = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, proc: subprocess.Popen):
+        super().__init__()
+        self.proc = proc
+        self._running = True
+
+    def run(self):
+        try:
+            while self._running and self.proc and self.proc.poll() is None:
+                raw = self.proc.stdout.readline()
+                if not raw:
+                    break
+                if isinstance(raw, bytes):
+                    try:
+                        s = raw.decode('utf-8')
+                    except UnicodeDecodeError:
+                        try:
+                            s = raw.decode('gbk', errors='replace')
+                        except Exception:
+                            s = raw.decode('utf-8', errors='replace')
+                else:
+                    s = raw
+                self.line.emit(s.rstrip())
+            if self.proc:
+                self.proc.wait()
+        finally:
+            self.finished.emit()
+
+    def stop(self):
+        self._running = False
+
+
+class TerminalRoom(Interface):
+    """终端控制室：两列布局，左侧控制，右侧日志标签"""
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName('Terminal-Room')
+        # 浮动按钮对该页无意义
+        self.saveButton.hide()
+        self.reloadButton.hide()
+        self.startButton.hide()
+        self.closeButton.hide()
+
+        # 进程与读取器
+        self.processes = {}
+        self.readers = {}
+
+        # bat 路径（项目根目录）
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        self.bats = {
+            'tts': os.path.join(base_dir, 'TTS.bat'),
+            'asr': os.path.join(base_dir, 'ASR.bat'),
+            'bert': os.path.join(base_dir, 'bert.bat'),
+            'rag': os.path.join(base_dir, 'RAG.bat'),
+        }
+
+        # 右侧日志标签
+        self.log_tabs = QTabWidget(self)
+        self.logs = {
+            'tts': TextBrowser(self),
+            'asr': TextBrowser(self),
+            'bert': TextBrowser(self),
+            'rag': TextBrowser(self),
+        }
+        self.log_tabs.addTab(self.logs['tts'], '🎵 TTS日志')
+        self.log_tabs.addTab(self.logs['asr'], '🎤 ASR日志')
+        self.log_tabs.addTab(self.logs['bert'], '🤖 BERT日志')
+        self.log_tabs.addTab(self.logs['rag'], '📚 RAG日志')
+
+        # 左侧控制面板
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(16)
+        self.status_labels = {}
+        items = [
+            ('tts', 'TTS语音合成', '🎵'),
+            ('asr', 'ASR语音识别', '🎤'),
+            ('bert', 'BERT模型服务', '🤖'),
+            ('rag', 'RAG知识库', '📚'),
+        ]
+        for key, title, icon in items:
+            box = QGroupBox(f'{icon} {title}')
+            v = QVBoxLayout(box)
+            status = QLabel('状态：服务未启动')
+            self.status_labels[key] = status
+            btns = QHBoxLayout()
+            btn_start = QPushButton(f'启动{key.upper()}')
+            btn_stop = QPushButton(f'停止{key.upper()}')
+            btn_start.clicked.connect(lambda _, k=key: self.start_service(k))
+            btn_stop.clicked.connect(lambda _, k=key: self.stop_service(k))
+            btns.addWidget(btn_start)
+            btns.addWidget(btn_stop)
+            v.addWidget(status)
+            v.addLayout(btns)
+            left_layout.addWidget(box)
+        left_layout.addStretch(1)
+
+        # 两列布局
+        two_cols = QHBoxLayout()
+        left_container = QWidget(self)
+        left_container.setLayout(left_layout)
+        two_cols.addWidget(left_container, 0)
+        two_cols.addWidget(self.log_tabs, 1)
+
+        # 放入页面
+        # 清空现有布局内容
+        while self.vBoxLayout.count():
+            item = self.vBoxLayout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self.vBoxLayout.addLayout(two_cols)
+
+    def _append(self, key: str, text: str):
+        w = self.logs.get(key)
+        if w:
+            w.append(text)
+
+    def _update_status(self, key: str, running: bool):
+        lab = self.status_labels.get(key)
+        if lab:
+            lab.setText(f"状态：{'服务已启动' if running else '服务未启动'}")
+
+    def start_service(self, key: str):
+        # 已运行则忽略
+        p = self.processes.get(key)
+        if p and p.poll() is None:
+            self._append(key, '服务已在运行…')
+            return
+        bat = self.bats.get(key)
+        if not bat or not os.path.exists(bat):
+            self._append(key, f'未找到脚本：{bat}')
+            return
+        try:
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            bat_abs = os.path.abspath(bat)
+            bat_dir = os.path.dirname(bat_abs)
+            # PowerShell 单引号内转义
+            base_ps = base_dir.replace("'", "''")
+            batdir_ps = bat_dir.replace("'", "''")
+            bat_ps = bat_abs.replace("'", "''")
+            # 使用 PowerShell，优先点源 Run-MyNeuro.ps1（自动 conda/.venv），否则尝试激活 .venv
+            ps_cmd = (
+                "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                "\"& {"
+                " $ErrorActionPreference='Continue';"
+                f" $base = '{base_ps}';"
+                " $run = Join-Path $base 'Run-MyNeuro.ps1';"
+                " $usedRun = $false;"
+                " if (Test-Path $run) { . $run; $usedRun = $true }"
+                " elseif (Test-Path (Join-Path $base '.venv\\Scripts\\Activate.ps1')) { . (Join-Path $base '.venv\\Scripts\\Activate.ps1') }"
+                " if ($usedRun -and $env:VIRTUAL_ENV) {"
+                "   Write-Host '解除上层VIRTUAL_ENV以优先使用my-neuro环境';"
+                "   $env:PATH = ($env:PATH -split ';' | Where-Object {$_ -notlike '*ai_live2d\\.venv*'}) -join ';';"
+                "   $env:VIRTUAL_ENV = $null;"
+                " }"
+                f"; Set-Location -Path '{batdir_ps}';"
+                "; Write-Host '=== 环境检查 ===';"
+                "; Write-Host ('PWD: ' + (Get-Location).Path);"
+                "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
+                "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
+                "; Get-Command python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('python cmd: ' + $_.Source) };"
+                "; & python -c 'import sys, importlib.util as u; print(\"python:\", sys.version); print(\"pip:\", \"ok\" if u.find_spec(\"pip\") else \"missing\"); print(\"py3langid:\", \"ok\" if u.find_spec(\"py3langid\") else \"missing\")';"
+                "; Write-Host '=== 启动脚本 ===';"
+                f" & '{bat_ps}'"
+                " }\""
+            )
+            wrapped = f"chcp 65001 >NUL & {ps_cmd}"
+            proc = subprocess.Popen(
+                wrapped,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                shell=True,
+                bufsize=0,
+                cwd=bat_dir
+            )
+            self.processes[key] = proc
+            reader = StreamReader(proc)
+            self.readers[key] = reader
+            reader.line.connect(lambda s, k=key: self._append(k, s))
+            reader.finished.connect(lambda k=key: self._on_finished(k))
+            reader.start()
+            self._update_status(key, True)
+            self._append(key, '启动中…')
+        except Exception as e:
+            self._append(key, f'启动失败：{e}')
+
+    def stop_service(self, key: str):
+        proc = self.processes.get(key)
+        if not proc or proc.poll() is not None:
+            self._append(key, '服务未在运行。')
+            return
+        reader = self.readers.get(key)
+        if reader and reader.isRunning():
+            reader.stop()
+        try:
+            subprocess.run(["taskkill", "/t", "/f", "/pid", str(proc.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        except Exception as e:
+            self._append(key, f'停止异常：{e}')
+        self._update_status(key, False)
+
+    def _on_finished(self, key: str):
+        self._update_status(key, False)
+        self._append(key, '进程已退出。')
+
 class AvatarWidget(NavigationWidget):
     """ Avatar widget """
 
@@ -1180,7 +1458,7 @@ class Window(FramelessWindow):
             self, showMenuButton=True, showReturnButton=True)
         self.stackWidget = QStackedWidget(self)
 
-    # create sub interface
+        # create sub interface
         self.MainInterface = Widget('Main', 0, parent=self)
         self.LLMInterface = Widget('LLM', 1, parent=self)
         self.ASRInterface = Widget('TTS', 2, parent=self)
@@ -1191,6 +1469,7 @@ class Window(FramelessWindow):
         self.OtherInterface = Widget('Others', 7, parent=self)
         self.SettingInterface = Widget('Setting', 8, parent=self)
         self.VoiceCloneInterface = Widget('VoiceClone', 9, parent=self)
+        self.TerminalInterface = TerminalRoom(self)
 
 
         # initialize layout
@@ -1230,6 +1509,8 @@ class Window(FramelessWindow):
         self.addSubInterface(self.UserInputInterface, FIF.SEND, '对话框')
         self.addSubInterface(self.OtherInterface, FIF.APPLICATION, '其他')
         self.addSubInterface(self.VoiceCloneInterface, FIF.SPEAKERS, '声音克隆')
+        terminal_icon = getattr(FIF, 'TERMINAL', getattr(FIF, 'CONSOLE', getattr(FIF, 'CODE', FIF.APPLICATION)))
+        self.addSubInterface(self.TerminalInterface, terminal_icon, '终端控制室')
 
         # 底部自定义小部件
         self.navigationInterface.addWidget(
