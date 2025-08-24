@@ -75,3 +75,4 @@ dist/
 .venv/
 venv/
 env/
+ai_live2d/test/1.wav
