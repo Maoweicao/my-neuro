@@ -6,7 +6,25 @@ import logging
 from logging.handlers import RotatingFileHandler
 from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon, QPainter, QImage, QBrush, QColor, QFont, QDesktopServices, QPixmap
-from PyQt5.QtWidgets import QApplication, QFrame, QStackedWidget, QHBoxLayout, QLabel, QSystemTrayIcon, QVBoxLayout, QGroupBox, QFormLayout, QWidget
+from PyQt5.QtWidgets import (
+    QApplication,
+    QFrame,
+    QStackedWidget,
+    QHBoxLayout,
+    QLabel,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QGroupBox,
+    QFormLayout,
+    QWidget,
+    QPushButton,
+    QTextEdit,
+    QFileDialog,
+    QLineEdit,
+    QComboBox,
+    QTabWidget,
+    QSizePolicy
+)
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
                             isDarkTheme, setTheme, Theme, qrouter)
@@ -108,6 +126,49 @@ class BatWorker(QThread):
         self.is_running = False
         if self.process:
             os.system('taskkill /t /f /pid {}'.format(self.process.pid))
+
+
+class DropArea(QGroupBox):
+    """简易拖拽区域，用于接收文件路径。"""
+    def __init__(self, title: str, filter_desc: str = "", parent=None):
+        super().__init__(title, parent)
+        self.setAcceptDrops(True)
+        self.file_path = ""
+
+        layout = QVBoxLayout(self)
+        self.tip_label = QLabel(filter_desc or "将文件拖拽到此处，或点击按钮选择")
+        self.tip_label.setAlignment(Qt.AlignCenter)
+        self.tip_label.setStyleSheet("color: #666;")
+        self.select_btn = QPushButton("选择文件…")
+        layout.addWidget(self.tip_label)
+        layout.addWidget(self.select_btn)
+
+        # 外观
+        self.setStyleSheet(
+            """
+            QGroupBox { border: 1px dashed #c8c8c8; border-radius: 8px; margin-top: 8px; }
+            QGroupBox::title { left: 8px; top: -6px; }
+            """
+        )
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dropEvent(self, e):
+        if e.mimeData().hasUrls():
+            url = e.mimeData().urls()[0]
+            path = url.toLocalFile()
+            if path:
+                self.set_file_path(path)
+        e.acceptProposedAction()
+
+    def set_file_path(self, path: str):
+        self.file_path = path
+        base = os.path.basename(path)
+        self.tip_label.setText(f"已选择：{base}")
 
 class Interface(ScrollArea):
     def __init__(self, parent=None):
@@ -222,7 +283,8 @@ class Widget(Interface):
                     self.create_subtitle_tab,
                     self.create_user_input_tab,
                     self.create_other_tab,
-                    self.create_setting_tab
+                    self.create_setting_tab,
+                    self.create_voice_clone_tab
                     ]
         return tab_list[num]
     
@@ -800,6 +862,212 @@ class Widget(Interface):
         self.vBoxLayout.addWidget(group)
         self.vBoxLayout.addStretch()
 
+    def create_voice_clone_tab(self):
+        """创建“声音克隆”页面：包含两个子选项卡
+        1) TTS模型更换：选择模型.pth与参考音频.wav，角色名、语种与参考文本，生成配置/批处理
+        2) 一键训练TTS模型：包装现有一键批处理，输出日志，可停止
+        """
+        self.startButton.hide()
+        self.closeButton.hide()
+        while self.vBoxLayout.count():
+            item = self.vBoxLayout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        # 状态数据
+        self.voice_clone = getattr(self, 'voice_clone', {
+            'model_path': '',
+            'audio_path': '',
+            'role_name': '',
+            'language': 'zh',
+            'transcript': ''
+        })
+
+        tabs = QTabWidget(self)
+        tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Tab1: 模型更换
+        tab1 = QWidget()
+        t1_layout = QVBoxLayout(tab1)
+
+        # 顶部两个拖拽区域
+        self.drop_model = DropArea("模型文件 (.pth)", "选择模型文件或拖拽文件到此处")
+        self.drop_audio = DropArea("参考音频 (.wav)", "选择音频文件或拖拽文件到此处")
+        t1_top = QHBoxLayout()
+        t1_top.addWidget(self.drop_model)
+        t1_top.addWidget(self.drop_audio)
+        t1_layout.addLayout(t1_top)
+
+        # 绑定选择按钮
+        self.drop_model.select_btn.clicked.connect(self._select_pth)
+        self.drop_audio.select_btn.clicked.connect(self._select_wav)
+
+        # 角色名、语种
+        row_box = QHBoxLayout()
+        row_left = QGroupBox("角色名称：")
+        row_left_l = QVBoxLayout(row_left)
+        self.vc_role_edit = QLineEdit()
+        self.vc_role_edit.setPlaceholderText("输入角色名称，用于生成bat/文件名")
+        row_left_l.addWidget(self.vc_role_edit)
+
+        row_right = QGroupBox("参考音频语种：")
+        row_right_l = QVBoxLayout(row_right)
+        self.vc_lang_combo = QComboBox()
+        self.vc_lang_combo.addItems(["zh - 中文", "en - 英文", "ja - 日文"]) 
+        row_right_l.addWidget(self.vc_lang_combo)
+
+        row_box.addWidget(row_left)
+        row_box.addWidget(row_right)
+        t1_layout.addLayout(row_box)
+
+        # 参考文本
+        txt_box = QGroupBox("参考音频的文本内容：")
+        txt_layout = QVBoxLayout(txt_box)
+        self.vc_transcript = QTextEdit()
+        self.vc_transcript.setPlaceholderText("请输入参考音频对应的文本内容")
+        txt_layout.addWidget(self.vc_transcript)
+        t1_layout.addWidget(txt_box)
+
+        # 生成按钮与状态
+        btn_line = QHBoxLayout()
+        self.vc_gen_btn = QPushButton("生成TTS的bat文件")
+        self.vc_gen_btn.clicked.connect(self._generate_tts_bat)
+        btn_line.addStretch(1)
+        btn_line.addWidget(self.vc_gen_btn)
+        t1_layout.addLayout(btn_line)
+
+        self.vc_status = QLabel("状态：请上传文件并生成配置")
+        self.vc_status.setStyleSheet("color:#888;")
+        t1_layout.addWidget(self.vc_status)
+
+        tabs.addTab(tab1, "TTS模型更换")
+
+        # Tab2: 一键训练
+        tab2 = QWidget()
+        t2_layout = QVBoxLayout(tab2)
+
+        self.train_browser = TextBrowser(self)
+        t2_btns = QHBoxLayout()
+        self.train_start_btn = PrimaryToolButton(FIF.PLAY)
+        self.train_start_btn.setText("开始训练")
+        self.train_stop_btn = ToolButton(FIF.PAUSE)
+        self.train_stop_btn.setText("停止")
+        t2_btns.addWidget(self.train_start_btn)
+        t2_btns.addWidget(self.train_stop_btn)
+        t2_btns.addStretch(1)
+
+        t2_layout.addLayout(t2_btns)
+        t2_layout.addWidget(self.train_browser)
+
+        tabs.addTab(tab2, "一键训练TTS模型")
+
+        # 训练逻辑
+        self.train_worker = None
+        self.train_start_btn.clicked.connect(self._start_voice_train)
+        self.train_stop_btn.clicked.connect(self._stop_voice_train)
+
+        self.vBoxLayout.addWidget(tabs)
+        self.vBoxLayout.addStretch()
+
+    # ====== 声音克隆 - 交互方法 ======
+    def _select_pth(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择模型文件", os.getcwd(), "PyTorch/Weights (*.pth *.pt *.safetensors);;All Files (*.*)")
+        if path:
+            self.drop_model.set_file_path(path)
+
+    def _select_wav(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择参考音频", os.getcwd(), "Audio (*.wav);;All Files (*.*)")
+        if path:
+            self.drop_audio.set_file_path(path)
+
+    def _generate_tts_bat(self):
+        model = self.drop_model.file_path
+        audio = self.drop_audio.file_path
+        role = self.vc_role_edit.text().strip()
+        lang_text = self.vc_lang_combo.currentText().split(' ')[0]
+        transcript = self.vc_transcript.toPlainText().strip()
+
+        if not model or not os.path.exists(model):
+            self.vc_status.setText("状态：请先选择有效的模型文件")
+            self.vc_status.setStyleSheet("color:#d9534f;")
+            return
+        if not audio or not os.path.exists(audio):
+            self.vc_status.setText("状态：请先选择有效的参考音频")
+            self.vc_status.setStyleSheet("color:#d9534f;")
+            return
+        if not role:
+            self.vc_status.setText("状态：请输入角色名称")
+            self.vc_status.setStyleSheet("color:#d9534f;")
+            return
+
+        out_dir = os.path.abspath(os.path.join("Voice_Model_Factory", role))
+        os.makedirs(out_dir, exist_ok=True)
+        cfg_path = os.path.join(out_dir, "voice_clone_config.json")
+        bat_path = os.path.join(out_dir, f"生成TTS_{role}.bat")
+
+        cfg = {
+            "model_path": model,
+            "audio_path": audio,
+            "language": lang_text,
+            "transcript": transcript,
+            "role": role
+        }
+        try:
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+            # 预处理：为 Windows cmd 转义 ^ 和 "
+            safe_transcript = transcript.replace('^', '^^').replace('"', '^"')
+
+            # 生成批处理：设置环境变量并调用根目录的一键脚本（若存在）
+            lines = [
+                "@echo off",
+                "setlocal enabledelayedexpansion",
+                f"set \"VC_MODEL={model}\"",
+                f"set \"VC_AUDIO={audio}\"",
+                f"set \"VC_LANG={lang_text}\"",
+                f"set \"VC_ROLE={role}\"",
+                f"set \"VC_TRANSCRIPT={safe_transcript}\"",
+                "echo 已写入配置: voice_clone_config.json",
+                "if exist ..\\..\\一键克隆音色.bat (",
+                "  call ..\\..\\一键克隆音色.bat",
+                ") else (",
+                "  echo 未找到一键克隆音色.bat，请手动处理",
+                ")",
+                "pause"
+            ]
+            with open(bat_path, 'w', encoding='gbk', newline='') as f:
+                f.write("\r\n".join(lines))
+
+            self.vc_status.setText(f"状态：已生成配置与批处理\n{cfg_path}\n{bat_path}")
+            self.vc_status.setStyleSheet("color:#28a745;")
+        except Exception as e:
+            self.vc_status.setText(f"状态：生成失败 - {e}")
+            self.vc_status.setStyleSheet("color:#d9534f;")
+
+    def _start_voice_train(self):
+        if self.train_worker and self.train_worker.isRunning():
+            InfoBar.warning(title='训练中', content='已有训练进程在运行', orient=Qt.Horizontal,
+                            isClosable=True, position=InfoBarPosition.BOTTOM_RIGHT, duration=2000, parent=self)
+            return
+        bat_path = os.path.abspath("一键克隆音色.bat")
+        if not os.path.exists(bat_path):
+            self.train_browser.append("未找到 一键克隆音色.bat，无法启动训练。")
+            return
+        self.train_worker = BatWorker(bat_path)
+        self.train_worker.output_signal.connect(self.train_browser.append)
+        self.train_worker.finished_signal.connect(lambda: self.train_browser.append("训练进程已结束"))
+        self.train_worker.start()
+        self.train_browser.append("已启动训练脚本…")
+
+    def _stop_voice_train(self):
+        if self.train_worker and self.train_worker.isRunning():
+            self.train_worker.stop()
+            self.train_browser.append("正在尝试停止训练脚本…")
+        else:
+            self.train_browser.append("没有运行中的训练脚本。")
+
 class SystemTrayIcon(QSystemTrayIcon):
 
     def __init__(self, parent=None):
@@ -912,7 +1180,7 @@ class Window(FramelessWindow):
             self, showMenuButton=True, showReturnButton=True)
         self.stackWidget = QStackedWidget(self)
 
-        # create sub interface
+    # create sub interface
         self.MainInterface = Widget('Main', 0, parent=self)
         self.LLMInterface = Widget('LLM', 1, parent=self)
         self.ASRInterface = Widget('TTS', 2, parent=self)
@@ -922,6 +1190,7 @@ class Window(FramelessWindow):
         self.UserInputInterface = Widget('UserInput', 6, parent=self)
         self.OtherInterface = Widget('Others', 7, parent=self)
         self.SettingInterface = Widget('Setting', 8, parent=self)
+        self.VoiceCloneInterface = Widget('VoiceClone', 9, parent=self)
 
 
         # initialize layout
@@ -951,6 +1220,7 @@ class Window(FramelessWindow):
         # self.navigationInterface.setAcrylicEnabled(True)
         self.navigationInterface.addSeparator()
 
+        # 顶部菜单
         self.addSubInterface(self.MainInterface, FIF.HOME_FILL, '主菜单')
         self.addSubInterface(self.LLMInterface, FIF.ROBOT, 'LLM')
         self.addSubInterface(self.ASRInterface, FIF.HEADPHONE, 'ASR')
@@ -959,18 +1229,9 @@ class Window(FramelessWindow):
         self.addSubInterface(self.SubtitleInterface, FIF.FONT, '字幕')
         self.addSubInterface(self.UserInputInterface, FIF.SEND, '对话框')
         self.addSubInterface(self.OtherInterface, FIF.APPLICATION, '其他')
+        self.addSubInterface(self.VoiceCloneInterface, FIF.SPEAKERS, '声音克隆')
 
-        # add navigation items to scroll area
-        # for i in range(1, 21):
-        #     self.navigationInterface.addItem(
-        #         f'folder{i}',
-        #         FIF.FOLDER,
-        #         f'Folder {i}',
-        #         lambda: print('Folder clicked'),
-        #         position=NavigationItemPosition.SCROLL
-        #     )
-
-        # add custom widget to bottom
+        # 底部自定义小部件
         self.navigationInterface.addWidget(
             routeKey='avatar',
             widget=AvatarWidget(),
@@ -978,12 +1239,12 @@ class Window(FramelessWindow):
             position=NavigationItemPosition.BOTTOM
         )
 
+        # 底部设置入口
         self.addSubInterface(self.SettingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
 
-        #!IMPORTANT: don't forget to set the default route key
+        # 默认路由
         qrouter.setDefaultRouteKey(self.stackWidget, self.MainInterface.objectName())
 
-        # set the maximum width
         # self.navigationInterface.setExpandWidth(300)
 
         self.stackWidget.currentChanged.connect(self.onCurrentInterfaceChanged)
