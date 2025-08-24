@@ -8,3 +8,19 @@ VAD模型加载完成
 funasr version: 1.2.7.
 Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
 You are using the latest version of funasr-1.2.7
+Downloading Model from https://www.modelscope.cn to directory: model\asr\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch
+ASR模型加载完成
+正在加载标点符号模型...
+funasr version: 1.2.7.
+Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
+You are using the latest version of funasr-1.2.7
+Downloading Model from https://www.modelscope.cn to directory: model\asr\models\iic\punc_ct-transformer_cn-en-common-vocab471067-large
+标点符号模型加载完成
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:1000 (Press CTRL+C to quit)
+INFO:     ('127.0.0.1', 56802) - "WebSocket /v1/ws/vad" [accepted]
+新的WebSocket连接
+INFO:     connection open
+客户端断开连接
+WebSocket连接关闭
+INFO:     connection closed
