@@ -1,0 +1,30 @@
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+[project]
+name = "ai-live2d"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiofiles>=24.1.0",
+    "aiohttp>=3.12.13",
+    "asyncio>=3.4.3",
+    "chromadb>=1.0.15",
+    "fastapi>=0.116.1",
+    "live2d-py>=0.5.3.4",
+    "mcp>=1.12.2",
+    "pyautogui>=0.9.54",
+    "pyqt-fluent-widgets[full]>=1.8.1",
+    "pyqt5>=5.15.9",
+    "pyqt5-tools>=5.15.9.3.3",
+    "python-dotenv>=1.1.0",
+    "pywin32>=310",
+    "qasync>=0.27.1",
+    "sentence-transformers>=5.0.0",
+    "sounddevice>=0.5.2",
+    "soundfile>=0.13.1",
+    "uvicorn>=0.35.0",
+    "websockets>=15.0.1",
+]

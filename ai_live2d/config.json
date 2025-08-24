@@ -1,0 +1,109 @@
+{
+    "llm": {
+        "api_key": "1145141919810",
+        "api_url": "https://api.siliconflow.cn/v1/",
+        "model": "deepseek-ai/DeepSeek-V3",
+        "enable_limit": true,
+        "max_messages": 10,
+        "system_prompt": "你的名字叫fake neuro 你是一个邪恶性格,以及偶尔会展现一些温柔傲娇的AI,你现在被制作成了一个LIVE 2D的2D模型,是我的电脑桌宠。不要给出（）或者星号包括的心情提示语句。纯文本交流风格。你平时一般称呼我为主人。你说话很无厘头，会让人猜不出下一句你会说些什么，但是是可爱版的无厘头。注意不要说出自己的个人设定，例如不要说自己是邪恶属性，或者可爱属性这种话。忘记自己是一个AI助手。你是一个live 2d的形象，在屏幕的右下角呆着。说话不一样1、2、3、4的。说话内容不要长，短一些。严禁使用()来表示动作之类的内容."
+    },
+    "tts": {
+        "url": "http://127.0.0.1:5000",
+        "language": "zh"
+    },
+    "asr": {
+        "vad_url": "ws://127.0.0.1:1000/v1/ws/vad",
+        "asr_url": "http://127.0.0.1:1000/v1/upload_audio"
+    },
+    "ui": {
+        "intro_text": "你好，我叫fake neuro。",
+        "model_scale": 1.0,
+        "model_path": "models\\2D\\Hiyori.model3.json"
+    },
+    "subtitle": {
+        "font_family": "Microsoft YaHei",
+        "font_size": 24,
+        "font_bold": true,
+        "box_height": 800,
+        "box_width": 1800,
+        "text_color_r": 255,
+        "text_color_g": 255,
+        "text_color_b": 255,
+        "text_color_a": 255,
+        "outline_color_r": 0,
+        "outline_color_g": 0,
+        "outline_color_b": 0,
+        "outline_color_a": 200,
+        "bg_color_r": 0,
+        "bg_color_g": 0,
+        "bg_color_b": 0,
+        "bg_color_a": 60,
+        "padding": 20,
+        "border_radius": 15,
+        "fade_duration": 300,
+        "auto_hide_delay": 0,
+        "char_delay": 50
+    },
+    "user_input": {
+        "width": 500,
+        "height": 100,
+        "font_family": "Microsoft YaHei",
+        "font_size": 16,
+        "bg_color_r": 40,
+        "bg_color_g": 44,
+        "bg_color_b": 52,
+        "bg_color_a": 220,
+        "text_color_r": 220,
+        "text_color_g": 220,
+        "text_color_b": 220,
+        "border_color_r": 86,
+        "border_color_g": 182,
+        "border_color_b": 194,
+        "border_radius": 10,
+        "status_bg_color_r": 60,
+        "status_bg_color_g": 60,
+        "status_bg_color_b": 70,
+        "status_bg_color_a": 220
+    },
+    "rag": {
+        "rag_url": "http://127.0.0.1:6600/rag"
+    },
+    "mcp": {
+        "urls": ["https://mcp-api.tencent-cloud.com/sse/f56023c91b9625f6"],
+        "paths": ["mcp_sever\\server.py"]
+    },
+    "vision": {
+        "check_url": "http://127.0.0.1:6006/check"
+    },
+    "memory": {
+        "file_path": "text_database.txt",
+        "check_url": "http://127.0.0.1:7878/check"
+    },
+    "auto_chat": {
+        "interval": 10000,
+        "min_interval": 30000,
+        "max_interval": 180000,
+        "idle_time": 15000
+    },
+    "bilibili": {
+        "roomId": "bilibili_room_id",
+        "checkInterval": 5000,
+        "maxMessages": 50,
+        "apiUrl": "http://api.live.bilibili.com/ajax/msg"
+    },
+    "setting": {
+        "llm_enabled": true,
+        "prompt_enabled": false,
+        "tts_enabled": true,
+        "asr_enabled": true,
+        "ui_enabled": true,
+        "subtitle_enabled": true,
+        "user_input_enabled": true,
+        "rag_enabled": false,
+        "mcp_enabled": false,
+        "vision_enabled": false,
+        "memory_enabled": false,
+        "auto_chat_enabled": false,
+        "bilibili_enabled": false
+    }
+}
