@@ -531,6 +531,15 @@ class Widget(Interface):
                 widget.setValue(int(value))
             elif isinstance(widget, DoubleSpinBox):
                 widget.setValue(float(value))
+            elif isinstance(widget, QComboBox):
+                # 优先按 data(真实路径) 匹配，其次按文本匹配
+                idx = -1
+                for i in range(widget.count()):
+                    if widget.itemData(i) == value or widget.itemText(i) == str(value):
+                        idx = i
+                        break
+                if idx >= 0:
+                    widget.setCurrentIndex(idx)
 
     def collect_values(self):
         """收集所有控件的值到配置字典"""
@@ -546,6 +555,9 @@ class Widget(Interface):
                 current_value = widget.value()
             elif isinstance(widget, DoubleSpinBox):
                 current_value = widget.value()
+            elif isinstance(widget, QComboBox):
+                data = widget.currentData()
+                current_value = data if data is not None else widget.currentText()
             
             # 更新配置数据
             keys = key_path.split('.')
@@ -727,15 +739,87 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
+        # 基础配置（不包含模型路径）
         fields = [
             ("介绍文本", "ui.intro_text", "lineedit", ""),
-            ("模型缩放", "ui.model_scale", "doublespin", 1.0),
-            ("模型路径", "ui.model_path", "lineedit", "")
+            ("模型缩放", "ui.model_scale", "doublespin", 1.0)
         ]
-        
-        group = self.create_form_group(self, "UI配置", fields)
-        self.vBoxLayout.addWidget(group)
+        group_base = self.create_form_group(self, "UI配置", fields)
+        self.vBoxLayout.addWidget(group_base)
+
+        # 模型路径下拉选择：扫描 models/2d 下的 *.model3.json（并提供常见目录回退）
+        model_group = QGroupBox("模型路径")
+        form_layout = QFormLayout(model_group)
+        self.model_combo = QComboBox()
+        self._refresh_model_combo()  # 填充
+
+        # 根据已有配置选中当前项
+        current_path = (
+            self.config_data.get('ui', {}).get('model_path', '')
+            if isinstance(self.config_data, dict) else ''
+        )
+        if current_path:
+            idx = -1
+            for i in range(self.model_combo.count()):
+                if self.model_combo.itemData(i) == current_path:
+                    idx = i
+                    break
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+
+        # 刷新按钮
+        refresh_btn = QPushButton('刷新')
+        def on_refresh():
+            prev = self.model_combo.currentData()
+            self._refresh_model_combo()
+            # 尝试保持原选择
+            if prev:
+                for i in range(self.model_combo.count()):
+                    if self.model_combo.itemData(i) == prev:
+                        self.model_combo.setCurrentIndex(i)
+                        break
+        refresh_btn.clicked.connect(on_refresh)
+
+        row = QHBoxLayout()
+        row.addWidget(self.model_combo)
+        row.addWidget(refresh_btn)
+        row_container = QWidget()
+        row_container.setLayout(row)
+        form_layout.addRow('Live2D 模型：', row_container)
+        self.vBoxLayout.addWidget(model_group)
+
+        # 注册到统一收集器
+        self.widgets['ui.model_path'] = {"widget": self.model_combo, "type": "combobox"}
         self.vBoxLayout.addStretch()
+
+    def _scan_model_roots(self):
+        """返回可能的模型根目录列表，优先 models/2d，再回退 live-2d/2D 与 ai_live2d/2D"""
+        proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        return [
+            os.path.join(proj_root, 'models', '2d'),
+            os.path.join(proj_root, 'live-2d', '2D'),
+            os.path.join(os.path.dirname(__file__), '2D'),
+        ]
+
+    def _refresh_model_combo(self):
+        """扫描 *.model3.json 并刷新下拉列表，二级文件夹名作为显示文本，值为文件绝对路径"""
+        self.model_combo.clear()
+        added = set()
+        for root in self._scan_model_roots():
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _dirnames, filenames in os.walk(root):
+                for fn in filenames:
+                    if fn.lower().endswith('model3.json'):
+                        full = os.path.abspath(os.path.join(dirpath, fn))
+                        # 二级文件夹名：相对 root 的第一层目录名
+                        rel = os.path.relpath(full, root)
+                        parts = rel.split(os.sep)
+                        display = parts[0] if len(parts) >= 2 else os.path.basename(os.path.dirname(full))
+                        key = (display, full)
+                        if display and key not in added:
+                            self.model_combo.addItem(display, full)
+                            added.add(key)
 
     def create_subtitle_tab(self):
         """创建字幕配置标签页"""

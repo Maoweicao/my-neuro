@@ -18,7 +18,7 @@
     "ui": {
         "intro_text": "你好，我叫fake neuro。",
         "model_scale": 1.0,
-        "model_path": "models\\2D\\Hiyori.model3.json"
+        "model_path": "F:\\my-neuro\\live-2d\\2D\\胡桃\\Hu Tao.model3.json"
     },
     "subtitle": {
         "font_family": "Microsoft YaHei",
@@ -69,8 +69,12 @@
         "rag_url": "http://127.0.0.1:6600/rag"
     },
     "mcp": {
-        "urls": ["https://mcp-api.tencent-cloud.com/sse/f56023c91b9625f6"],
-        "paths": ["mcp_sever\\server.py"]
+        "urls": [
+            "https://mcp-api.tencent-cloud.com/sse/f56023c91b9625f6"
+        ],
+        "paths": [
+            "mcp_sever\\server.py"
+        ]
     },
     "vision": {
         "check_url": "http://127.0.0.1:6006/check"
