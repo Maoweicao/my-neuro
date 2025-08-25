@@ -23,12 +23,14 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QComboBox,
     QTabWidget,
-    QSizePolicy
+    QSizePolicy,
+    QMessageBox,
+    QDialog
 )
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
                             isDarkTheme, setTheme, Theme, qrouter)
-from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, DoubleSpinBox, SpinBox, CheckBox, ScrollArea, PrimaryToolButton, ToolButton, InfoBar, InfoBarPosition, PasswordLineEdit, TextBrowser, PixmapLabel
+from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, DoubleSpinBox, SpinBox, CheckBox, ScrollArea, PrimaryToolButton, ToolButton, InfoBar, InfoBarPosition, PasswordLineEdit, TextBrowser, PixmapLabel, PushButton
 from qframelesswindow import FramelessWindow, TitleBar
 
 
@@ -222,6 +224,92 @@ class DropArea(QGroupBox):
         base = os.path.basename(path)
         self.tip_label.setText(f"已选择：{base}")
 
+class ModelFetchWorker(QThread):
+    """后台获取模型列表的线程，兼容 OpenAI /v1/models 及常见变体"""
+    success = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, api_url: str, api_key: str, parent=None):
+        super().__init__(parent)
+        self.api_url = api_url or ''
+        self.api_key = api_key or ''
+
+    def _request_models(self, base_url: str):
+        try:
+            import requests  # 延迟导入，避免无依赖时影响主程序
+        except Exception:
+            return None, '未安装 requests 库，无法请求模型列表。'
+        url = base_url.rstrip('/') + '/models'
+        headers = {}
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+        except Exception as e:
+            return None, f'网络请求失败：{e}'
+        if r.status_code >= 400:
+            return None, f'HTTP {r.status_code} 错误：{r.text[:200]}'
+        try:
+            j = r.json()
+        except Exception as e:
+            return None, f'解析响应失败：{e}'
+        return j, None
+
+    def _extract_models(self, payload):
+        models = []
+        if isinstance(payload, dict):
+            data = None
+            if isinstance(payload.get('data'), list):
+                data = payload['data']
+            elif isinstance(payload.get('models'), list):
+                data = payload['models']
+            if data is not None:
+                for item in data:
+                    if isinstance(item, str):
+                        models.append(item)
+                    elif isinstance(item, dict):
+                        mid = item.get('id') or item.get('name') or item.get('model') or item.get('slug')
+                        if isinstance(mid, str):
+                            models.append(mid)
+        elif isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, str):
+                    models.append(item)
+                elif isinstance(item, dict):
+                    mid = item.get('id') or item.get('name') or item.get('model') or item.get('slug')
+                    if isinstance(mid, str):
+                        models.append(mid)
+        # 去重并保持顺序
+        seen = set()
+        dedup = []
+        for m in models:
+            if m not in seen:
+                seen.add(m)
+                dedup.append(m)
+        return dedup
+
+    def run(self):
+        if not self.api_url:
+            self.error.emit('请先填写 API URL')
+            return
+        # 第一次尝试：{api}/models
+        payload, err = self._request_models(self.api_url)
+        models = []
+        if err is None and payload is not None:
+            models = self._extract_models(payload)
+        # 兜底：如果为空或 404 之类，尝试 {api}/v1/models（避免重复尝试）
+        if (err is not None or not models) and '/v1' not in self.api_url:
+            payload2, err2 = self._request_models(self.api_url.rstrip('/') + '/v1')
+            if err2 is None and payload2 is not None:
+                models = self._extract_models(payload2)
+                err = None
+            else:
+                err = err or err2
+        if models:
+            self.success.emit(models)
+        else:
+            self.error.emit(err or '未获取到可用模型')
+
 class Interface(ScrollArea):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -337,9 +425,11 @@ class Widget(Interface):
         self.config_data = self.load_config()
         # 初始化日志处理器
         self.log_handler = None
-        self.widgets = {}  # 存储所有控件引用
+        self.widgets = {}
+        self._model_fetchers = []  # 保持线程引用，避免被GC
         self.setObjectName(text.replace(' ', '-'))
 
+        # 进入对应的标签页创建函数
         self.tab_chose(num)()
 
     def tab_chose(self, num):
@@ -525,6 +615,8 @@ class Widget(Interface):
                 
             if isinstance(widget, LineEdit):
                 widget.setText(str(value))
+            elif isinstance(widget, PasswordLineEdit):
+                widget.setText(str(value))
             elif isinstance(widget, CheckBox):
                 widget.setChecked(bool(value))
             elif isinstance(widget, SpinBox):
@@ -540,6 +632,15 @@ class Widget(Interface):
                         break
                 if idx >= 0:
                     widget.setCurrentIndex(idx)
+                else:
+                    # 若未匹配并且是可编辑下拉，填入文本
+                    try:
+                        if widget.isEditable():
+                            widget.setEditText(str(value))
+                    except Exception:
+                        pass
+            elif isinstance(widget, QTextEdit):
+                widget.setPlainText(str(value))
 
     def collect_values(self):
         """收集所有控件的值到配置字典"""
@@ -548,6 +649,8 @@ class Widget(Interface):
             current_value = None
             
             if isinstance(widget, LineEdit):
+                current_value = widget.text()
+            elif isinstance(widget, PasswordLineEdit):
                 current_value = widget.text()
             elif isinstance(widget, CheckBox):
                 current_value = widget.isChecked()
@@ -558,6 +661,8 @@ class Widget(Interface):
             elif isinstance(widget, QComboBox):
                 data = widget.currentData()
                 current_value = data if data is not None else widget.currentText()
+            elif isinstance(widget, QTextEdit):
+                current_value = widget.toPlainText()
             
             # 更新配置数据
             keys = key_path.split('.')
@@ -678,18 +783,139 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
+        # 基础 LLM 配置
         fields = [
             ("API Key", "llm.api_key", "passwordlineedit", ""),
             ("API URL", "llm.api_url", "lineedit", ""),
-            ("模型", "llm.model", "lineedit", ""),
             ("启用限制", "llm.enable_limit", "checkbox", False),
             ("最大消息数", "llm.max_messages", "spinbox", 8),
             ("系统提示词", "llm.system_prompt", "lineedit", "")
         ]
-        
         group = self.create_form_group(self, "大语言模型配置", fields)
+        # 追加：模型 可编辑下拉 + 获取按钮
+        form = group.layout()  # QFormLayout
+        llm_model_row = QHBoxLayout()
+        self.llm_model_combo = QComboBox()
+        self.llm_model_combo.setEditable(True)
+        # 初始值来源于配置
+        llm_model_val = self.config_data.get('llm', {}).get('model', '') if isinstance(self.config_data, dict) else ''
+        if llm_model_val:
+            self.llm_model_combo.setEditText(str(llm_model_val))
+        llm_fetch_btn = QPushButton('获取模型')
+        llm_fetch_btn.clicked.connect(lambda: self._on_click_fetch_models(
+            api_url_key='llm.api_url', api_key_key='llm.api_key', combo=self.llm_model_combo, btn=llm_fetch_btn
+        ))
+        llm_model_row.addWidget(self.llm_model_combo)
+        llm_model_row.addWidget(llm_fetch_btn)
+        row_container = QWidget()
+        row_container.setLayout(llm_model_row)
+        form.addRow('模型', row_container)
+        # 注册
+        self.widgets['llm.model'] = {"widget": self.llm_model_combo, "type": "combobox"}
         self.vBoxLayout.addWidget(group)
+
+        # 同声传译配置
+        trans_group = QGroupBox("同声传译设置")
+        trans_form = QFormLayout(trans_group)
+
+        # 开关
+        trans_enable = CheckBox()
+        trans_enable.setChecked(bool(self.config_data.get('translation', {}).get('enabled', False)))
+        self.widgets['translation.enabled'] = {"widget": trans_enable, "type": "checkbox"}
+        trans_form.addRow("启动同声传译（外语音频播放，中文字幕显示）", trans_enable)
+
+        # API KEY（密码框）
+        trans_key = PasswordLineEdit()
+        trans_key.setText(self.config_data.get('translation', {}).get('api_key', ''))
+        self.widgets['translation.api_key'] = {"widget": trans_key, "type": "passwordlineedit"}
+        trans_form.addRow("同传API KEY:", trans_key)
+
+        # API URL
+        trans_url = LineEdit()
+        trans_url.setText(self.config_data.get('translation', {}).get('api_url', ''))
+        self.widgets['translation.api_url'] = {"widget": trans_url, "type": "lineedit"}
+        trans_form.addRow("同传API URL:", trans_url)
+
+        # 模型（可编辑下拉 + 获取按钮）
+        self.trans_model_combo = QComboBox()
+        self.trans_model_combo.setEditable(True)
+        trans_model_val = self.config_data.get('translation', {}).get('model', '') if isinstance(self.config_data, dict) else ''
+        if trans_model_val:
+            self.trans_model_combo.setEditText(str(trans_model_val))
+        trans_fetch_btn = QPushButton('获取模型')
+        trans_fetch_btn.clicked.connect(lambda: self._on_click_fetch_models(
+            api_url_key='translation.api_url', api_key_key='translation.api_key', combo=self.trans_model_combo, btn=trans_fetch_btn
+        ))
+        trow = QHBoxLayout()
+        trow.addWidget(self.trans_model_combo)
+        trow.addWidget(trans_fetch_btn)
+        trow_container = QWidget()
+        trow_container.setLayout(trow)
+        trans_form.addRow("同传模型:", trow_container)
+        # 注册
+        self.widgets['translation.model'] = {"widget": self.trans_model_combo, "type": "combobox"}
+
+        # 提示词（多行）
+        trans_prompt = QTextEdit()
+        trans_prompt.setPlainText(self.config_data.get('translation', {}).get('system_prompt', ''))
+        trans_prompt.setMinimumHeight(80)
+        self.widgets['translation.system_prompt'] = {"widget": trans_prompt, "type": "textedit"}
+        trans_form.addRow("同传模型人设:", trans_prompt)
+
+        self.vBoxLayout.addWidget(trans_group)
         self.vBoxLayout.addStretch()
+
+    # ====== 模型获取：通用逻辑 ======
+    def _on_click_fetch_models(self, api_url_key: str, api_key_key: str, combo: QComboBox, btn: QPushButton):
+        # 读取对应的 URL/KEY 控件值
+        api_url_widget = self.widgets.get(api_url_key, {}).get('widget')
+        api_key_widget = self.widgets.get(api_key_key, {}).get('widget')
+        api_url = api_url_widget.text().strip() if api_url_widget else ''
+        api_key = api_key_widget.text().strip() if api_key_widget else ''
+        if not api_url:
+            InfoBar.warning(title='缺少 API URL', content='请先填写 API URL', orient=Qt.Horizontal,
+                            isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self)
+            return
+        try:
+            btn.setEnabled(False)
+            prev_text = combo.currentText().strip()
+            worker = ModelFetchWorker(api_url, api_key, parent=self)
+            self._model_fetchers.append(worker)
+            def on_success(models: list):
+                self._populate_model_combo(combo, models, prev_text)
+                InfoBar.success(title='获取成功', content=f'共获取到 {len(models)} 个模型', orient=Qt.Horizontal,
+                                isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self)
+                btn.setEnabled(True)
+                if worker in self._model_fetchers:
+                    self._model_fetchers.remove(worker)
+            def on_error(msg: str):
+                InfoBar.error(title='获取失败', content=msg, orient=Qt.Horizontal,
+                              isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
+                btn.setEnabled(True)
+                if worker in self._model_fetchers:
+                    self._model_fetchers.remove(worker)
+            worker.success.connect(on_success)
+            worker.error.connect(on_error)
+            worker.start()
+        except Exception as e:
+            btn.setEnabled(True)
+            InfoBar.error(title='异常', content=str(e), orient=Qt.Horizontal,
+                          isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
+
+    def _populate_model_combo(self, combo: QComboBox, models: list, prev_text: str):
+        try:
+            prev = prev_text or combo.currentText().strip()
+            combo.blockSignals(True)
+            combo.clear()
+            for m in models:
+                combo.addItem(m, m)
+            if prev and prev in models:
+                idx = models.index(prev)
+                combo.setCurrentIndex(idx)
+            elif prev:
+                combo.setEditText(prev)
+        finally:
+            combo.blockSignals(False)
 
     def create_asr_tab(self):
         """创建ASR配置标签页"""
@@ -1230,11 +1456,13 @@ class SystemTrayIcon(QSystemTrayIcon):
 
         self.menu = SystemTrayMenu(parent=parent)
         self.menu.addActions([
-            Action('显示', triggered=self.show_menu),
+            Action('显示', triggered=self.restore_window),
             Action('设置'),
             Action('退出', triggered=self.exit_menu)
         ])
         self.setContextMenu(self.menu)
+        # 左键单击托盘图标恢复窗口
+        self.activated.connect(self._on_activated)
 
     def exit_menu(self):
         self.parent().show()
@@ -1251,8 +1479,16 @@ class SystemTrayIcon(QSystemTrayIcon):
         if w.exec():
             sys.exit()
 
-    def show_menu(self):
-        self.parent().show()
+    def restore_window(self):
+        w = self.parent()
+        w.show()
+        w.setWindowState(w.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+        w.raise_()
+        w.activateWindow()
+
+    def _on_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:
+            self.restore_window()
         
 
 class StreamReader(QThread):
@@ -1520,6 +1756,15 @@ class CustomTitleBar(TitleBar):
         self.titleLabel.setObjectName('titleLabel')
         self.window().windowTitleChanged.connect(self.setTitle)
 
+        # 轻微样式，模拟 Fluent 关闭按钮的悬停/按下反馈
+        self.fluentCloseButton.setStyleSheet(
+            "QToolButton{border:none;}"
+            "QToolButton:hover{ background-color: rgba(232,17,35,0.15);} "
+            "QToolButton:pressed{ background-color: rgba(232,17,35,0.25);} "
+        )
+        self.fluentCloseButton.clicked.connect(self.window().close)
+        self.hBoxLayout.addWidget(self.fluentCloseButton, 0, Qt.AlignRight | Qt.AlignVCenter)
+
     def setTitle(self, title):
         self.titleLabel.setText(title)
         self.titleLabel.adjustSize()
@@ -1532,7 +1777,6 @@ class Window(FramelessWindow):
 
     def __init__(self):
         super().__init__()
-        self.setTitleBar(CustomTitleBar(self))
 
         # use dark theme mode
         # setTheme(Theme.DARK)
@@ -1669,8 +1913,48 @@ class Window(FramelessWindow):
         self.titleBar.resize(self.width()-46, self.titleBar.height())
 
     def closeEvent(self, event):
-        event.ignore()
-        self.hide()
+        # 三按钮 Fluent 风格对话框（使用 qfluentwidgets 的 PushButton）
+        dlg = QDialog(self)
+        dlg.setWindowTitle('是否退出程序')
+        v = QVBoxLayout(dlg)
+        text = QLabel('请选择操作：', dlg)
+        v.addWidget(text)
+        btns = QHBoxLayout()
+        exit_btn = PushButton('直接退出', dlg)
+        mini_btn = PushButton('最小化到托盘', dlg)
+        cancel_btn = PushButton('取消', dlg)
+        btns.addStretch(1)
+        btns.addWidget(exit_btn)
+        btns.addWidget(mini_btn)
+        btns.addWidget(cancel_btn)
+        v.addLayout(btns)
+
+        choice = {'val': 'cancel'}
+        exit_btn.clicked.connect(lambda: (choice.update(val='exit'), dlg.accept()))
+        mini_btn.clicked.connect(lambda: (choice.update(val='mini'), dlg.accept()))
+        cancel_btn.clicked.connect(lambda: (choice.update(val='cancel'), dlg.reject()))
+
+        dlg.exec_()
+        if choice.get('val') == 'exit':
+            event.accept()
+            if self.systemTrayIcon:
+                self.systemTrayIcon.hide()
+        elif choice.get('val') == 'mini':
+            event.ignore()
+            self.hide()
+            if self.systemTrayIcon:
+                self.systemTrayIcon.showMessage('提示', '程序已最小化到托盘', QSystemTrayIcon.Information, 2000)
+        else:
+            event.ignore()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        # 点击最小化按钮时，隐藏到托盘
+        if e.type() == QEvent.WindowStateChange:
+            if self.isMinimized():
+                self.hide()
+                if self.systemTrayIcon:
+                    self.systemTrayIcon.showMessage('提示', '程序已最小化到托盘', QSystemTrayIcon.Information, 2000)
 
 
 if __name__ == '__main__':
