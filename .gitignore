@@ -106,3 +106,4 @@ venv/
 __pycache__/
 *.pyc
 .python-version
+fine_tuning/input/audio.mp3

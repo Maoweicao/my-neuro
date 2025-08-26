@@ -29,6 +29,7 @@ is_half = eval(sys.argv[2])
 
 def uvr(model_name, inp_root, save_root_vocal, paths, save_root_ins, agg, format0):
     infos = []
+    pre_fun = None  # 确保 finally 中可安全访问
     try:
         inp_root = clean_path(inp_root)
         save_root_vocal = clean_path(save_root_vocal)
@@ -96,11 +97,12 @@ def uvr(model_name, inp_root, save_root_vocal, paths, save_root_ins, agg, format
         yield "\n".join(infos)
     finally:
         try:
-            if model_name == "onnx_dereverb_By_FoxJoy":
-                del pre_fun.pred.model
-                del pre_fun.pred.model_
-            else:
-                del pre_fun.model
+            if pre_fun is not None:
+                if model_name == "onnx_dereverb_By_FoxJoy":
+                    del pre_fun.pred.model
+                    del pre_fun.pred.model_
+                else:
+                    del pre_fun.model
                 del pre_fun
         except:
             traceback.print_exc()
@@ -137,6 +139,37 @@ if __name__ == '__main__':
                       paths=wav_inputs):
         print(result)
 
-    # 处理输出文件
-    os.remove(os.path.join(os.path.dirname(os.path.dirname(script_dir)),"output/uvr5/instrument_audio.mp3.reformatted.wav_10.wav"))
-    os.rename(os.path.join(os.path.dirname(os.path.dirname(script_dir)),"output/uvr5/vocal_audio.mp3.reformatted.wav_10.wav"),os.path.join(os.path.dirname(os.path.dirname(script_dir)),"output/uvr5/vocal.wav"))
+    # 处理输出文件（安全处理 + 回退）
+    out_dir = os.path.join(os.path.dirname(os.path.dirname(script_dir)), "output/uvr5")
+    instr = os.path.join(out_dir, "instrument_audio.mp3.reformatted.wav_10.wav")
+    vocal_src = os.path.join(out_dir, "vocal_audio.mp3.reformatted.wav_10.wav")
+    vocal_dst = os.path.join(out_dir, "vocal.wav")
+
+    # 清理伴奏文件（如果存在）
+    try:
+        if os.path.exists(instr):
+            os.remove(instr)
+    except Exception:
+        traceback.print_exc()
+
+    # 将模型输出重命名为 vocal.wav；若不存在则回退用输入音频生成 vocal.wav
+    try:
+        if os.path.exists(vocal_src):
+            os.replace(vocal_src, vocal_dst)
+        elif not os.path.exists(vocal_dst):
+            # 回退：直接把输入音频转换为 44.1kHz 双声道 wav 作为 vocal.wav
+            in_dir = os.path.join(os.path.dirname(os.path.dirname(script_dir)), "input")
+            # 优先 audio.mp3；否则取输入目录中的第一个音频文件
+            candidate = os.path.join(in_dir, "audio.mp3")
+            if not os.path.exists(candidate):
+                for name in os.listdir(in_dir):
+                    if name.lower().endswith((".mp3", ".wav", ".m4a", ".flac", ".ogg")):
+                        candidate = os.path.join(in_dir, name)
+                        break
+            if os.path.exists(candidate):
+                os.system(f'ffmpeg -y -i "{candidate}" -vn -acodec pcm_s16le -ac 2 -ar 44100 "{vocal_dst}"')
+                print(f"Fallback: generated {vocal_dst} from input {os.path.basename(candidate)}")
+            else:
+                print("Fallback failed: no input audio found to create vocal.wav")
+    except Exception:
+        traceback.print_exc()

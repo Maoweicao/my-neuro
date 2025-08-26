@@ -3,6 +3,7 @@ import subprocess
 from subprocess import Popen
 from tools.asr.config import asr_dict
 import argparse
+import importlib.util
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 parser = argparse.ArgumentParser(description="asr pipeline")
@@ -29,6 +30,12 @@ asr_lang = vars(args)["language"]
 asr_precision = "float32"
 
 if __name__ == "__main__":
+    # Ensure PyYAML since faster-whisper -> ctranslate2 converters may import yaml
+    if importlib.util.find_spec("yaml") is None:
+        try:
+            subprocess.check_call(["python", "-m", "pip", "install", "PyYAML"])
+        except Exception:
+            pass
     asr(
         asr_inp_dir,
         asr_opt_dir,

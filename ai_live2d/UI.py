@@ -109,7 +109,7 @@ class BatWorker(QThread):
                     "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
                     "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
                     "; Get-Command python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('python cmd: ' + $_.Source) };"
-                    "; & python -c 'import sys, importlib.util as u; print(\"python:\", sys.version); print(\"pip:\", \"ok\" if u.find_spec(\"pip\") else \"missing\"); print(\"py3langid:\", \"ok\" if u.find_spec(\"py3langid\") else \"missing\")';"
+                    "; # 略过 python -c 内联检查，避免跨层引号转义问题"
                     "; Write-Host '=== 启动脚本 ===';"
                     f" & '{bat_ps}'"
                     " }\""
@@ -1244,7 +1244,7 @@ class Widget(Interface):
     def create_voice_clone_tab(self):
         """创建“声音克隆”页面：包含两个子选项卡
         1) TTS模型更换：选择模型.pth与参考音频.wav，角色名、语种与参考文本，生成配置/批处理
-        2) 一键训练TTS模型：包装现有一键批处理，输出日志，可停止
+        2) 一键克隆音色：上传音频到 fine_tuning/input/audio.mp3，包装一键克隆脚本（优先英文版），输出日志，可停止
         """
         self.startButton.hide()
         self.closeButton.hide()
@@ -1293,7 +1293,7 @@ class Widget(Interface):
         row_right = QGroupBox("参考音频语种：")
         row_right_l = QVBoxLayout(row_right)
         self.vc_lang_combo = QComboBox()
-        self.vc_lang_combo.addItems(["zh - 中文", "en - 英文", "ja - 日文"]) 
+        self.vc_lang_combo.addItems(["zh - 中文", "en - 英文", "ja - 日文"])
         row_right_l.addWidget(self.vc_lang_combo)
 
         row_box.addWidget(row_left)
@@ -1322,24 +1322,82 @@ class Widget(Interface):
 
         tabs.addTab(tab1, "TTS模型更换")
 
-        # Tab2: 一键训练
+        # Tab2: 一键克隆
         tab2 = QWidget()
         t2_layout = QVBoxLayout(tab2)
 
+        # 输入行：语言与模型名
+        input_row = QHBoxLayout()
+        lang_box = QGroupBox("语言(Language)")
+        lang_layout = QVBoxLayout(lang_box)
+        self.clone_lang_combo = QComboBox()
+        self.clone_lang_combo.addItems(["en", "zh"])  # bat仅支持 en/zh
+        self.clone_lang_combo.setCurrentText("zh")
+        lang_layout.addWidget(self.clone_lang_combo)
+
+        name_box = QGroupBox("模型名称(Model Name)")
+        name_layout = QVBoxLayout(name_box)
+        self.clone_model_name = QLineEdit()
+        self.clone_model_name.setPlaceholderText("e.g. my-voice")
+        name_layout.addWidget(self.clone_model_name)
+
+        input_row.addWidget(lang_box)
+        input_row.addWidget(name_box)
+        t2_layout.addLayout(input_row)
+
+        # 控制按钮与日志
         self.train_browser = TextBrowser(self)
         t2_btns = QHBoxLayout()
         self.train_start_btn = PrimaryToolButton(FIF.PLAY)
-        self.train_start_btn.setText("开始训练")
+        self.train_start_btn.setText("开始克隆")
         self.train_stop_btn = ToolButton(FIF.PAUSE)
         self.train_stop_btn.setText("停止")
+
+        # 上传控件与一键上传并克隆
+        self.clone_source_audio = DropArea("源音频文件(.mp3/.wav)", "拖拽或选择；将被复制到 fine_tuning/input/audio.mp3")
+        self.clone_source_audio.select_btn.clicked.connect(lambda: self._select_audio_for_clone())
+        # 兼容不同版本的 FluentIcon，UPLOAD 在部分版本不存在，提供多级回退
+        upload_icon = getattr(FIF, 'UPLOAD', None)
+        if upload_icon is None:
+            upload_icon = getattr(FIF, 'CLOUD_UPLOAD', None)
+        if upload_icon is None:
+            upload_icon = getattr(FIF, 'SEND', None)
+        if upload_icon is None:
+            upload_icon = getattr(FIF, 'SAVE', FIF.PLAY)
+        self.train_upload_and_start_btn = PrimaryToolButton(upload_icon)
+        self.train_upload_and_start_btn.setText("上传并开始克隆")
+        self.train_upload_and_start_btn.clicked.connect(self._upload_and_start_clone)
+
+        # 清空日志按钮（兼容不同版本的 FluentIcon，多级回退）
+        clear_icon = getattr(FIF, 'CLEAR', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'DELETE', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'ERASE', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'ERASER', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'TRASH', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'BRUSH', None)
+        if clear_icon is None:
+            clear_icon = getattr(FIF, 'CLOSE', FIF.STOP)
+        self.train_clear_btn = ToolButton(clear_icon)
+        self.train_clear_btn.setText("清空日志")
+        self.train_clear_btn.clicked.connect(self.train_browser.clear)
+
         t2_btns.addWidget(self.train_start_btn)
         t2_btns.addWidget(self.train_stop_btn)
+        t2_btns.addWidget(self.train_upload_and_start_btn)
+        t2_btns.addWidget(self.train_clear_btn)
         t2_btns.addStretch(1)
 
+        # 将上传区域置于按钮上方
+        t2_layout.addWidget(self.clone_source_audio)
         t2_layout.addLayout(t2_btns)
         t2_layout.addWidget(self.train_browser)
 
-        tabs.addTab(tab2, "一键训练TTS模型")
+        tabs.addTab(tab2, "一键克隆音色")
 
         # 训练逻辑
         self.train_worker = None
@@ -1408,11 +1466,14 @@ class Widget(Interface):
                 f"set \"VC_LANG={lang_text}\"",
                 f"set \"VC_ROLE={role}\"",
                 f"set \"VC_TRANSCRIPT={safe_transcript}\"",
+                "set NO_PAUSE=1",
                 "echo 已写入配置: voice_clone_config.json",
-                "if exist ..\\..\\一键克隆音色.bat (",
+                "if exist ..\\..\\OneClick_Clone_Voice_EN.bat (",
+                "  call ..\\..\\OneClick_Clone_Voice_EN.bat",
+                ") else if exist ..\\..\\一键克隆音色.bat (",
                 "  call ..\\..\\一键克隆音色.bat",
                 ") else (",
-                "  echo 未找到一键克隆音色.bat，请手动处理",
+                "  echo 未找到克隆脚本，请手动处理",
                 ")",
                 "pause"
             ]
@@ -1430,15 +1491,47 @@ class Widget(Interface):
             InfoBar.warning(title='训练中', content='已有训练进程在运行', orient=Qt.Horizontal,
                             isClosable=True, position=InfoBarPosition.BOTTOM_RIGHT, duration=2000, parent=self)
             return
-        bat_path = os.path.abspath("一键克隆音色.bat")
-        if not os.path.exists(bat_path):
-            self.train_browser.append("未找到 一键克隆音色.bat，无法启动训练。")
+        # 选择优先脚本：英文版 > 中文版（基于项目根目录）
+        proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        en_bat = os.path.join(proj_root, "OneClick_Clone_Voice_EN.bat")
+        zh_bat = os.path.join(proj_root, "一键克隆音色.bat")
+        target_bat = en_bat if os.path.exists(en_bat) else zh_bat
+        if not os.path.exists(target_bat):
+            self.train_browser.append("未找到克隆脚本（OneClick_Clone_Voice_EN.bat / 一键克隆音色.bat）。")
             return
-        self.train_worker = BatWorker(bat_path)
+
+        # 根据UI输入生成包装bat，注入环境变量，避免交互
+        lang = self.clone_lang_combo.currentText().strip() if hasattr(self, 'clone_lang_combo') else 'zh'
+        role = self.clone_model_name.text().strip() if hasattr(self, 'clone_model_name') else ''
+        if not role:
+            self.train_browser.append("请先填写模型名称(Model Name)。")
+            return
+
+        wrapper_path = os.path.join(proj_root, "run_voice_clone_ui.bat")
+        try:
+            lines = [
+                "@echo off",
+                "setlocal",
+                f"set \"VC_LANG={lang}\"",
+                f"set \"VC_ROLE={role}\"",
+                "set NO_PAUSE=1",
+            ]
+            # 若缺少 UVR 权重目录则跳过分离步骤以减少报错与耗时
+            uvr_weights = os.path.join(proj_root, "fine_tuning", "tools", "uvr5", "uvr5_weights")
+            if not os.path.exists(uvr_weights):
+                lines.append("set SKIP_UVR=1")
+            lines.append(f"call \"{target_bat}\"")
+            with open(wrapper_path, 'w', encoding='gbk', newline='') as f:
+                f.write("\r\n".join(lines))
+        except Exception as e:
+            self.train_browser.append(f"生成包装脚本失败: {e}")
+            return
+
+        self.train_worker = BatWorker(wrapper_path)
         self.train_worker.output_signal.connect(self.train_browser.append)
-        self.train_worker.finished_signal.connect(lambda: self.train_browser.append("训练进程已结束"))
+        self.train_worker.finished_signal.connect(lambda: self.train_browser.append("克隆进程已结束"))
         self.train_worker.start()
-        self.train_browser.append("已启动训练脚本…")
+        self.train_browser.append("已启动一键克隆脚本…")
 
     def _stop_voice_train(self):
         if self.train_worker and self.train_worker.isRunning():
@@ -1446,6 +1539,36 @@ class Widget(Interface):
             self.train_browser.append("正在尝试停止训练脚本…")
         else:
             self.train_browser.append("没有运行中的训练脚本。")
+
+    def _select_audio_for_clone(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择源音频文件", os.getcwd(), "Audio (*.mp3 *.wav);;All Files (*.*)")
+        if path:
+            self.clone_source_audio.set_file_path(path)
+
+    def _upload_source_audio(self) -> bool:
+        """将所选音频复制到 fine_tuning/input/audio.mp3。返回 True 表示成功。"""
+        import shutil
+        src = getattr(self.clone_source_audio, 'file_path', '') if hasattr(self, 'clone_source_audio') else ''
+        if not src or not os.path.exists(src):
+            self.train_browser.append("请先选择源音频文件(.mp3/.wav)。")
+            return False
+        proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        target_dir = os.path.join(proj_root, 'fine_tuning', 'input')
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            target = os.path.join(target_dir, 'audio.mp3')
+            # 统一改名为 audio.mp3（如为 wav 也统一命名，底层脚本按 mp3 名读取）
+            shutil.copy2(src, target)
+            self.train_browser.append(f"已上传音频到: {target}")
+            return True
+        except Exception as e:
+            self.train_browser.append(f"上传失败: {e}")
+            return False
+
+    def _upload_and_start_clone(self):
+        """一键上传并触发克隆流程。"""
+        if self._upload_source_audio():
+            self._start_voice_train()
 
 class SystemTrayIcon(QSystemTrayIcon):
 
