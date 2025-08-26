@@ -91,28 +91,13 @@ class BatWorker(QThread):
                 bat_ps = bat_abs.replace("'", "''")
                 ps_cmd = (
                     "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-                    "\"& {"
-                    " $ErrorActionPreference='Continue';"
-                    f" $base = '{base_dir}';"
-                    " $run = Join-Path $base 'Run-MyNeuro.ps1';"
-                    " $usedRun = $false;"
-                    " if (Test-Path $run) { . $run; $usedRun = $true }"
-                    " elseif (Test-Path (Join-Path $base '.venv\\Scripts\\Activate.ps1')) { . (Join-Path $base '.venv\\Scripts\\Activate.ps1') }"
-                    " if ($usedRun -and $env:VIRTUAL_ENV) {"
-                    "   Write-Host '解除上层VIRTUAL_ENV以优先使用my-neuro环境';"
-                    "   $env:PATH = ($env:PATH -split ';' | Where-Object {$_ -notlike '*ai_live2d\\.venv*'}) -join ';';"
-                    "   $env:VIRTUAL_ENV = $null;"
-                    " }"
-                    f"; Set-Location -Path '{bat_dir}';"
-                    "; Write-Host '=== 环境检查 ===';"
-                    "; Write-Host ('PWD: ' + (Get-Location).Path);"
-                    "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
-                    "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
-                    "; Get-Command python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('python cmd: ' + $_.Source) };"
-                    "; # 略过 python -c 内联检查，避免跨层引号转义问题"
-                    "; Write-Host '=== 启动脚本 ===';"
-                    f" & '{bat_ps}'"
-                    " }\""
+                    f"\"Set-Location -Path '{bat_dir}'; "
+                    "Write-Host '=== 环境检查 ==='; "
+                    "Write-Host ('PWD: ' + (Get-Location).Path); "
+                    "Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV)); "
+                    "Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV)); "
+                    "Write-Host '=== 启动脚本 ==='; "
+                    f"& '{bat_ps}'\""
                 )
                 # 强制切换到 UTF-8 代码页后再执行，避免中文乱码
                 wrapped = f"chcp 65001 >NUL & {ps_cmd}"
@@ -632,24 +617,7 @@ class Widget(Interface):
                         break
                 if idx >= 0:
                     widget.setCurrentIndex(idx)
-                else:
-                    # 若未匹配并且是可编辑下拉，填入文本
-                    try:
-                        if widget.isEditable():
-                            widget.setEditText(str(value))
-                    except Exception:
-                        pass
-            elif isinstance(widget, QTextEdit):
-                widget.setPlainText(str(value))
-
-    def collect_values(self):
-        """收集所有控件的值到配置字典"""
-        for key_path, widget_info in self.widgets.items():
-            widget = widget_info["widget"]
-            current_value = None
-            
-            if isinstance(widget, LineEdit):
-                current_value = widget.text()
+                current_value = widget.currentData() if widget.currentData() is not None else widget.currentText()
             elif isinstance(widget, PasswordLineEdit):
                 current_value = widget.text()
             elif isinstance(widget, CheckBox):
@@ -1768,18 +1736,14 @@ class TerminalRoom(Interface):
                 " $usedRun = $false;"
                 " if (Test-Path $run) { . $run; $usedRun = $true }"
                 " elseif (Test-Path (Join-Path $base '.venv\\Scripts\\Activate.ps1')) { . (Join-Path $base '.venv\\Scripts\\Activate.ps1') }"
-                " if ($usedRun -and $env:VIRTUAL_ENV) {"
-                "   Write-Host '解除上层VIRTUAL_ENV以优先使用my-neuro环境';"
-                "   $env:PATH = ($env:PATH -split ';' | Where-Object {$_ -notlike '*ai_live2d\\.venv*'}) -join ';';"
-                "   $env:VIRTUAL_ENV = $null;"
-                " }"
+                " # skip VIRTUAL_ENV PATH adjustment to avoid brace complexity"
                 f"; Set-Location -Path '{batdir_ps}';"
                 "; Write-Host '=== 环境检查 ===';"
                 "; Write-Host ('PWD: ' + (Get-Location).Path);"
                 "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
                 "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
-                "; Get-Command python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('python cmd: ' + $_.Source) };"
-                "; & python -c 'import sys, importlib.util as u; print(\"python:\", sys.version); print(\"pip:\", \"ok\" if u.find_spec(\"pip\") else \"missing\"); print(\"py3langid:\", \"ok\" if u.find_spec(\"py3langid\") else \"missing\")';"
+                "; $pcmd = (Get-Command python -ErrorAction SilentlyContinue); if ($pcmd) { Write-Host ('python cmd: ' + $pcmd.Source) } ;"
+                "; # skip inline python checks to avoid quoting issues"
                 "; Write-Host '=== 启动脚本 ===';"
                 f" & '{bat_ps}'"
                 " }\""
