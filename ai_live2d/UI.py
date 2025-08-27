@@ -3332,7 +3332,26 @@ class Widget(Interface):
                         # 二级文件夹名：相对 root 的第一层目录名
                         rel = os.path.relpath(full, root)
                         parts = rel.split(os.sep)
-                        display = parts[0] if len(parts) >= 2 else os.path.basename(os.path.dirname(full))
+                        
+                        # 获取模型文件夹名（不是根目录名）
+                        if len(parts) >= 2:
+                            display = parts[0]  # 第一层子目录名
+                        else:
+                            # 如果直接在根目录下，使用文件名（去掉扩展名）
+                            display = os.path.splitext(fn)[0]
+                        
+                        # 过滤掉常见的根目录名和无意义的名称
+                        if display.lower() in ['2d', 'models', 'live2d', 'ai_live2d', 'ui']:
+                            # 如果显示名是根目录名，尝试使用更深层的目录名或文件名
+                            if len(parts) >= 3:
+                                display = parts[1]  # 使用第二层目录名
+                            else:
+                                display = os.path.splitext(fn)[0]  # 使用文件名
+                        
+                        # 确保显示名不为空且有意义
+                        if not display or display.lower() in ['2d', 'models', 'live2d']:
+                            display = os.path.splitext(fn)[0]  # 最后回退到文件名
+                        
                         key = (display, full)
                         if display and key not in added:
                             self.model_combo.addItem(display, full)
@@ -4501,20 +4520,32 @@ class StreamReader(QThread):
     def run(self):
         try:
             while self._running and self.proc and self.proc.poll() is None:
-                raw = self.proc.stdout.readline()
-                if not raw:
-                    break
-                if isinstance(raw, bytes):
-                    try:
-                        s = raw.decode('utf-8')
-                    except UnicodeDecodeError:
+                try:
+                    raw = self.proc.stdout.readline()
+                    if not raw:
+                        break
+                    # 如果是字符串（text=True或encoding指定），直接使用
+                    if isinstance(raw, str):
+                        s = raw.rstrip()
+                    # 如果是字节（二进制模式），解码
+                    elif isinstance(raw, bytes):
                         try:
-                            s = raw.decode('gbk', errors='replace')
-                        except Exception:
-                            s = raw.decode('utf-8', errors='replace')
-                else:
-                    s = raw
-                self.line.emit(s.rstrip())
+                            s = raw.decode('utf-8').rstrip()
+                        except UnicodeDecodeError:
+                            try:
+                                s = raw.decode('gbk', errors='replace').rstrip()
+                            except Exception:
+                                s = raw.decode('utf-8', errors='replace').rstrip()
+                    else:
+                        s = str(raw).rstrip()
+                    
+                    if s:  # 只发送非空行
+                        self.line.emit(s)
+                except Exception as e:
+                    # 如果读取出现任何错误，记录并继续
+                    error_msg = f"读取输出时出错: {str(e)}"
+                    self.line.emit(error_msg)
+                    break
             if self.proc:
                 self.proc.wait()
         finally:
@@ -4542,7 +4573,7 @@ class TerminalRoom(Interface):
         # bat 路径（项目根目录）
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         self.bats = {
-            'tts': os.path.join(base_dir, 'TTS.bat'),
+            'tts': os.path.join(base_dir, 'TTS_Terminal.bat'),  # 使用专门的终端TTS脚本
             'asr': os.path.join(base_dir, 'ASR.bat'),
             'bert': os.path.join(base_dir, 'bert.bat'),
             'rag': os.path.join(base_dir, 'RAG.bat'),
@@ -4625,54 +4656,36 @@ class TerminalRoom(Interface):
             self._append(key, f'未找到脚本：{bat}')
             return
         try:
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             bat_abs = os.path.abspath(bat)
             bat_dir = os.path.dirname(bat_abs)
-            # PowerShell 单引号内转义
-            base_ps = base_dir.replace("'", "''")
-            batdir_ps = bat_dir.replace("'", "''")
-            bat_ps = bat_abs.replace("'", "''")
-            # 使用 PowerShell，优先点源 Run-MyNeuro.ps1（自动 conda/.venv），否则尝试激活 .venv
-            ps_cmd = (
-                "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-                "\"& {"
-                " $ErrorActionPreference='Continue';"
-                f" $base = '{base_ps}';"
-                " $run = Join-Path $base 'Run-MyNeuro.ps1';"
-                " $usedRun = $false;"
-                " if (Test-Path $run) { . $run; $usedRun = $true }"
-                " elseif (Test-Path (Join-Path $base '.venv\\Scripts\\Activate.ps1')) { . (Join-Path $base '.venv\\Scripts\\Activate.ps1') }"
-                " # skip VIRTUAL_ENV PATH adjustment to avoid brace complexity"
-                f"; Set-Location -Path '{batdir_ps}';"
-                "; Write-Host '=== 环境检查 ===';"
-                "; Write-Host ('PWD: ' + (Get-Location).Path);"
-                "; Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV));"
-                "; Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV));"
-                "; $pcmd = (Get-Command python -ErrorAction SilentlyContinue); if ($pcmd) { Write-Host ('python cmd: ' + $pcmd.Source) } ;"
-                "; # skip inline python checks to avoid quoting issues"
-                "; Write-Host '=== 启动脚本 ===';"
-                f" & '{bat_ps}'"
-                " }\""
-            )
-            wrapped = f"chcp 65001 >NUL & {ps_cmd}"
+            
+            self._append(key, f'{key.upper()}启动中…')
+            
+            # 使用简单的cmd命令启动bat文件，指定编码
             proc = subprocess.Popen(
-                wrapped,
+                [bat_abs],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                cwd=bat_dir,
                 shell=True,
-                bufsize=0,
-                cwd=bat_dir
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
+            
             self.processes[key] = proc
+            
+            # 使用StreamReader来处理输出
             reader = StreamReader(proc)
             self.readers[key] = reader
             reader.line.connect(lambda s, k=key: self._append(k, s))
             reader.finished.connect(lambda k=key: self._on_finished(k))
             reader.start()
             self._update_status(key, True)
-            self._append(key, '启动中…')
+            
         except Exception as e:
             self._append(key, f'启动失败：{e}')
+            self.status_labels[key].setText('状态：启动失败')
 
     def stop_service(self, key: str):
         proc = self.processes.get(key)

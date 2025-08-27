@@ -107,3 +107,4 @@ __pycache__/
 *.pyc
 .python-version
 fine_tuning/input/audio.mp3
+ai_live2d/config.json
