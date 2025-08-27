@@ -32,12 +32,13 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QTableWidget,
     QTableWidgetItem,
-    QAbstractItemView
+    QAbstractItemView,
+    QColorDialog
 )
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
                             isDarkTheme, setTheme, Theme, qrouter)
-from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, DoubleSpinBox, SpinBox, CheckBox, ScrollArea, PrimaryToolButton, ToolButton, InfoBar, InfoBarPosition, PasswordLineEdit, TextBrowser, PixmapLabel, PushButton
+from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, DoubleSpinBox, SpinBox, CheckBox, ScrollArea, PrimaryToolButton, ToolButton, InfoBar, InfoBarPosition, PasswordLineEdit, TextBrowser, PixmapLabel, PushButton, ColorDialog
 from qframelesswindow import FramelessWindow, TitleBar
 
 
@@ -72,6 +73,190 @@ class QTextBrowserHandler(logging.Handler, QObject):
         self.text_browser.verticalScrollBar().setValue(
             self.text_browser.verticalScrollBar().maximum()
         )
+
+
+class ColorPickerWidget(QWidget):
+    """颜色选择器组件，使用qfluentwidgets的ColorDialog"""
+    
+    def __init__(self, parent=None, label="颜色", has_alpha=True):
+        super().__init__(parent)
+        self.has_alpha = has_alpha
+        self.r = 0
+        self.g = 0
+        self.b = 0
+        self.a = 255
+        self.setup_ui(label)
+    
+    def setup_ui(self, label):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 使用qfluentwidgets的PushButton作为颜色选择按钮
+        self.color_btn = PushButton("选择颜色", self)
+        self.color_btn.setFixedSize(100, 32)
+        self.color_btn.clicked.connect(self.select_color)
+        self.update_color_display()
+        
+        # 数值显示和输入
+        self.r_spin = SpinBox()
+        self.g_spin = SpinBox()
+        self.b_spin = SpinBox()
+        
+        for spin in [self.r_spin, self.g_spin, self.b_spin]:
+            spin.setRange(0, 255)
+            spin.setFixedWidth(60)
+            spin.valueChanged.connect(self.on_spin_changed)
+        
+        if self.has_alpha:
+            self.a_spin = SpinBox()
+            self.a_spin.setRange(0, 255)
+            self.a_spin.setFixedWidth(60)
+            self.a_spin.valueChanged.connect(self.on_spin_changed)
+        
+        # 布局
+        layout.addWidget(self.color_btn)
+        layout.addWidget(QLabel("R:"))
+        layout.addWidget(self.r_spin)
+        layout.addWidget(QLabel("G:"))
+        layout.addWidget(self.g_spin)
+        layout.addWidget(QLabel("B:"))
+        layout.addWidget(self.b_spin)
+        
+        if self.has_alpha:
+            layout.addWidget(QLabel("A:"))
+            layout.addWidget(self.a_spin)
+        
+        layout.addStretch()
+    
+    def select_color(self):
+        """使用qfluentwidgets的ColorDialog选择颜色"""
+        try:
+            current_color = QColor(self.r, self.g, self.b, self.a if self.has_alpha else 255)
+            
+            # 获取顶级窗口作为父控件，避免对话框被限制在小控件内
+            parent_window = self.window()  # 获取顶级窗口
+            
+            # 创建ColorDialog
+            color_dialog = ColorDialog(
+                current_color, 
+                "选择颜色", 
+                parent_window,  # 使用顶级窗口作为父控件
+                enableAlpha=self.has_alpha
+            )
+            
+            # 连接颜色改变信号（实时预览）
+            def on_color_changed(color):
+                # 实时更新颜色预览
+                self.set_color(color.red(), color.green(), color.blue(), 
+                              color.alpha() if self.has_alpha else self.a)
+            
+            color_dialog.colorChanged.connect(on_color_changed)
+            
+            # 显示对话框
+            result = color_dialog.exec_()
+            if result:
+                # 用户确认了颜色选择
+                final_color = color_dialog.color
+                self.set_color(final_color.red(), final_color.green(), final_color.blue(),
+                              final_color.alpha() if self.has_alpha else self.a)
+            else:
+                # 用户取消，恢复原来的颜色
+                self.set_color(current_color.red(), current_color.green(), current_color.blue(),
+                              current_color.alpha() if self.has_alpha else current_color.alpha())
+                
+        except Exception as e:
+            print(f"ColorDialog错误: {e}")
+            # 如果ColorDialog失败，回退到标准QColorDialog
+            from PyQt5.QtWidgets import QColorDialog as QtColorDialog
+            color = QtColorDialog.getColor(current_color, self.window(), "选择颜色")
+            if color.isValid():
+                self.set_color(color.red(), color.green(), color.blue(), 
+                              color.alpha() if self.has_alpha else self.a)
+    
+    def set_color(self, r, g, b, a=255):
+        """设置颜色值"""
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a
+        
+        # 更新SpinBox（阻止信号避免循环）
+        self.r_spin.blockSignals(True)
+        self.g_spin.blockSignals(True)
+        self.b_spin.blockSignals(True)
+        
+        self.r_spin.setValue(r)
+        self.g_spin.setValue(g)
+        self.b_spin.setValue(b)
+        
+        if self.has_alpha:
+            self.a_spin.blockSignals(True)
+            self.a_spin.setValue(a)
+            self.a_spin.blockSignals(False)
+        
+        self.r_spin.blockSignals(False)
+        self.g_spin.blockSignals(False)
+        self.b_spin.blockSignals(False)
+        
+        self.update_color_display()
+    
+    def on_spin_changed(self):
+        """SpinBox值改变时更新颜色"""
+        self.r = self.r_spin.value()
+        self.g = self.g_spin.value()
+        self.b = self.b_spin.value()
+        
+        if self.has_alpha:
+            self.a = self.a_spin.value()
+        
+        self.update_color_display()
+    
+    def update_color_display(self):
+        """更新颜色按钮的显示"""
+        # 使用qfluentwidgets的PushButton样式，但添加背景颜色
+        if self.has_alpha:
+            # 对于有透明度的颜色，显示RGBA值
+            self.color_btn.setStyleSheet(f"""
+                PushButton {{
+                    background-color: rgba({self.r}, {self.g}, {self.b}, {self.a / 255.0});
+                    border: 2px solid rgba(136, 136, 136, 0.5);
+                    border-radius: 6px;
+                    color: {"white" if (self.r + self.g + self.b) < 384 else "black"};
+                    font-weight: bold;
+                }}
+                PushButton:hover {{
+                    border: 2px solid rgb(0, 120, 215);
+                }}
+                PushButton:pressed {{
+                    background-color: rgba({max(0, self.r-20)}, {max(0, self.g-20)}, {max(0, self.b-20)}, {self.a / 255.0});
+                }}
+            """)
+            self.color_btn.setText(f"RGBA({self.r},{self.g},{self.b},{self.a})")
+        else:
+            self.color_btn.setStyleSheet(f"""
+                PushButton {{
+                    background-color: rgb({self.r}, {self.g}, {self.b});
+                    border: 2px solid rgba(136, 136, 136, 0.5);
+                    border-radius: 6px;
+                    color: {"white" if (self.r + self.g + self.b) < 384 else "black"};
+                    font-weight: bold;
+                }}
+                PushButton:hover {{
+                    border: 2px solid rgb(0, 120, 215);
+                }}
+                PushButton:pressed {{
+                    background-color: rgb({max(0, self.r-20)}, {max(0, self.g-20)}, {max(0, self.b-20)});
+                }}
+            """)
+            self.color_btn.setText(f"RGB({self.r},{self.g},{self.b})")
+    
+    def get_rgba(self):
+        """获取RGBA值"""
+        return self.r, self.g, self.b, self.a
+    
+    def get_rgb(self):
+        """获取RGB值"""
+        return self.r, self.g, self.b
 
 
 class MCPToolManager(QWidget):
@@ -928,6 +1113,69 @@ class Widget(Interface):
                 config_ptr = config_ptr.setdefault(key, {})
             config_ptr[keys[-1]] = current_value
         
+        # 处理对话框颜色选择器的值
+        if hasattr(self, 'bg_color_picker'):
+            r, g, b, a = self.bg_color_picker.get_rgba()
+            self.config_data.setdefault('user_input', {}).update({
+                'bg_color_r': r,
+                'bg_color_g': g,
+                'bg_color_b': b,
+                'bg_color_a': a
+            })
+        
+        if hasattr(self, 'text_color_picker'):
+            r, g, b = self.text_color_picker.get_rgb()
+            self.config_data.setdefault('user_input', {}).update({
+                'text_color_r': r,
+                'text_color_g': g,
+                'text_color_b': b
+            })
+        
+        if hasattr(self, 'border_color_picker'):
+            r, g, b = self.border_color_picker.get_rgb()
+            self.config_data.setdefault('user_input', {}).update({
+                'border_color_r': r,
+                'border_color_g': g,
+                'border_color_b': b
+            })
+        
+        if hasattr(self, 'status_bg_color_picker'):
+            r, g, b, a = self.status_bg_color_picker.get_rgba()
+            self.config_data.setdefault('user_input', {}).update({
+                'status_bg_color_r': r,
+                'status_bg_color_g': g,
+                'status_bg_color_b': b,
+                'status_bg_color_a': a
+            })
+        
+        # 处理字幕颜色选择器的值
+        if hasattr(self, 'subtitle_text_color_picker'):
+            r, g, b, a = self.subtitle_text_color_picker.get_rgba()
+            self.config_data.setdefault('subtitle', {}).update({
+                'text_color_r': r,
+                'text_color_g': g,
+                'text_color_b': b,
+                'text_color_a': a
+            })
+        
+        if hasattr(self, 'subtitle_outline_color_picker'):
+            r, g, b, a = self.subtitle_outline_color_picker.get_rgba()
+            self.config_data.setdefault('subtitle', {}).update({
+                'outline_color_r': r,
+                'outline_color_g': g,
+                'outline_color_b': b,
+                'outline_color_a': a
+            })
+        
+        if hasattr(self, 'subtitle_bg_color_picker'):
+            r, g, b, a = self.subtitle_bg_color_picker.get_rgba()
+            self.config_data.setdefault('subtitle', {}).update({
+                'bg_color_r': r,
+                'bg_color_g': g,
+                'bg_color_b': b,
+                'bg_color_a': a
+            })
+        
     def reload_config(self):
         """重新加载配置文件"""
         self.config_data = self.load_config()
@@ -1485,24 +1733,20 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
-        fields = [
-            ("字体", "subtitle.font_family", "lineedit", ""),
+        # 读取配置
+        subtitle_config = self.config_data.get('subtitle', {})
+        
+        # 基础设置组
+        basic_group = QGroupBox("基础设置")
+        basic_form = QFormLayout(basic_group)
+        
+        # 基础设置字段
+        basic_fields = [
+            ("字体", "subtitle.font_family", "lineedit", "Microsoft YaHei"),
             ("字体大小", "subtitle.font_size", "spinbox", 24),
             ("粗体", "subtitle.font_bold", "checkbox", False),
             ("文本框高度", "subtitle.box_height", "spinbox", 800),
             ("文本框宽度", "subtitle.box_width", "spinbox", 1800),
-            ("文本颜色R", "subtitle.text_color_r", "spinbox", 255),
-            ("文本颜色G", "subtitle.text_color_g", "spinbox", 255),
-            ("文本颜色B", "subtitle.text_color_b", "spinbox", 255),
-            ("文本颜色A", "subtitle.text_color_a", "spinbox", 255),
-            ("轮廓颜色R", "subtitle.outline_color_r", "spinbox", 0),
-            ("轮廓颜色G", "subtitle.outline_color_g", "spinbox", 0),
-            ("轮廓颜色B", "subtitle.outline_color_b", "spinbox", 0),
-            ("轮廓颜色A", "subtitle.outline_color_a", "spinbox", 200),
-            ("背景颜色R", "subtitle.bg_color_r", "spinbox", 0),
-            ("背景颜色G", "subtitle.bg_color_g", "spinbox", 0),
-            ("背景颜色B", "subtitle.bg_color_b", "spinbox", 0),
-            ("背景颜色A", "subtitle.bg_color_a", "spinbox", 60),
             ("内边距", "subtitle.padding", "spinbox", 20),
             ("边框半径", "subtitle.border_radius", "spinbox", 15),
             ("淡入淡出时间", "subtitle.fade_duration", "spinbox", 300),
@@ -1510,8 +1754,62 @@ class Widget(Interface):
             ("字符延迟", "subtitle.char_delay", "spinbox", 50)
         ]
         
-        group = self.create_form_group(self, "字幕配置", fields)
-        self.vBoxLayout.addWidget(group)
+        for label, key_path, widget_type, default in basic_fields:
+            # 获取当前值
+            keys = key_path.split('.')
+            value = self.config_data
+            for key in keys:
+                value = value.get(key, default)
+            
+            # 创建控件
+            if widget_type == "lineedit":
+                widget = LineEdit()
+                widget.setText(str(value))
+            elif widget_type == "spinbox":
+                widget = SpinBox()
+                widget.setRange(0, 999999)
+                widget.setValue(int(value))
+            elif widget_type == "checkbox":
+                widget = CheckBox()
+                widget.setChecked(bool(value))
+            
+            basic_form.addRow(label, widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(basic_group)
+        
+        # 字幕颜色设置组
+        subtitle_color_group = QGroupBox("字幕颜色设置")
+        subtitle_color_form = QFormLayout(subtitle_color_group)
+        
+        # 文本颜色
+        self.subtitle_text_color_picker = ColorPickerWidget(self, "文本颜色", has_alpha=True)
+        text_r = subtitle_config.get('text_color_r', 255)
+        text_g = subtitle_config.get('text_color_g', 255)
+        text_b = subtitle_config.get('text_color_b', 255)
+        text_a = subtitle_config.get('text_color_a', 255)
+        self.subtitle_text_color_picker.set_color(text_r, text_g, text_b, text_a)
+        subtitle_color_form.addRow("文本颜色:", self.subtitle_text_color_picker)
+        
+        # 轮廓颜色
+        self.subtitle_outline_color_picker = ColorPickerWidget(self, "轮廓颜色", has_alpha=True)
+        outline_r = subtitle_config.get('outline_color_r', 0)
+        outline_g = subtitle_config.get('outline_color_g', 0)
+        outline_b = subtitle_config.get('outline_color_b', 0)
+        outline_a = subtitle_config.get('outline_color_a', 200)
+        self.subtitle_outline_color_picker.set_color(outline_r, outline_g, outline_b, outline_a)
+        subtitle_color_form.addRow("轮廓颜色:", self.subtitle_outline_color_picker)
+        
+        # 背景颜色
+        self.subtitle_bg_color_picker = ColorPickerWidget(self, "背景颜色", has_alpha=True)
+        bg_r = subtitle_config.get('bg_color_r', 0)
+        bg_g = subtitle_config.get('bg_color_g', 0)
+        bg_b = subtitle_config.get('bg_color_b', 0)
+        bg_a = subtitle_config.get('bg_color_a', 60)
+        self.subtitle_bg_color_picker.set_color(bg_r, bg_g, bg_b, bg_a)
+        subtitle_color_form.addRow("背景颜色:", self.subtitle_bg_color_picker)
+        
+        self.vBoxLayout.addWidget(subtitle_color_group)
         self.vBoxLayout.addStretch()
 
     def create_user_input_tab(self):
@@ -1522,38 +1820,83 @@ class Widget(Interface):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        fields = [
+        
+        # 读取配置
+        user_input_config = self.config_data.get('user_input', {})
+        
+        # 基础设置组
+        basic_group = QGroupBox("基础设置")
+        basic_form = QFormLayout(basic_group)
+        
+        # 基础设置字段
+        basic_fields = [
             ("窗口宽度", "user_input.width", "spinbox", 400),
             ("窗口高度", "user_input.height", "spinbox", 150),
             ("字体", "user_input.font_family", "lineedit", "Microsoft YaHei"),
             ("字体大小", "user_input.font_size", "spinbox", 16),
             ("边框圆角", "user_input.border_radius", "spinbox", 10),
-            
-            # 背景颜色
-            ("背景颜色R", "user_input.bg_color_r", "spinbox", 40),
-            ("背景颜色G", "user_input.bg_color_g", "spinbox", 44),
-            ("背景颜色B", "user_input.bg_color_b", "spinbox", 52),
-            ("背景颜色A", "user_input.bg_color_a", "spinbox", 220),
-            
-            # 文字颜色
-            ("文字颜色R", "user_input.text_color_r", "spinbox", 220),
-            ("文字颜色G", "user_input.text_color_g", "spinbox", 220),
-            ("文字颜色B", "user_input.text_color_b", "spinbox", 220),
-            
-            # 边框颜色
-            ("边框颜色R", "user_input.border_color_r", "spinbox", 86),
-            ("边框颜色G", "user_input.border_color_g", "spinbox", 182),
-            ("边框颜色B", "user_input.border_color_b", "spinbox", 194),
-            
-            # 输入框背景颜色
-            ("输入框背景R", "user_input.status_bg_color_r", "spinbox", 60),
-            ("输入框背景G", "user_input.status_bg_color_g", "spinbox", 60),
-            ("输入框背景B", "user_input.status_bg_color_b", "spinbox", 70),
-            ("输入框背景A", "user_input.status_bg_color_a", "spinbox", 220),
         ]
         
-        group = self.create_form_group(self, "对话框", fields)
-        self.vBoxLayout.addWidget(group)
+        for label, key_path, widget_type, default in basic_fields:
+            # 获取当前值
+            keys = key_path.split('.')
+            value = self.config_data
+            for key in keys:
+                value = value.get(key, default)
+            
+            # 创建控件
+            if widget_type == "lineedit":
+                widget = LineEdit()
+                widget.setText(str(value))
+            elif widget_type == "spinbox":
+                widget = SpinBox()
+                widget.setRange(0, 999999)
+                widget.setValue(int(value))
+            
+            basic_form.addRow(label, widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(basic_group)
+        
+        # 颜色设置组
+        color_group = QGroupBox("颜色设置")
+        color_form = QFormLayout(color_group)
+        
+        # 背景颜色
+        self.bg_color_picker = ColorPickerWidget(self, "背景颜色", has_alpha=True)
+        bg_r = user_input_config.get('bg_color_r', 40)
+        bg_g = user_input_config.get('bg_color_g', 44)
+        bg_b = user_input_config.get('bg_color_b', 52)
+        bg_a = user_input_config.get('bg_color_a', 220)
+        self.bg_color_picker.set_color(bg_r, bg_g, bg_b, bg_a)
+        color_form.addRow("背景颜色:", self.bg_color_picker)
+        
+        # 文字颜色（无透明度）
+        self.text_color_picker = ColorPickerWidget(self, "文字颜色", has_alpha=False)
+        text_r = user_input_config.get('text_color_r', 220)
+        text_g = user_input_config.get('text_color_g', 220)
+        text_b = user_input_config.get('text_color_b', 220)
+        self.text_color_picker.set_color(text_r, text_g, text_b)
+        color_form.addRow("文字颜色:", self.text_color_picker)
+        
+        # 边框颜色（无透明度）
+        self.border_color_picker = ColorPickerWidget(self, "边框颜色", has_alpha=False)
+        border_r = user_input_config.get('border_color_r', 86)
+        border_g = user_input_config.get('border_color_g', 182)
+        border_b = user_input_config.get('border_color_b', 194)
+        self.border_color_picker.set_color(border_r, border_g, border_b)
+        color_form.addRow("边框颜色:", self.border_color_picker)
+        
+        # 输入框背景颜色
+        self.status_bg_color_picker = ColorPickerWidget(self, "输入框背景颜色", has_alpha=True)
+        status_r = user_input_config.get('status_bg_color_r', 60)
+        status_g = user_input_config.get('status_bg_color_g', 60)
+        status_b = user_input_config.get('status_bg_color_b', 70)
+        status_a = user_input_config.get('status_bg_color_a', 220)
+        self.status_bg_color_picker.set_color(status_r, status_g, status_b, status_a)
+        color_form.addRow("输入框背景颜色:", self.status_bg_color_picker)
+        
+        self.vBoxLayout.addWidget(color_group)
         self.vBoxLayout.addStretch()
 
     def create_other_tab(self):
@@ -2489,39 +2832,31 @@ class Window(FramelessWindow):
         self.titleBar.resize(self.width()-46, self.titleBar.height())
 
     def closeEvent(self, event):
-        # 三按钮 Fluent 风格对话框（使用 qfluentwidgets 的 PushButton）
-        dlg = QDialog(self)
-        dlg.setWindowTitle('是否退出程序')
-        v = QVBoxLayout(dlg)
-        text = QLabel('请选择操作：', dlg)
-        v.addWidget(text)
-        btns = QHBoxLayout()
-        exit_btn = PushButton('直接退出', dlg)
-        mini_btn = PushButton('最小化到托盘', dlg)
-        cancel_btn = PushButton('取消', dlg)
-        btns.addStretch(1)
-        btns.addWidget(exit_btn)
-        btns.addWidget(mini_btn)
-        btns.addWidget(cancel_btn)
-        v.addLayout(btns)
+        # 先显示一个简单的退出确认，使用与项目介绍相同风格的MessageBox
+        w = MessageBox(
+            '是否退出程序？',
+            '你真的要离开肥牛了吗？\n\n点击"确定"直接退出，点击"取消"将最小化到托盘~',
+            self
+        )
+        w.yesButton.setText('直接退出')
+        w.cancelButton.setText('最小化到托盘')
 
-        choice = {'val': 'cancel'}
-        exit_btn.clicked.connect(lambda: (choice.update(val='exit'), dlg.accept()))
-        mini_btn.clicked.connect(lambda: (choice.update(val='mini'), dlg.accept()))
-        cancel_btn.clicked.connect(lambda: (choice.update(val='cancel'), dlg.reject()))
-
-        dlg.exec_()
-        if choice.get('val') == 'exit':
+        if w.exec():
+            # 用户选择直接退出
             event.accept()
             if self.systemTrayIcon:
                 self.systemTrayIcon.hide()
-        elif choice.get('val') == 'mini':
+        else:
+            # 用户选择最小化到托盘
             event.ignore()
             self.hide()
             if self.systemTrayIcon:
-                self.systemTrayIcon.showMessage('提示', '程序已最小化到托盘', QSystemTrayIcon.Information, 2000)
-        else:
-            event.ignore()
+                self.systemTrayIcon.showMessage(
+                    '肥牛提醒', 
+                    '肥牛已经躲到托盘里啦~ 点击托盘图标可以重新召唤我哦！', 
+                    QSystemTrayIcon.Information, 
+                    3000
+                )
 
     def changeEvent(self, e):
         super().changeEvent(e)
