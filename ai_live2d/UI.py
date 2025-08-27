@@ -25,7 +25,14 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QSizePolicy,
     QMessageBox,
-    QDialog
+    QDialog,
+    QListWidget,
+    QListWidgetItem,
+    QSplitter,
+    QHeaderView,
+    QTableWidget,
+    QTableWidgetItem,
+    QAbstractItemView
 )
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
@@ -65,6 +72,420 @@ class QTextBrowserHandler(logging.Handler, QObject):
         self.text_browser.verticalScrollBar().setValue(
             self.text_browser.verticalScrollBar().maximum()
         )
+
+
+class MCPToolManager(QWidget):
+    """MCP工具管理器 - 支持增删改查MCP工具配置"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.mcp_tools = []
+        self.setup_ui()
+        self.load_mcp_config()
+    
+    def setup_ui(self):
+        """设置用户界面"""
+        layout = QHBoxLayout(self)
+        layout.setSpacing(10)
+        
+        # 左侧：工具列表和操作按钮
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        
+        # 工具列表
+        self.tool_list = QListWidget()
+        self.tool_list.itemClicked.connect(self.on_tool_selected)
+        left_layout.addWidget(QLabel("MCP工具列表:"))
+        left_layout.addWidget(self.tool_list)
+        
+        # 操作按钮
+        btn_layout = QHBoxLayout()
+        self.add_btn = PushButton("添加", self)
+        self.edit_btn = PushButton("编辑", self)
+        self.delete_btn = PushButton("删除", self)
+        self.test_btn = PushButton("测试连接", self)
+        
+        self.add_btn.clicked.connect(self.add_tool)
+        self.edit_btn.clicked.connect(self.edit_tool)
+        self.delete_btn.clicked.connect(self.delete_tool)
+        self.test_btn.clicked.connect(self.test_tool)
+        
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.edit_btn)
+        btn_layout.addWidget(self.delete_btn)
+        btn_layout.addWidget(self.test_btn)
+        left_layout.addLayout(btn_layout)
+        
+        # 右侧：详细配置
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        # 配置表单
+        form_group = QGroupBox("MCP工具配置")
+        form_layout = QFormLayout(form_group)
+        
+        self.name_edit = LineEdit()
+        self.name_edit.setPlaceholderText("工具名称")
+        form_layout.addRow("名称:", self.name_edit)
+        
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["server", "client", "middleware"])
+        form_layout.addRow("类型:", self.type_combo)
+        
+        self.url_edit = LineEdit()
+        self.url_edit.setPlaceholderText("ws://localhost:3000/mcp 或 http://api.example.com")
+        form_layout.addRow("URL:", self.url_edit)
+        
+        self.path_edit = LineEdit()
+        self.path_edit.setPlaceholderText("本地路径或执行命令")
+        form_layout.addRow("路径/命令:", self.path_edit)
+        
+        self.enabled_check = CheckBox()
+        self.enabled_check.setChecked(True)
+        form_layout.addRow("启用:", self.enabled_check)
+        
+        self.args_edit = QTextEdit()
+        self.args_edit.setPlaceholderText('{"arg1": "value1", "arg2": "value2"}')
+        self.args_edit.setMaximumHeight(80)
+        form_layout.addRow("参数(JSON):", self.args_edit)
+        
+        self.description_edit = QTextEdit()
+        self.description_edit.setPlaceholderText("工具描述...")
+        self.description_edit.setMaximumHeight(60)
+        form_layout.addRow("描述:", self.description_edit)
+        
+        right_layout.addWidget(form_group)
+        
+        # 保存按钮
+        save_btn = PrimaryToolButton(FIF.SAVE)
+        save_btn.setText("保存配置")
+        save_btn.clicked.connect(self.save_current_tool)
+        right_layout.addWidget(save_btn)
+        
+        # 分割器
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([300, 500])
+        
+        layout.addWidget(splitter)
+        
+        # 初始状态
+        self.clear_form()
+        self.update_buttons()
+    
+    def load_mcp_config(self):
+        """从父组件的配置中加载MCP工具列表，兼容传统格式"""
+        if hasattr(self.parent_widget, 'config_data'):
+            mcp_config = self.parent_widget.config_data.get('mcp', {})
+            
+            # 新格式：直接使用tools数组
+            if 'tools' in mcp_config:
+                self.mcp_tools = mcp_config.get('tools', [])
+            else:
+                # 传统格式：从urls和paths转换
+                self.mcp_tools = []
+                
+                # 处理URLs
+                urls = mcp_config.get('urls', [])
+                if isinstance(urls, str):
+                    urls = [url.strip() for url in urls.split(',') if url.strip()]
+                elif not isinstance(urls, list):
+                    urls = []
+                
+                for i, url in enumerate(urls):
+                    if url.strip():
+                        tool = {
+                            'name': f'URL工具{i+1}',
+                            'type': 'server',
+                            'url': url.strip(),
+                            'path': '',
+                            'enabled': True,
+                            'args': {},
+                            'description': f'从配置文件导入的URL: {url.strip()}'
+                        }
+                        self.mcp_tools.append(tool)
+                
+                # 处理Paths
+                paths = mcp_config.get('paths', [])
+                if isinstance(paths, str):
+                    paths = [path.strip() for path in paths.split(',') if path.strip()]
+                elif not isinstance(paths, list):
+                    paths = []
+                
+                for i, path in enumerate(paths):
+                    if path.strip():
+                        tool = {
+                            'name': f'路径工具{i+1}',
+                            'type': 'server',
+                            'url': '',
+                            'path': path.strip(),
+                            'enabled': True,
+                            'args': {},
+                            'description': f'从配置文件导入的路径: {path.strip()}'
+                        }
+                        self.mcp_tools.append(tool)
+                
+                # 自动保存转换后的格式到配置中
+                if self.mcp_tools:
+                    self.save_to_parent_config()
+        
+        self.refresh_tool_list()
+    
+    def refresh_tool_list(self):
+        """刷新工具列表显示"""
+        self.tool_list.clear()
+        for i, tool in enumerate(self.mcp_tools):
+            item_text = f"{tool.get('name', f'工具{i+1}')} ({'✓' if tool.get('enabled', True) else '✗'})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, i)  # 存储索引
+            self.tool_list.addItem(item)
+    
+    def on_tool_selected(self, item):
+        """工具选中事件"""
+        index = item.data(Qt.UserRole)
+        if 0 <= index < len(self.mcp_tools):
+            tool = self.mcp_tools[index]
+            self.load_tool_to_form(tool)
+        self.update_buttons()
+    
+    def load_tool_to_form(self, tool):
+        """将工具配置加载到表单"""
+        self.name_edit.setText(tool.get('name', ''))
+        
+        tool_type = tool.get('type', 'server')
+        index = self.type_combo.findText(tool_type)
+        if index >= 0:
+            self.type_combo.setCurrentIndex(index)
+        
+        self.url_edit.setText(tool.get('url', ''))
+        self.path_edit.setText(tool.get('path', ''))
+        self.enabled_check.setChecked(tool.get('enabled', True))
+        
+        args = tool.get('args', {})
+        if isinstance(args, dict):
+            self.args_edit.setPlainText(json.dumps(args, indent=2, ensure_ascii=False))
+        else:
+            self.args_edit.setPlainText(str(args))
+        
+        self.description_edit.setPlainText(tool.get('description', ''))
+    
+    def clear_form(self):
+        """清空表单"""
+        self.name_edit.clear()
+        self.type_combo.setCurrentIndex(0)
+        self.url_edit.clear()
+        self.path_edit.clear()
+        self.enabled_check.setChecked(True)
+        self.args_edit.clear()
+        self.description_edit.clear()
+    
+    def get_form_data(self):
+        """从表单获取数据"""
+        try:
+            args_text = self.args_edit.toPlainText().strip()
+            args = json.loads(args_text) if args_text else {}
+        except json.JSONDecodeError:
+            args = {}
+        
+        return {
+            'name': self.name_edit.text().strip(),
+            'type': self.type_combo.currentText(),
+            'url': self.url_edit.text().strip(),
+            'path': self.path_edit.text().strip(),
+            'enabled': self.enabled_check.isChecked(),
+            'args': args,
+            'description': self.description_edit.toPlainText().strip()
+        }
+    
+    def add_tool(self):
+        """添加新工具"""
+        self.clear_form()
+        self.name_edit.setFocus()
+        self.update_buttons()
+    
+    def edit_tool(self):
+        """编辑当前选中的工具"""
+        current_item = self.tool_list.currentItem()
+        if current_item:
+            index = current_item.data(Qt.UserRole)
+            if 0 <= index < len(self.mcp_tools):
+                self.load_tool_to_form(self.mcp_tools[index])
+    
+    def delete_tool(self):
+        """删除当前选中的工具"""
+        current_item = self.tool_list.currentItem()
+        if not current_item:
+            return
+        
+        index = current_item.data(Qt.UserRole)
+        if 0 <= index < len(self.mcp_tools):
+            tool_name = self.mcp_tools[index].get('name', f'工具{index+1}')
+            reply = QMessageBox.question(
+                self, '确认删除', 
+                f'确定要删除工具 "{tool_name}" 吗？',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                del self.mcp_tools[index]
+                self.refresh_tool_list()
+                self.clear_form()
+                self.update_buttons()
+                self.save_to_parent_config()
+    
+    def save_current_tool(self):
+        """保存当前表单中的工具配置"""
+        tool_data = self.get_form_data()
+        
+        if not tool_data['name']:
+            InfoBar.warning(
+                title='保存失败',
+                content="请输入工具名称",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        current_item = self.tool_list.currentItem()
+        if current_item:
+            # 编辑现有工具
+            index = current_item.data(Qt.UserRole)
+            if 0 <= index < len(self.mcp_tools):
+                self.mcp_tools[index] = tool_data
+        else:
+            # 添加新工具
+            self.mcp_tools.append(tool_data)
+        
+        self.refresh_tool_list()
+        self.save_to_parent_config()
+        
+        InfoBar.success(
+            title='保存成功',
+            content=f"工具 '{tool_data['name']}' 已保存",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+    
+    def test_tool(self):
+        """测试工具连接"""
+        current_item = self.tool_list.currentItem()
+        if not current_item:
+            InfoBar.warning(
+                title='测试失败',
+                content="请先选择一个工具",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        index = current_item.data(Qt.UserRole)
+        if 0 <= index < len(self.mcp_tools):
+            tool = self.mcp_tools[index]
+            url = tool.get('url', '')
+            path = tool.get('path', '')
+            
+            if url:
+                # 简单的URL测试（可以扩展为实际的MCP连接测试）
+                try:
+                    import requests
+                    response = requests.get(url, timeout=5)
+                    InfoBar.success(
+                        title='连接成功',
+                        content=f"URL {url} 响应状态: {response.status_code}",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                except Exception as e:
+                    InfoBar.error(
+                        title='连接失败',
+                        content=f"无法连接到 {url}: {str(e)}",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+            elif path:
+                # 路径或命令测试
+                if os.path.exists(path):
+                    InfoBar.success(
+                        title='路径有效',
+                        content=f"路径 {path} 存在",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                else:
+                    InfoBar.warning(
+                        title='路径无效',
+                        content=f"路径 {path} 不存在",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+            else:
+                InfoBar.warning(
+                    title='无法测试',
+                    content="工具未配置URL或路径",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+    
+    def update_buttons(self):
+        """更新按钮状态"""
+        has_selection = self.tool_list.currentItem() is not None
+        self.edit_btn.setEnabled(has_selection)
+        self.delete_btn.setEnabled(has_selection)
+        self.test_btn.setEnabled(has_selection)
+    
+    def save_to_parent_config(self):
+        """保存到父组件的配置中"""
+        if hasattr(self.parent_widget, 'config_data'):
+            if 'mcp' not in self.parent_widget.config_data:
+                self.parent_widget.config_data['mcp'] = {}
+            self.parent_widget.config_data['mcp']['tools'] = self.mcp_tools
+    
+    def get_tools_config(self):
+        """获取工具配置，供外部调用，同时保持向后兼容"""
+        # 生成URLs和Paths列表（向后兼容）
+        urls = []
+        paths = []
+        
+        for tool in self.mcp_tools:
+            if tool.get('enabled', True):
+                if tool.get('url'):
+                    urls.append(tool['url'])
+                if tool.get('path'):
+                    paths.append(tool['path'])
+        
+        return {
+            'tools': self.mcp_tools,  # 新格式
+            'urls': urls,             # 传统格式兼容
+            'paths': paths            # 传统格式兼容
+        }
+
 
 class BatWorker(QThread):
     """
@@ -449,6 +870,11 @@ class Widget(Interface):
             # 收集所有控件的值
             self.collect_values()
             
+            # 如果存在MCP管理器，保存其配置
+            if hasattr(self, 'mcp_manager'):
+                mcp_config = self.mcp_manager.get_tools_config()
+                self.config_data.setdefault('mcp', {}).update(mcp_config)
+            
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config_data, f, indent=4, ensure_ascii=False)
             InfoBar.success(
@@ -464,7 +890,7 @@ class Widget(Interface):
         except Exception as e:
             InfoBar.error(
                 title='保存失败',
-                content="出现了错误哦",
+                content=f"保存失败: {str(e)}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.BOTTOM_RIGHT,
@@ -472,11 +898,45 @@ class Widget(Interface):
                 parent=self
             )
             return False
+    
+    def collect_values(self):
+        """收集所有控件的值到配置数据中"""
+        for key_path, widget_info in self.widgets.items():
+            widget = widget_info["widget"]
+            current_value = None
+            
+            if isinstance(widget, LineEdit):
+                current_value = widget.text()
+            elif isinstance(widget, PasswordLineEdit):
+                current_value = widget.text()
+            elif isinstance(widget, CheckBox):
+                current_value = widget.isChecked()
+            elif isinstance(widget, SpinBox):
+                current_value = widget.value()
+            elif isinstance(widget, DoubleSpinBox):
+                current_value = widget.value()
+            elif isinstance(widget, QComboBox):
+                data = widget.currentData()
+                current_value = data if data is not None else widget.currentText()
+            elif isinstance(widget, QTextEdit):
+                current_value = widget.toPlainText()
+            
+            # 更新配置数据
+            keys = key_path.split('.')
+            config_ptr = self.config_data
+            for key in keys[:-1]:
+                config_ptr = config_ptr.setdefault(key, {})
+            config_ptr[keys[-1]] = current_value
         
     def reload_config(self):
         """重新加载配置文件"""
         self.config_data = self.load_config()
         self.update_widgets()
+        
+        # 重新加载MCP管理器配置
+        if hasattr(self, 'mcp_manager'):
+            self.mcp_manager.load_mcp_config()
+        
         InfoBar.success(
                 title='加载成功',
                 content="已重新加载配置文件",
@@ -1123,14 +1583,43 @@ class Widget(Interface):
         self.vBoxLayout.addStretch()
 
     def create_mcp_tab(self):
-        """创建MCP配置标签页"""
-        fields = [
-            ("MCP URL", "mcp.urls", "lineedit", ""),
-            ("MCP Paths", "mcp.paths", "lineedit", "")
-        ]
+        """创建MCP配置标签页 - 使用高级MCP工具管理器"""
+        # 创建MCP工具管理器
+        self.mcp_manager = MCPToolManager(self)
+        self.vBoxLayout.addWidget(self.mcp_manager)
         
-        group = self.create_form_group(self, "RAG配置", fields)
-        self.vBoxLayout.addWidget(group)
+        # 传统的简单配置（保留兼容性）
+        simple_group = QGroupBox("传统配置（兼容）")
+        simple_form = QFormLayout(simple_group)
+        
+        # 读取配置
+        mcp_config = self.config_data.get('mcp', {})
+        
+        # MCP URLs (多个URL用逗号分隔)
+        urls_edit = LineEdit()
+        urls_value = mcp_config.get('urls', '')
+        if isinstance(urls_value, list):
+            urls_value = ', '.join(urls_value)
+        urls_edit.setText(str(urls_value))
+        self.widgets['mcp.urls'] = {"widget": urls_edit, "type": "lineedit"}
+        simple_form.addRow("MCP URLs (逗号分隔):", urls_edit)
+        
+        # MCP Paths (多个路径用逗号分隔)
+        paths_edit = LineEdit()
+        paths_value = mcp_config.get('paths', '')
+        if isinstance(paths_value, list):
+            paths_value = ', '.join(paths_value)
+        paths_edit.setText(str(paths_value))
+        self.widgets['mcp.paths'] = {"widget": paths_edit, "type": "lineedit"}
+        simple_form.addRow("MCP Paths (逗号分隔):", paths_edit)
+        
+        # 全局开关
+        enabled_check = CheckBox()
+        enabled_check.setChecked(bool(mcp_config.get('enabled', True)))
+        self.widgets['mcp.enabled'] = {"widget": enabled_check, "type": "checkbox"}
+        simple_form.addRow("启用MCP:", enabled_check)
+        
+        self.vBoxLayout.addWidget(simple_group)
         self.vBoxLayout.addStretch()
 
     def create_memory_tab(self):
