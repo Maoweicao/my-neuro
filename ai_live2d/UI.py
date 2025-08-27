@@ -79,6 +79,99 @@ class QTextBrowserHandler(logging.Handler, QObject):
         )
 
 
+class LLMInteractionLogger:
+    """LLM交互日志记录器"""
+    
+    def __init__(self, log_path="logs/llm_interactions.log", enabled=True):
+        self.log_path = log_path
+        self.enabled = enabled
+        self.logger = None
+        self.setup_logger()
+    
+    def setup_logger(self):
+        """设置日志记录器"""
+        if not self.enabled:
+            return
+            
+        # 确保日志目录存在
+        log_dir = os.path.dirname(self.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        
+        # 创建专用的LLM交互日志记录器
+        self.logger = logging.getLogger('llm_interactions')
+        self.logger.setLevel(logging.INFO)
+        
+        # 避免重复添加处理器
+        if not self.logger.handlers:
+            # 文件处理器，支持日志轮转
+            file_handler = RotatingFileHandler(
+                self.log_path, 
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            
+            # 设置日志格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+    
+    def log_user_input(self, user_input):
+        """记录用户输入"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"USER: {user_input}")
+    
+    def log_llm_response(self, response, model="", api_type=""):
+        """记录LLM响应"""
+        if not self.enabled or not self.logger:
+            return
+        model_info = f"[{api_type}:{model}]" if model and api_type else ""
+        self.logger.info(f"LLM{model_info}: {response}")
+    
+    def log_api_request(self, api_url, model, prompt_tokens=0):
+        """记录API请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"API_REQUEST: URL={api_url}, Model={model}, Tokens={prompt_tokens}")
+    
+    def log_api_response(self, status_code, response_tokens=0, error=None):
+        """记录API响应"""
+        if not self.enabled or not self.logger:
+            return
+        if error:
+            self.logger.error(f"API_ERROR: Status={status_code}, Error={error}")
+        else:
+            self.logger.info(f"API_RESPONSE: Status={status_code}, Tokens={response_tokens}")
+    
+    def log_system_event(self, event):
+        """记录系统事件"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SYSTEM: {event}")
+    
+    def update_config(self, log_path=None, enabled=None):
+        """更新日志配置"""
+        if log_path is not None:
+            self.log_path = log_path
+        if enabled is not None:
+            self.enabled = enabled
+        
+        # 重新设置日志记录器
+        if self.logger:
+            # 清除现有处理器
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+            self.logger = None
+        
+        self.setup_logger()
+
+
 class ColorPickerWidget(QWidget):
     """颜色选择器组件，使用qfluentwidgets的ColorDialog"""
     
@@ -820,16 +913,18 @@ class DropArea(QGroupBox):
         self.tip_label.setText(f"已选择：{base}")
 
 class ModelFetchWorker(QThread):
-    """后台获取模型列表的线程，兼容 OpenAI /v1/models 及常见变体"""
+    """后台获取模型列表的线程，兼容 OpenAI /v1/models 及 Ollama API"""
     success = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, api_url: str, api_key: str, parent=None):
+    def __init__(self, api_url: str, api_key: str, api_type: str = "OpenAI兼容API", parent=None):
         super().__init__(parent)
         self.api_url = api_url or ''
         self.api_key = api_key or ''
+        self.api_type = api_type
 
-    def _request_models(self, base_url: str):
+    def _request_models_openai(self, base_url: str):
+        """请求OpenAI兼容API的模型列表"""
         try:
             import requests  # 延迟导入，避免无依赖时影响主程序
         except Exception:
@@ -850,8 +945,44 @@ class ModelFetchWorker(QThread):
             return None, f'解析响应失败：{e}'
         return j, None
 
+    def _request_models_ollama(self, base_url: str):
+        """请求Ollama API的模型列表"""
+        try:
+            import requests
+        except Exception:
+            return None, '未安装 requests 库，无法请求模型列表。'
+        
+        # Ollama API endpoint
+        url = base_url.rstrip('/') + '/api/tags'
+        headers = {'Content-Type': 'application/json'}
+        
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+        except Exception as e:
+            return None, f'Ollama API请求失败：{e}'
+        
+        if r.status_code >= 400:
+            return None, f'Ollama API HTTP {r.status_code} 错误：{r.text[:200]}'
+        
+        try:
+            j = r.json()
+        except Exception as e:
+            return None, f'Ollama API响应解析失败：{e}'
+        
+        return j, None
+
     def _extract_models(self, payload):
         models = []
+        
+        if self.api_type == "Ollama API":
+            # Ollama API 返回格式：{"models": [{"name": "model_name", ...}, ...]}
+            if isinstance(payload, dict) and 'models' in payload:
+                for item in payload['models']:
+                    if isinstance(item, dict) and 'name' in item:
+                        models.append(item['name'])
+            return list(dict.fromkeys(models))  # 去重并保持顺序
+        
+        # OpenAI兼容API格式
         if isinstance(payload, dict):
             data = None
             if isinstance(payload.get('data'), list):
@@ -887,23 +1018,36 @@ class ModelFetchWorker(QThread):
         if not self.api_url:
             self.error.emit('请先填写 API URL')
             return
-        # 第一次尝试：{api}/models
-        payload, err = self._request_models(self.api_url)
+        
         models = []
-        if err is None and payload is not None:
-            models = self._extract_models(payload)
-        # 兜底：如果为空或 404 之类，尝试 {api}/v1/models（避免重复尝试）
-        if (err is not None or not models) and '/v1' not in self.api_url:
-            payload2, err2 = self._request_models(self.api_url.rstrip('/') + '/v1')
-            if err2 is None and payload2 is not None:
-                models = self._extract_models(payload2)
-                err = None
-            else:
-                err = err or err2
+        err = None
+        
+        if self.api_type == "Ollama API":
+            # Ollama API 直接请求 /api/tags
+            payload, err = self._request_models_ollama(self.api_url)
+            if err is None and payload is not None:
+                models = self._extract_models(payload)
+        else:
+            # OpenAI兼容API：先尝试 /models，再尝试 /v1/models
+            payload, err = self._request_models_openai(self.api_url)
+            if err is None and payload is not None:
+                models = self._extract_models(payload)
+            # 兜底：如果为空或失败，尝试 /v1/models（避免重复尝试）
+            if (err is not None or not models) and '/v1' not in self.api_url:
+                payload2, err2 = self._request_models_openai(self.api_url.rstrip('/') + '/v1')
+                if err2 is None and payload2 is not None:
+                    models = self._extract_models(payload2)
+                    err = None
+                else:
+                    err = err or err2
+        
         if models:
             self.success.emit(models)
         else:
-            self.error.emit(err or '未获取到可用模型')
+            error_msg = err or '未获取到可用模型'
+            if self.api_type == "Ollama API":
+                error_msg += '\n提示：请确保Ollama服务正在运行，并且URL格式正确（如：http://localhost:11434）'
+            self.error.emit(error_msg)
 
 class Interface(ScrollArea):
     def __init__(self, parent=None):
@@ -1024,8 +1168,22 @@ class Widget(Interface):
         self._model_fetchers = []  # 保持线程引用，避免被GC
         self.setObjectName(text.replace(' ', '-'))
 
+        # 初始化LLM交互日志记录器
+        self.init_llm_logger()
+
         # 进入对应的标签页创建函数
         self.tab_chose(num)()
+
+    def init_llm_logger(self):
+        """初始化LLM交互日志记录器"""
+        llm_config = self.config_data.get('llm', {})
+        log_enabled = llm_config.get('log_enabled', True)
+        log_path = llm_config.get('log_path', 'logs/llm_interactions.log')
+        
+        self.llm_logger = LLMInteractionLogger(log_path, log_enabled)
+        
+        if log_enabled:
+            self.llm_logger.log_system_event("LLM交互日志系统已启动")
 
     def tab_chose(self, num):
         """创建各个配置部分的标签页"""
@@ -1063,6 +1221,14 @@ class Widget(Interface):
             if hasattr(self, 'mcp_manager'):
                 mcp_config = self.mcp_manager.get_tools_config()
                 self.config_data.setdefault('mcp', {}).update(mcp_config)
+            
+            # 更新LLM日志记录器配置
+            if hasattr(self, 'llm_logger'):
+                llm_config = self.config_data.get('llm', {})
+                self.llm_logger.update_config(
+                    log_path=llm_config.get('log_path', 'logs/llm_interactions.log'),
+                    enabled=llm_config.get('log_enabled', True)
+                )
             
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config_data, f, indent=4, ensure_ascii=False)
@@ -1198,6 +1364,35 @@ class Widget(Interface):
                 duration=2000,
                 parent=self
             )
+        
+    # LLM交互日志记录方法
+    def log_user_input(self, user_input):
+        """记录用户输入到LLM"""
+        if hasattr(self, 'llm_logger'):
+            self.llm_logger.log_user_input(user_input)
+    
+    def log_llm_response(self, response):
+        """记录LLM响应"""
+        if hasattr(self, 'llm_logger'):
+            llm_config = self.config_data.get('llm', {})
+            api_type = llm_config.get('api_type', 'OpenAI兼容API')
+            model = llm_config.get('model', '')
+            self.llm_logger.log_llm_response(response, model, api_type)
+    
+    def log_api_request(self, api_url, model, prompt_tokens=0):
+        """记录LLM API请求"""
+        if hasattr(self, 'llm_logger'):
+            self.llm_logger.log_api_request(api_url, model, prompt_tokens)
+    
+    def log_api_response(self, status_code, response_tokens=0, error=None):
+        """记录LLM API响应"""
+        if hasattr(self, 'llm_logger'):
+            self.llm_logger.log_api_response(status_code, response_tokens, error)
+    
+    def log_system_event(self, event):
+        """记录系统事件"""
+        if hasattr(self, 'llm_logger'):
+            self.llm_logger.log_system_event(event)
         
     def start_bat_msg(self):
         if self.bat_worker and self.bat_worker.isRunning():
@@ -1463,6 +1658,35 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
+        # API类型选择组
+        api_type_group = QGroupBox("API类型配置")
+        api_type_form = QFormLayout(api_type_group)
+        
+        # API类型下拉选择
+        self.api_type_combo = QComboBox()
+        self.api_type_combo.addItems(["OpenAI兼容API", "Ollama API"])
+        current_api_type = self.config_data.get('llm', {}).get('api_type', 'OpenAI兼容API')
+        index = self.api_type_combo.findText(current_api_type)
+        if index >= 0:
+            self.api_type_combo.setCurrentIndex(index)
+        self.widgets['llm.api_type'] = {"widget": self.api_type_combo, "type": "combobox"}
+        api_type_form.addRow("API类型:", self.api_type_combo)
+        
+        # 交互日志开关
+        log_enabled_check = CheckBox()
+        log_enabled_check.setChecked(bool(self.config_data.get('llm', {}).get('log_enabled', True)))
+        self.widgets['llm.log_enabled'] = {"widget": log_enabled_check, "type": "checkbox"}
+        api_type_form.addRow("启用交互日志:", log_enabled_check)
+        
+        # 日志文件路径
+        log_path_edit = LineEdit()
+        log_path_edit.setText(self.config_data.get('llm', {}).get('log_path', 'logs/llm_interactions.log'))
+        log_path_edit.setPlaceholderText("日志文件保存路径")
+        self.widgets['llm.log_path'] = {"widget": log_path_edit, "type": "lineedit"}
+        api_type_form.addRow("日志文件路径:", log_path_edit)
+        
+        self.vBoxLayout.addWidget(api_type_group)
+        
         # 基础 LLM 配置
         fields = [
             ("API Key", "llm.api_key", "passwordlineedit", ""),
@@ -1552,6 +1776,12 @@ class Widget(Interface):
         api_key_widget = self.widgets.get(api_key_key, {}).get('widget')
         api_url = api_url_widget.text().strip() if api_url_widget else ''
         api_key = api_key_widget.text().strip() if api_key_widget else ''
+        
+        # 获取API类型（仅LLM标签页有此设置）
+        api_type = "OpenAI兼容API"  # 默认值
+        if hasattr(self, 'api_type_combo'):
+            api_type = self.api_type_combo.currentText()
+        
         if not api_url:
             InfoBar.warning(title='缺少 API URL', content='请先填写 API URL', orient=Qt.Horizontal,
                             isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self)
@@ -1559,7 +1789,7 @@ class Widget(Interface):
         try:
             btn.setEnabled(False)
             prev_text = combo.currentText().strip()
-            worker = ModelFetchWorker(api_url, api_key, parent=self)
+            worker = ModelFetchWorker(api_url, api_key, api_type, parent=self)
             self._model_fetchers.append(worker)
             def on_success(models: list):
                 self._populate_model_combo(combo, models, prev_text)
