@@ -172,6 +172,110 @@ class LLMInteractionLogger:
         self.setup_logger()
 
 
+class ASRInteractionLogger:
+    """ASR交互日志记录器"""
+    
+    def __init__(self, log_path="logs/asr_interactions.log", enabled=True):
+        self.log_path = log_path
+        self.enabled = enabled
+        self.logger = None
+        self.setup_logger()
+    
+    def setup_logger(self):
+        """设置日志记录器"""
+        if not self.enabled:
+            return
+            
+        # 确保日志目录存在
+        log_dir = os.path.dirname(self.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        
+        # 创建专用的ASR交互日志记录器
+        self.logger = logging.getLogger('asr_interactions')
+        self.logger.setLevel(logging.INFO)
+        
+        # 避免重复添加处理器
+        if not self.logger.handlers:
+            # 文件处理器，支持日志轮转
+            file_handler = RotatingFileHandler(
+                self.log_path, 
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            
+            # 设置日志格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+    
+    def log_audio_input(self, audio_info):
+        """记录音频输入"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"AUDIO_INPUT: {audio_info}")
+    
+    def log_recognition_result(self, result, confidence=0, asr_type=""):
+        """记录识别结果"""
+        if not self.enabled or not self.logger:
+            return
+        type_info = f"[{asr_type}]" if asr_type else ""
+        confidence_info = f"(置信度:{confidence:.2f})" if confidence > 0 else ""
+        self.logger.info(f"ASR_RESULT{type_info}: {result} {confidence_info}")
+    
+    def log_websocket_connection(self, url, status):
+        """记录WebSocket连接状态"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"WEBSOCKET_CONNECTION: URL={url}, Status={status}")
+    
+    def log_doubao_request(self, mode, packet_size, connect_id):
+        """记录豆包ASR请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"DOUBAO_REQUEST: Mode={mode}, PacketSize={packet_size}ms, ConnectId={connect_id}")
+    
+    def log_doubao_response(self, logid, result, is_final=False):
+        """记录豆包ASR响应"""
+        if not self.enabled or not self.logger:
+            return
+        final_flag = "[FINAL]" if is_final else "[PARTIAL]"
+        self.logger.info(f"DOUBAO_RESPONSE{final_flag}: LogId={logid}, Result={result}")
+    
+    def log_error(self, error_type, error_message):
+        """记录错误信息"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.error(f"ASR_ERROR: Type={error_type}, Message={error_message}")
+    
+    def log_system_event(self, event):
+        """记录系统事件"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SYSTEM: {event}")
+    
+    def update_config(self, log_path=None, enabled=None):
+        """更新日志配置"""
+        if log_path is not None:
+            self.log_path = log_path
+        if enabled is not None:
+            self.enabled = enabled
+        
+        # 重新设置日志记录器
+        if self.logger:
+            # 清除现有处理器
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+            self.logger = None
+        
+        self.setup_logger()
+
+
 class ColorPickerWidget(QWidget):
     """颜色选择器组件，使用qfluentwidgets的ColorDialog"""
     
@@ -769,6 +873,149 @@ class MCPToolManager(QWidget):
         }
 
 
+class DoubaoASRClient:
+    """豆包语音识别WebSocket客户端"""
+    
+    def __init__(self, config, logger=None):
+        self.config = config
+        self.logger = logger
+        self.websocket = None
+        self.connect_id = None
+        self.mode_urls = {
+            "双向流式模式（优化版本）": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+            "双向流式模式": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel",
+            "流式输入模式": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
+        }
+    
+    def generate_connect_id(self):
+        """生成连接ID"""
+        import uuid
+        self.connect_id = str(uuid.uuid4())
+        return self.connect_id
+    
+    def get_headers(self):
+        """获取WebSocket连接头"""
+        self.generate_connect_id()
+        headers = {
+            "X-Api-App-Key": self.config.get('doubao_app_key', ''),
+            "X-Api-Access-Key": self.config.get('doubao_access_key', ''),
+            "X-Api-Resource-Id": self.config.get('doubao_resource_id', 'volc.bigasr.sauc.duration'),
+            "X-Api-Connect-Id": self.connect_id
+        }
+        return headers
+    
+    def get_websocket_url(self):
+        """获取WebSocket URL"""
+        mode = self.config.get('doubao_mode', '双向流式模式（优化版本）')
+        return self.mode_urls.get(mode, self.mode_urls["双向流式模式（优化版本）"])
+    
+    async def connect(self):
+        """连接到豆包ASR服务"""
+        try:
+            import websockets
+            import json
+            
+            url = self.get_websocket_url()
+            headers = self.get_headers()
+            
+            if self.logger:
+                self.logger.log_websocket_connection(url, "连接中...")
+                self.logger.log_doubao_request(
+                    self.config.get('doubao_mode', '双向流式模式（优化版本）'),
+                    self.config.get('doubao_packet_size', 200),
+                    self.connect_id
+                )
+            
+            # 创建WebSocket连接
+            self.websocket = await websockets.connect(
+                url, 
+                extra_headers=headers,
+                timeout=self.config.get('doubao_timeout', 30)
+            )
+            
+            if self.logger:
+                self.logger.log_websocket_connection(url, "连接成功")
+                # 检查响应头中的logid
+                if hasattr(self.websocket, 'response_headers'):
+                    logid = self.websocket.response_headers.get('X-Tt-Logid', 'unknown')
+                    self.logger.log_doubao_response(logid, "WebSocket连接建立", False)
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("连接失败", str(e))
+            return False
+    
+    async def send_audio(self, audio_data, is_last=False):
+        """发送音频数据"""
+        if not self.websocket:
+            return False
+        
+        try:
+            import json
+            import base64
+            
+            # 构建音频包
+            audio_packet = {
+                "audio": base64.b64encode(audio_data).decode('utf-8'),
+                "is_end": is_last
+            }
+            
+            await self.websocket.send(json.dumps(audio_packet))
+            
+            if self.logger:
+                packet_info = f"音频包大小: {len(audio_data)}字节, 是否结束: {is_last}"
+                self.logger.log_audio_input(packet_info)
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("发送音频失败", str(e))
+            return False
+    
+    async def receive_result(self):
+        """接收识别结果"""
+        if not self.websocket:
+            return None
+        
+        try:
+            import json
+            
+            response = await self.websocket.recv()
+            result_data = json.loads(response)
+            
+            # 解析结果
+            if 'result' in result_data:
+                result_text = result_data['result']
+                is_final = result_data.get('is_final', False)
+                
+                if self.logger:
+                    logid = result_data.get('log_id', 'unknown')
+                    self.logger.log_doubao_response(logid, result_text, is_final)
+                
+                return {
+                    'text': result_text,
+                    'is_final': is_final,
+                    'raw_data': result_data
+                }
+            
+            return None
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("接收结果失败", str(e))
+            return None
+    
+    async def close(self):
+        """关闭连接"""
+        if self.websocket:
+            await self.websocket.close()
+            if self.logger:
+                self.logger.log_websocket_connection("", "连接已关闭")
+
+
 class BatWorker(QThread):
     """
     后台线程用于执行BAT文件并捕获输出
@@ -1184,6 +1431,20 @@ class Widget(Interface):
         
         if log_enabled:
             self.llm_logger.log_system_event("LLM交互日志系统已启动")
+        
+        # 初始化ASR交互日志记录器
+        self.init_asr_logger()
+    
+    def init_asr_logger(self):
+        """初始化ASR交互日志记录器"""
+        asr_config = self.config_data.get('asr', {})
+        log_enabled = asr_config.get('log_enabled', True)
+        log_path = asr_config.get('log_path', 'logs/asr_interactions.log')
+        
+        self.asr_logger = ASRInteractionLogger(log_path, log_enabled)
+        
+        if log_enabled:
+            self.asr_logger.log_system_event("ASR交互日志系统已启动")
 
     def tab_chose(self, num):
         """创建各个配置部分的标签页"""
@@ -1228,6 +1489,14 @@ class Widget(Interface):
                 self.llm_logger.update_config(
                     log_path=llm_config.get('log_path', 'logs/llm_interactions.log'),
                     enabled=llm_config.get('log_enabled', True)
+                )
+            
+            # 更新ASR日志记录器配置
+            if hasattr(self, 'asr_logger'):
+                asr_config = self.config_data.get('asr', {})
+                self.asr_logger.update_config(
+                    log_path=asr_config.get('log_path', 'logs/asr_interactions.log'),
+                    enabled=asr_config.get('log_enabled', True)
                 )
             
             with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -1393,6 +1662,44 @@ class Widget(Interface):
         """记录系统事件"""
         if hasattr(self, 'llm_logger'):
             self.llm_logger.log_system_event(event)
+    
+    # ASR交互日志记录方法
+    def log_audio_input(self, audio_info):
+        """记录音频输入到ASR"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_audio_input(audio_info)
+    
+    def log_asr_result(self, result, confidence=0):
+        """记录ASR识别结果"""
+        if hasattr(self, 'asr_logger'):
+            asr_config = self.config_data.get('asr', {})
+            asr_type = asr_config.get('asr_type', '本地ASR')
+            self.asr_logger.log_recognition_result(result, confidence, asr_type)
+    
+    def log_websocket_connection(self, url, status):
+        """记录WebSocket连接状态"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_websocket_connection(url, status)
+    
+    def log_doubao_request(self, mode, packet_size, connect_id):
+        """记录豆包ASR请求"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_doubao_request(mode, packet_size, connect_id)
+    
+    def log_doubao_response(self, logid, result, is_final=False):
+        """记录豆包ASR响应"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_doubao_response(logid, result, is_final)
+    
+    def log_asr_error(self, error_type, error_message):
+        """记录ASR错误"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_error(error_type, error_message)
+    
+    def log_asr_system_event(self, event):
+        """记录ASR系统事件"""
+        if hasattr(self, 'asr_logger'):
+            self.asr_logger.log_system_event(event)
         
     def start_bat_msg(self):
         if self.bat_worker and self.bat_worker.isRunning():
@@ -1837,14 +2144,259 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
-        fields = [
+        # ASR类型选择组
+        asr_type_group = QGroupBox("ASR类型配置")
+        asr_type_form = QFormLayout(asr_type_group)
+        
+        # ASR类型下拉选择
+        self.asr_type_combo = QComboBox()
+        self.asr_type_combo.addItems(["本地ASR", "豆包语音识别"])
+        current_asr_type = self.config_data.get('asr', {}).get('asr_type', '本地ASR')
+        index = self.asr_type_combo.findText(current_asr_type)
+        if index >= 0:
+            self.asr_type_combo.setCurrentIndex(index)
+        self.widgets['asr.asr_type'] = {"widget": self.asr_type_combo, "type": "combobox"}
+        asr_type_form.addRow("ASR类型:", self.asr_type_combo)
+        
+        # ASR日志开关
+        asr_log_enabled_check = CheckBox()
+        asr_log_enabled_check.setChecked(bool(self.config_data.get('asr', {}).get('log_enabled', True)))
+        self.widgets['asr.log_enabled'] = {"widget": asr_log_enabled_check, "type": "checkbox"}
+        asr_type_form.addRow("启用ASR日志:", asr_log_enabled_check)
+        
+        # ASR日志文件路径
+        asr_log_path_edit = LineEdit()
+        asr_log_path_edit.setText(self.config_data.get('asr', {}).get('log_path', 'logs/asr_interactions.log'))
+        asr_log_path_edit.setPlaceholderText("ASR日志文件保存路径")
+        self.widgets['asr.log_path'] = {"widget": asr_log_path_edit, "type": "lineedit"}
+        asr_type_form.addRow("ASR日志文件路径:", asr_log_path_edit)
+        
+        self.vBoxLayout.addWidget(asr_type_group)
+        
+        # 本地ASR配置组
+        local_asr_group = QGroupBox("本地ASR配置")
+        local_asr_form = QFormLayout(local_asr_group)
+        
+        local_asr_fields = [
             ("VAD URL", "asr.vad_url", "lineedit", ""),
             ("ASR URL", "asr.asr_url", "lineedit", "")
         ]
         
-        group = self.create_form_group(self, "语音识别配置", fields)
-        self.vBoxLayout.addWidget(group)
+        for label, key_path, widget_type, default in local_asr_fields:
+            widget = self.create_widget(widget_type, key_path, default)
+            local_asr_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(local_asr_group)
+        
+        # 豆包语音识别配置组
+        doubao_asr_group = QGroupBox("豆包语音识别配置")
+        doubao_asr_form = QFormLayout(doubao_asr_group)
+        
+        # 豆包ASR模式选择
+        doubao_mode_combo = QComboBox()
+        doubao_mode_combo.addItems([
+            "双向流式模式（优化版本）", 
+            "双向流式模式", 
+            "流式输入模式"
+        ])
+        current_doubao_mode = self.config_data.get('asr', {}).get('doubao_mode', '双向流式模式（优化版本）')
+        mode_index = doubao_mode_combo.findText(current_doubao_mode)
+        if mode_index >= 0:
+            doubao_mode_combo.setCurrentIndex(mode_index)
+        self.widgets['asr.doubao_mode'] = {"widget": doubao_mode_combo, "type": "combobox"}
+        doubao_asr_form.addRow("识别模式:", doubao_mode_combo)
+        
+        # 豆包ASR基础配置
+        doubao_asr_fields = [
+            ("APP ID (X-Api-App-Key)", "asr.doubao_app_key", "lineedit", ""),
+            ("Access Token (X-Api-Access-Key)", "asr.doubao_access_key", "passwordlineedit", ""),
+            ("Resource ID", "asr.doubao_resource_id", "lineedit", "volc.bigasr.sauc.duration"),
+            ("音频包大小(ms)", "asr.doubao_packet_size", "spinbox", 200),
+            ("连接超时(秒)", "asr.doubao_timeout", "spinbox", 30)
+        ]
+        
+        for label, key_path, widget_type, default in doubao_asr_fields:
+            widget = self.create_widget(widget_type, key_path, default)
+            doubao_asr_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(doubao_asr_group)
+        
+        # ASR测试区域
+        test_group = QGroupBox("ASR测试")
+        test_form = QFormLayout(test_group)
+        
+        # 测试按钮
+        test_layout = QHBoxLayout()
+        
+        test_local_btn = PushButton("测试本地ASR")
+        test_local_btn.clicked.connect(self.test_local_asr)
+        test_layout.addWidget(test_local_btn)
+        
+        test_doubao_btn = PushButton("测试豆包ASR连接")
+        test_doubao_btn.clicked.connect(self.test_doubao_asr)
+        test_layout.addWidget(test_doubao_btn)
+        
+        test_container = QWidget()
+        test_container.setLayout(test_layout)
+        test_form.addRow("连接测试:", test_container)
+        
+        self.vBoxLayout.addWidget(test_group)
         self.vBoxLayout.addStretch()
+    
+    def test_local_asr(self):
+        """测试本地ASR连接"""
+        asr_config = self.config_data.get('asr', {})
+        vad_url = asr_config.get('vad_url', '')
+        asr_url = asr_config.get('asr_url', '')
+        
+        if not vad_url and not asr_url:
+            InfoBar.warning(
+                title='配置缺失',
+                content="请先配置VAD URL或ASR URL",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+        
+        # 记录测试日志
+        self.log_asr_system_event("开始测试本地ASR连接")
+        
+        try:
+            import requests
+            
+            # 测试VAD URL
+            if vad_url:
+                response = requests.get(vad_url, timeout=5)
+                if response.status_code == 200:
+                    self.log_asr_system_event(f"VAD URL连接成功: {vad_url}")
+                else:
+                    self.log_asr_error("VAD连接失败", f"状态码: {response.status_code}")
+            
+            # 测试ASR URL
+            if asr_url:
+                response = requests.get(asr_url, timeout=5)
+                if response.status_code == 200:
+                    self.log_asr_system_event(f"ASR URL连接成功: {asr_url}")
+                else:
+                    self.log_asr_error("ASR连接失败", f"状态码: {response.status_code}")
+            
+            InfoBar.success(
+                title='测试完成',
+                content="本地ASR连接测试完成，请查看日志",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+        except Exception as e:
+            self.log_asr_error("连接测试异常", str(e))
+            InfoBar.error(
+                title='测试失败',
+                content=f"连接测试失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+    
+    def test_doubao_asr(self):
+        """测试豆包ASR连接"""
+        asr_config = self.config_data.get('asr', {})
+        
+        # 检查必要配置
+        app_key = asr_config.get('doubao_app_key', '')
+        access_key = asr_config.get('doubao_access_key', '')
+        
+        if not app_key or not access_key:
+            InfoBar.warning(
+                title='配置缺失',
+                content="请先配置豆包ASR的APP ID和Access Token",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+        
+        # 记录测试日志
+        self.log_asr_system_event("开始测试豆包ASR连接")
+        
+        try:
+            # 创建豆包ASR客户端进行连接测试
+            client = DoubaoASRClient(asr_config, self.asr_logger)
+            
+            # 获取连接信息
+            url = client.get_websocket_url()
+            headers = client.get_headers()
+            
+            self.log_doubao_request(
+                asr_config.get('doubao_mode', '双向流式模式（优化版本）'),
+                asr_config.get('doubao_packet_size', 200),
+                headers.get('X-Api-Connect-Id', 'unknown')
+            )
+            
+            InfoBar.success(
+                title='配置验证',
+                content=f"豆包ASR配置验证完成\n模式: {asr_config.get('doubao_mode', '双向流式模式（优化版本）')}\nURL: {url}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+            
+            self.log_asr_system_event("豆包ASR配置验证完成")
+            
+        except Exception as e:
+            self.log_asr_error("豆包ASR配置验证失败", str(e))
+            InfoBar.error(
+                title='验证失败',
+                content=f"豆包ASR配置验证失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+
+    def create_widget(self, widget_type, key_path, default):
+        """创建指定类型的控件"""
+        keys = key_path.split('.')
+        config_value = self.config_data
+        for key in keys:
+            config_value = config_value.get(key, {}) if isinstance(config_value, dict) else {}
+        
+        if widget_type == "lineedit":
+            widget = LineEdit()
+            widget.setText(str(config_value) if config_value else str(default))
+        elif widget_type == "passwordlineedit":
+            widget = PasswordLineEdit()
+            widget.setText(str(config_value) if config_value else str(default))
+        elif widget_type == "spinbox":
+            widget = SpinBox()
+            widget.setRange(0, 99999)
+            widget.setValue(int(config_value) if config_value else int(default))
+        elif widget_type == "checkbox":
+            widget = CheckBox()
+            widget.setChecked(bool(config_value) if config_value is not None else bool(default))
+        elif widget_type == "doublespin":
+            widget = DoubleSpinBox()
+            widget.setRange(0.0, 99999.0)
+            widget.setValue(float(config_value) if config_value else float(default))
+        else:
+            widget = LineEdit()
+            widget.setText(str(config_value) if config_value else str(default))
+        
+        return widget
 
     def create_tts_tab(self):
         """创建TTS配置标签页"""
