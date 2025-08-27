@@ -3,7 +3,11 @@ import json
 import sys, os
 import subprocess
 import logging
+import warnings
 from logging.handlers import RotatingFileHandler
+
+# 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
 from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon, QPainter, QImage, QBrush, QColor, QFont, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
