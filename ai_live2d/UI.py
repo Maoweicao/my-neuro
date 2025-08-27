@@ -4,6 +4,10 @@ import sys, os
 import subprocess
 import logging
 import warnings
+import asyncio
+import uuid
+import base64
+import requests
 from logging.handlers import RotatingFileHandler
 
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
@@ -458,6 +462,147 @@ class ColorPickerWidget(QWidget):
     def get_rgb(self):
         """获取RGB值"""
         return self.r, self.g, self.b
+
+
+class TTSInteractionLogger:
+    """TTS交互日志记录器"""
+    
+    def __init__(self, log_path="logs/tts_interactions.log", enabled=True):
+        self.log_path = log_path
+        self.enabled = enabled
+        self.logger = None
+        self.setup_logger()
+    
+    def setup_logger(self):
+        """设置日志记录器"""
+        if not self.enabled:
+            return
+            
+        # 确保日志目录存在
+        log_dir = os.path.dirname(self.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        
+        # 创建专用的TTS交互日志记录器
+        self.logger = logging.getLogger('tts_interactions')
+        self.logger.setLevel(logging.INFO)
+        
+        # 避免重复添加处理器
+        if not self.logger.handlers:
+            # 文件处理器，支持日志轮转
+            file_handler = RotatingFileHandler(
+                self.log_path, 
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            
+            # 设置日志格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+    
+    def log_text_input(self, text, tts_type=""):
+        """记录文本输入"""
+        if not self.enabled or not self.logger:
+            return
+        type_info = f"[{tts_type}]" if tts_type else ""
+        self.logger.info(f"TEXT_INPUT{type_info}: {text}")
+    
+    def log_synthesis_request(self, text, voice_type="", parameters=None):
+        """记录合成请求"""
+        if not self.enabled or not self.logger:
+            return
+        voice_info = f"Voice={voice_type}" if voice_type else ""
+        param_info = f"Params={parameters}" if parameters else ""
+        info_parts = [part for part in [voice_info, param_info] if part]
+        info_str = f"({', '.join(info_parts)})" if info_parts else ""
+        self.logger.info(f"SYNTHESIS_REQUEST: Text='{text}' {info_str}")
+    
+    def log_synthesis_result(self, status, audio_length=0, tts_type=""):
+        """记录合成结果"""
+        if not self.enabled or not self.logger:
+            return
+        type_info = f"[{tts_type}]" if tts_type else ""
+        length_info = f"AudioLength={audio_length}bytes" if audio_length > 0 else ""
+        self.logger.info(f"SYNTHESIS_RESULT{type_info}: Status={status} {length_info}")
+    
+    def log_websocket_connection(self, url, status):
+        """记录WebSocket连接状态"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"WEBSOCKET_CONNECTION: URL={url}, Status={status}")
+    
+    def log_doubao_request(self, appid, voice_type, encoding, text):
+        """记录豆包TTS请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"DOUBAO_REQUEST: AppId={appid}, Voice={voice_type}, Encoding={encoding}, Text='{text}'")
+    
+    def log_doubao_response(self, logid, audio_size, is_final=False):
+        """记录豆包TTS响应"""
+        if not self.enabled or not self.logger:
+            return
+        final_flag = "[FINAL]" if is_final else "[CHUNK]"
+        self.logger.info(f"DOUBAO_RESPONSE{final_flag}: LogId={logid}, AudioSize={audio_size}bytes")
+    
+    def log_fish_audio_request(self, reference_id, text, backend="", temperature=0, top_p=0):
+        """记录Fish Audio TTS请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"FISH_AUDIO_REQUEST: ReferenceId={reference_id}, Text='{text}', Backend={backend}, Temperature={temperature}, TopP={top_p}")
+    
+    def log_fish_audio_response(self, status, audio_size):
+        """记录Fish Audio TTS响应"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"FISH_AUDIO_RESPONSE: Status={status}, AudioSize={audio_size}bytes")
+    
+    def log_local_tts_request(self, text, voice_model=""):
+        """记录本地TTS请求"""
+        if not self.enabled or not self.logger:
+            return
+        model_info = f"Model={voice_model}" if voice_model else ""
+        self.logger.info(f"LOCAL_TTS_REQUEST: Text='{text}' {model_info}")
+    
+    def log_local_tts_response(self, status, audio_file=""):
+        """记录本地TTS响应"""
+        if not self.enabled or not self.logger:
+            return
+        file_info = f"OutputFile={audio_file}" if audio_file else ""
+        self.logger.info(f"LOCAL_TTS_RESPONSE: Status={status} {file_info}")
+    
+    def log_error(self, error_type, error_message):
+        """记录错误信息"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.error(f"TTS_ERROR: Type={error_type}, Message={error_message}")
+    
+    def log_system_event(self, event):
+        """记录系统事件"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SYSTEM: {event}")
+    
+    def update_config(self, log_path=None, enabled=None):
+        """更新日志配置"""
+        if log_path is not None:
+            self.log_path = log_path
+        if enabled is not None:
+            self.enabled = enabled
+        
+        # 重新设置日志记录器
+        if self.logger:
+            # 清除现有处理器
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+            self.logger = None
+        
+        self.setup_logger()
 
 
 class MCPToolManager(QWidget):
@@ -1016,6 +1161,304 @@ class DoubaoASRClient:
                 self.logger.log_websocket_connection("", "连接已关闭")
 
 
+class DoubaoTTSClient:
+    """豆包语音合成WebSocket客户端"""
+    
+    def __init__(self, config, logger=None):
+        self.config = config
+        self.logger = logger
+        self.websocket = None
+        self.request_id = None
+        
+    def generate_request_id(self):
+        """生成请求ID"""
+        import uuid
+        self.request_id = str(uuid.uuid4())
+        return self.request_id
+    
+    def get_headers(self):
+        """获取WebSocket连接头"""
+        headers = {
+            "Authorization": f"Bearer;{self.config.get('doubao_access_token', '')}"
+        }
+        return headers
+    
+    def get_websocket_url(self):
+        """获取WebSocket URL"""
+        return self.config.get('doubao_url', 'wss://openspeech.bytedance.com/api/v1/tts/ws_binary')
+    
+    async def connect(self):
+        """连接到豆包TTS服务"""
+        try:
+            import websockets
+            url = self.get_websocket_url()
+            headers = self.get_headers()
+            
+            if self.logger:
+                self.logger.log_websocket_connection(url, "正在连接...")
+            
+            self.websocket = await websockets.connect(
+                url, 
+                additional_headers=headers,
+                max_size=10 * 1024 * 1024  # 10MB
+            )
+            
+            if self.logger:
+                logid = self.websocket.response.headers.get('x-tt-logid', 'unknown')
+                self.logger.log_websocket_connection(url, f"连接成功, LogID: {logid}")
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("连接失败", str(e))
+            return False
+    
+    async def synthesize_text(self, text):
+        """合成文本为语音"""
+        if not self.websocket:
+            if self.logger:
+                self.logger.log_error("WebSocket未连接", "请先调用connect()方法")
+            return None
+        
+        try:
+            import json
+            
+            self.generate_request_id()
+            
+            # 构建请求数据
+            request_data = {
+                "app": {
+                    "appid": self.config.get('doubao_app_id', ''),
+                    "token": self.config.get('doubao_access_token', ''),
+                    "cluster": "volcano_tts"
+                },
+                "user": {
+                    "uid": self.request_id
+                },
+                "audio": {
+                    "voice_type": self.config.get('doubao_voice_type', ''),
+                    "encoding": self.config.get('doubao_encoding', 'wav')
+                },
+                "request": {
+                    "reqid": self.request_id,
+                    "text": text,
+                    "operation": "submit",
+                    "with_timestamp": "1",
+                    "extra_param": json.dumps({
+                        "disable_markdown_filter": False
+                    })
+                }
+            }
+            
+            # 记录请求日志
+            if self.logger:
+                self.logger.log_doubao_request(
+                    self.config.get('doubao_app_id', ''),
+                    self.config.get('doubao_voice_type', ''),
+                    self.config.get('doubao_encoding', 'wav'),
+                    text
+                )
+            
+            # 发送请求
+            from volcengine_protocols import full_client_request
+            await full_client_request(self.websocket, json.dumps(request_data).encode())
+            
+            # 接收音频数据
+            audio_data = bytearray()
+            
+            from volcengine_protocols import receive_message, MsgType
+            
+            while True:
+                msg = await receive_message(self.websocket)
+                
+                if msg.type == MsgType.FrontEndResultServer:
+                    continue
+                elif msg.type == MsgType.AudioOnlyServer:
+                    audio_data.extend(msg.payload)
+                    
+                    # 记录响应日志
+                    if self.logger:
+                        logid = self.websocket.response.headers.get('x-tt-logid', 'unknown')
+                        is_final = msg.sequence < 0
+                        self.logger.log_doubao_response(logid, len(msg.payload), is_final)
+                    
+                    if msg.sequence < 0:  # 最后一个消息
+                        break
+                else:
+                    if self.logger:
+                        self.logger.log_error("TTS转换失败", str(msg))
+                    return None
+            
+            if not audio_data:
+                if self.logger:
+                    self.logger.log_error("TTS转换失败", "未接收到音频数据")
+                return None
+            
+            return bytes(audio_data)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("语音合成失败", str(e))
+            return None
+    
+    async def close(self):
+        """关闭连接"""
+        if self.websocket:
+            await self.websocket.close()
+            if self.logger:
+                self.logger.log_websocket_connection("", "连接已关闭")
+
+
+class FishAudioTTSClient:
+    """Fish Audio TTS客户端"""
+    
+    def __init__(self, config, logger=None):
+        self.config = config
+        self.logger = logger
+        
+    def synthesize_text(self, text):
+        """使用Fish Audio合成文本为语音"""
+        try:
+            # 尝试导入Fish Audio SDK
+            try:
+                from fish_audio_sdk import WebSocketSession, TTSRequest, ReferenceAudio
+            except ImportError:
+                if self.logger:
+                    self.logger.log_error("Fish Audio SDK未安装", "请安装fish-audio-sdk: pip install fish-audio-sdk")
+                return None
+            
+            api_key = self.config.get('fish_audio_api_key', '')
+            if not api_key:
+                if self.logger:
+                    self.logger.log_error("Fish Audio配置错误", "API Key未配置")
+                return None
+            
+            # 记录请求日志
+            reference_id = self.config.get('fish_audio_reference_id', '')
+            backend = self.config.get('fish_audio_backend', 'speech-1.6')
+            temperature = self.config.get('fish_audio_temperature', 0.7)
+            top_p = self.config.get('fish_audio_top_p', 0.7)
+            
+            if self.logger:
+                self.logger.log_fish_audio_request(reference_id, text, backend, temperature, top_p)
+            
+            # 创建WebSocket会话
+            sync_websocket = WebSocketSession(api_key)
+            
+            # 创建TTS请求
+            if reference_id:
+                # 使用预设的reference_id
+                tts_request = TTSRequest(
+                    text=text,
+                    reference_id=reference_id,
+                    temperature=temperature,
+                    top_p=top_p
+                )
+            else:
+                # 使用参考音频文件
+                ref_audio_path = self.config.get('fish_audio_ref_audio', '')
+                ref_text = self.config.get('fish_audio_ref_text', '')
+                
+                if not ref_audio_path or not os.path.exists(ref_audio_path):
+                    if self.logger:
+                        self.logger.log_error("Fish Audio配置错误", "参考音频文件不存在")
+                    return None
+                
+                with open(ref_audio_path, 'rb') as f:
+                    ref_audio_data = f.read()
+                
+                tts_request = TTSRequest(
+                    text=text,
+                    references=[
+                        ReferenceAudio(
+                            audio=ref_audio_data,
+                            text=ref_text
+                        )
+                    ],
+                    temperature=temperature,
+                    top_p=top_p
+                )
+            
+            # 生成语音
+            audio_data = bytearray()
+            
+            def text_stream():
+                """文本流生成器"""
+                for word in text.split():
+                    yield word + " "
+            
+            # 调用TTS API
+            for chunk in sync_websocket.tts(
+                tts_request,
+                text_stream(),
+                backend=backend
+            ):
+                audio_data.extend(chunk)
+            
+            if self.logger:
+                self.logger.log_fish_audio_response("成功", len(audio_data))
+            
+            return bytes(audio_data)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("Fish Audio TTS失败", str(e))
+            return None
+
+
+class LocalTTSClient:
+    """本地TTS客户端"""
+    
+    def __init__(self, config, logger=None):
+        self.config = config
+        self.logger = logger
+    
+    def synthesize_text(self, text):
+        """使用本地TTS合成文本为语音"""
+        try:
+            if self.logger:
+                voice_model = self.config.get('voice', '')
+                self.logger.log_local_tts_request(text, voice_model)
+            
+            # 这里可以实现各种本地TTS引擎的调用
+            # 例如：pyttsx3, espeak, festival 等
+            
+            # 示例：使用HTTP API调用本地TTS服务
+            tts_url = self.config.get('local_url') or self.config.get('url', '')
+            if not tts_url:
+                if self.logger:
+                    self.logger.log_error("本地TTS配置错误", "TTS URL未配置")
+                return None
+            
+            # 构建请求参数
+            params = {
+                'text': text,
+                'language': self.config.get('language', 'zh'),
+                'voice': self.config.get('voice', ''),
+                'speed': self.config.get('speed', 1.0),
+                'volume': self.config.get('volume', 1.0)
+            }
+            
+            # 发送TTS请求
+            response = requests.post(tts_url, json=params, timeout=30)
+            
+            if response.status_code == 200:
+                audio_data = response.content
+                if self.logger:
+                    self.logger.log_local_tts_response("成功", f"音频大小: {len(audio_data)}字节")
+                return audio_data
+            else:
+                if self.logger:
+                    self.logger.log_error("本地TTS请求失败", f"HTTP {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error("本地TTS失败", str(e))
+            return None
+
+
 class BatWorker(QThread):
     """
     后台线程用于执行BAT文件并捕获输出
@@ -1434,6 +1877,9 @@ class Widget(Interface):
         
         # 初始化ASR交互日志记录器
         self.init_asr_logger()
+        
+        # 初始化TTS交互日志记录器
+        self.init_tts_logger()
     
     def init_asr_logger(self):
         """初始化ASR交互日志记录器"""
@@ -1445,6 +1891,17 @@ class Widget(Interface):
         
         if log_enabled:
             self.asr_logger.log_system_event("ASR交互日志系统已启动")
+    
+    def init_tts_logger(self):
+        """初始化TTS交互日志记录器"""
+        tts_config = self.config_data.get('tts', {})
+        log_enabled = tts_config.get('log_enabled', True)
+        log_path = tts_config.get('log_path', 'logs/tts_interactions.log')
+        
+        self.tts_logger = TTSInteractionLogger(log_path, log_enabled)
+        
+        if log_enabled:
+            self.tts_logger.log_system_event("TTS交互日志系统已启动")
 
     def tab_chose(self, num):
         """创建各个配置部分的标签页"""
@@ -1497,6 +1954,14 @@ class Widget(Interface):
                 self.asr_logger.update_config(
                     log_path=asr_config.get('log_path', 'logs/asr_interactions.log'),
                     enabled=asr_config.get('log_enabled', True)
+                )
+            
+            # 更新TTS日志记录器配置
+            if hasattr(self, 'tts_logger'):
+                tts_config = self.config_data.get('tts', {})
+                self.tts_logger.update_config(
+                    log_path=tts_config.get('log_path', 'logs/tts_interactions.log'),
+                    enabled=tts_config.get('log_enabled', True)
                 )
             
             with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -1615,10 +2080,24 @@ class Widget(Interface):
                 'bg_color_a': a
             })
         
+        # 兼容性处理：如果有新的tts.local_url，也同步到tts.url以保持向后兼容
+        if 'tts' in self.config_data and 'local_url' in self.config_data['tts']:
+            local_url = self.config_data['tts']['local_url']
+            if local_url:  # 只有在local_url有值时才同步
+                self.config_data['tts']['url'] = local_url
+        
     def reload_config(self):
         """重新加载配置文件"""
         self.config_data = self.load_config()
         self.update_widgets()
+        
+        # 重新初始化日志记录器
+        if hasattr(self, 'llm_logger'):
+            self.init_llm_logger()
+        if hasattr(self, 'asr_logger'):
+            self.init_asr_logger()
+        if hasattr(self, 'tts_logger'):
+            self.init_tts_logger()
         
         # 重新加载MCP管理器配置
         if hasattr(self, 'mcp_manager'):
@@ -1700,6 +2179,67 @@ class Widget(Interface):
         """记录ASR系统事件"""
         if hasattr(self, 'asr_logger'):
             self.asr_logger.log_system_event(event)
+    
+    # TTS交互日志记录方法
+    def log_tts_text_input(self, text, tts_type=""):
+        """记录TTS文本输入"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_text_input(text, tts_type)
+    
+    def log_tts_synthesis_request(self, text, voice_type="", parameters=None):
+        """记录TTS合成请求"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_synthesis_request(text, voice_type, parameters)
+    
+    def log_tts_synthesis_result(self, status, audio_length=0, tts_type=""):
+        """记录TTS合成结果"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_synthesis_result(status, audio_length, tts_type)
+    
+    def log_tts_websocket_connection(self, url, status):
+        """记录TTS WebSocket连接状态"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_websocket_connection(url, status)
+    
+    def log_tts_doubao_request(self, appid, voice_type, encoding, text):
+        """记录豆包TTS请求"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_doubao_request(appid, voice_type, encoding, text)
+    
+    def log_tts_doubao_response(self, logid, audio_size, is_final=False):
+        """记录豆包TTS响应"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_doubao_response(logid, audio_size, is_final)
+    
+    def log_tts_fish_audio_request(self, reference_id, text, backend="", temperature=0, top_p=0):
+        """记录Fish Audio TTS请求"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_fish_audio_request(reference_id, text, backend, temperature, top_p)
+    
+    def log_tts_fish_audio_response(self, status, audio_size):
+        """记录Fish Audio TTS响应"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_fish_audio_response(status, audio_size)
+    
+    def log_tts_local_request(self, text, voice_model=""):
+        """记录本地TTS请求"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_local_tts_request(text, voice_model)
+    
+    def log_tts_local_response(self, status, audio_file=""):
+        """记录本地TTS响应"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_local_tts_response(status, audio_file)
+    
+    def log_tts_error(self, error_type, error_message):
+        """记录TTS错误"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_error(error_type, error_message)
+    
+    def log_tts_system_event(self, event):
+        """记录TTS系统事件"""
+        if hasattr(self, 'tts_logger'):
+            self.tts_logger.log_system_event(event)
         
     def start_bat_msg(self):
         if self.bat_worker and self.bat_worker.isRunning():
@@ -2178,8 +2718,8 @@ class Widget(Interface):
         local_asr_form = QFormLayout(local_asr_group)
         
         local_asr_fields = [
-            ("VAD URL", "asr.vad_url", "lineedit", ""),
-            ("ASR URL", "asr.asr_url", "lineedit", "")
+            ("VAD URL", "asr.vad_url", "lineedit", "ws://127.0.0.1:1000/v1/ws/vad"),
+            ("ASR URL", "asr.asr_url", "lineedit", "http://127.0.0.1:1000/v1/upload_audio")
         ]
         
         for label, key_path, widget_type, default in local_asr_fields:
@@ -2375,6 +2915,24 @@ class Widget(Interface):
         for key in keys:
             config_value = config_value.get(key, {}) if isinstance(config_value, dict) else {}
         
+        # 处理兼容性问题
+        if not config_value:
+            # 处理TTS URL兼容性：如果tts.local_url为空，尝试使用tts.url
+            if key_path == "tts.local_url":
+                legacy_url = self.config_data.get('tts', {}).get('url', '')
+                if legacy_url:
+                    config_value = legacy_url
+            # 处理ASR URL兼容性：如果asr.vad_url为空，保持现有配置
+            elif key_path == "asr.vad_url":
+                legacy_vad = self.config_data.get('asr', {}).get('vad_url', '')
+                if legacy_vad:
+                    config_value = legacy_vad
+            # 处理ASR URL兼容性：如果asr.asr_url为空，保持现有配置
+            elif key_path == "asr.asr_url":
+                legacy_asr = self.config_data.get('asr', {}).get('asr_url', '')
+                if legacy_asr:
+                    config_value = legacy_asr
+        
         if widget_type == "lineedit":
             widget = LineEdit()
             widget.setText(str(config_value) if config_value else str(default))
@@ -2408,14 +2966,289 @@ class Widget(Interface):
             if widget:
                 widget.deleteLater()
         
-        fields = [
-            ("URL", "tts.url", "lineedit", ""),
-            ("语言", "tts.language", "lineedit", "")
+        # TTS类型选择组
+        tts_type_group = QGroupBox("TTS类型配置")
+        tts_type_form = QFormLayout(tts_type_group)
+        
+        # TTS类型下拉选择
+        self.tts_type_combo = QComboBox()
+        self.tts_type_combo.addItems(["本地TTS", "豆包TTS", "Fish Audio"])
+        current_tts_type = self.config_data.get('tts', {}).get('tts_type', '本地TTS')
+        index = self.tts_type_combo.findText(current_tts_type)
+        if index >= 0:
+            self.tts_type_combo.setCurrentIndex(index)
+        self.widgets['tts.tts_type'] = {"widget": self.tts_type_combo, "type": "combobox"}
+        tts_type_form.addRow("TTS类型:", self.tts_type_combo)
+        
+        # TTS日志开关
+        tts_log_enabled_check = CheckBox()
+        tts_log_enabled_check.setChecked(bool(self.config_data.get('tts', {}).get('log_enabled', True)))
+        self.widgets['tts.log_enabled'] = {"widget": tts_log_enabled_check, "type": "checkbox"}
+        tts_type_form.addRow("启用TTS日志:", tts_log_enabled_check)
+        
+        # TTS日志文件路径
+        tts_log_path_edit = LineEdit()
+        tts_log_path_edit.setText(self.config_data.get('tts', {}).get('log_path', 'logs/tts_interactions.log'))
+        tts_log_path_edit.setPlaceholderText("TTS日志文件保存路径")
+        self.widgets['tts.log_path'] = {"widget": tts_log_path_edit, "type": "lineedit"}
+        tts_type_form.addRow("TTS日志文件路径:", tts_log_path_edit)
+        
+        self.vBoxLayout.addWidget(tts_type_group)
+        
+        # 本地TTS配置组
+        local_tts_group = QGroupBox("本地TTS配置")
+        local_tts_form = QFormLayout(local_tts_group)
+        
+        local_tts_fields = [
+            ("TTS URL", "tts.local_url", "lineedit", "http://127.0.0.1:5000"),
+            ("语言", "tts.language", "lineedit", "zh"),
+            ("音色", "tts.voice", "lineedit", ""),
+            ("语速", "tts.speed", "doublespin", 1.0),
+            ("音量", "tts.volume", "doublespin", 1.0)
         ]
         
-        group = self.create_form_group(self, "语音合成配置", fields)
-        self.vBoxLayout.addWidget(group)
+        for label, key_path, widget_type, default in local_tts_fields:
+            widget = self.create_widget(widget_type, key_path, default)
+            if widget_type == "doublespin":
+                widget.setRange(0.1, 3.0)
+                widget.setSingleStep(0.1)
+            local_tts_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(local_tts_group)
+        
+        # 豆包TTS配置组
+        doubao_tts_group = QGroupBox("豆包TTS配置")
+        doubao_tts_form = QFormLayout(doubao_tts_group)
+        
+        # 豆包TTS基础配置
+        doubao_tts_fields = [
+            ("APP ID", "tts.doubao_app_id", "lineedit", ""),
+            ("Access Token", "tts.doubao_access_token", "passwordlineedit", ""),
+            ("音色类型", "tts.doubao_voice_type", "lineedit", ""),
+            ("编码格式", "tts.doubao_encoding", "combobox", "wav"),
+            ("WebSocket URL", "tts.doubao_url", "lineedit", "wss://openspeech.bytedance.com/api/v1/tts/ws_binary")
+        ]
+        
+        for label, key_path, widget_type, default in doubao_tts_fields:
+            if widget_type == "combobox" and key_path == "tts.doubao_encoding":
+                widget = QComboBox()
+                widget.addItems(["wav", "mp3", "ogg", "flac"])
+                encoding_val = self.config_data.get('tts', {}).get('doubao_encoding', default)
+                index = widget.findText(encoding_val)
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+            else:
+                widget = self.create_widget(widget_type, key_path, default)
+            
+            doubao_tts_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        # 豆包TTS测试按钮
+        doubao_test_btn = PushButton("测试豆包TTS")
+        doubao_test_btn.clicked.connect(self.test_doubao_tts)
+        doubao_tts_form.addRow("", doubao_test_btn)
+        
+        self.vBoxLayout.addWidget(doubao_tts_group)
+        
+        # Fish Audio配置组
+        fish_audio_group = QGroupBox("Fish Audio配置")
+        fish_audio_form = QFormLayout(fish_audio_group)
+        
+        # Fish Audio基础配置
+        fish_audio_fields = [
+            ("API Key", "tts.fish_audio_api_key", "passwordlineedit", ""),
+            ("Reference ID", "tts.fish_audio_reference_id", "lineedit", ""),
+            ("Backend Model", "tts.fish_audio_backend", "combobox", "speech-1.6"),
+            ("Temperature", "tts.fish_audio_temperature", "doublespin", 0.7),
+            ("Top P", "tts.fish_audio_top_p", "doublespin", 0.7)
+        ]
+        
+        for label, key_path, widget_type, default in fish_audio_fields:
+            if widget_type == "combobox" and key_path == "tts.fish_audio_backend":
+                widget = QComboBox()
+                widget.addItems(["speech-1.5", "speech-1.6", "s1"])
+                backend_val = self.config_data.get('tts', {}).get('fish_audio_backend', default)
+                index = widget.findText(backend_val)
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+            elif widget_type == "doublespin":
+                widget = self.create_widget(widget_type, key_path, default)
+                widget.setRange(0.0, 1.0)
+                widget.setSingleStep(0.1)
+            else:
+                widget = self.create_widget(widget_type, key_path, default)
+            
+            fish_audio_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        # Fish Audio参考音频文件选择
+        fish_ref_audio_layout = QHBoxLayout()
+        self.fish_ref_audio_edit = LineEdit()
+        self.fish_ref_audio_edit.setText(self.config_data.get('tts', {}).get('fish_audio_ref_audio', ''))
+        self.fish_ref_audio_edit.setPlaceholderText("选择参考音频文件 (.wav)")
+        fish_ref_audio_btn = PushButton("选择文件")
+        fish_ref_audio_btn.clicked.connect(self._select_fish_ref_audio)
+        fish_ref_audio_layout.addWidget(self.fish_ref_audio_edit)
+        fish_ref_audio_layout.addWidget(fish_ref_audio_btn)
+        fish_ref_audio_widget = QWidget()
+        fish_ref_audio_widget.setLayout(fish_ref_audio_layout)
+        fish_audio_form.addRow("参考音频:", fish_ref_audio_widget)
+        self.widgets['tts.fish_audio_ref_audio'] = {"widget": self.fish_ref_audio_edit, "type": "lineedit"}
+        
+        # Fish Audio参考音频文本
+        fish_ref_text_edit = QTextEdit()
+        fish_ref_text_edit.setPlainText(self.config_data.get('tts', {}).get('fish_audio_ref_text', ''))
+        fish_ref_text_edit.setPlaceholderText("输入参考音频对应的文本内容")
+        fish_ref_text_edit.setMaximumHeight(80)
+        fish_audio_form.addRow("参考音频文本:", fish_ref_text_edit)
+        self.widgets['tts.fish_audio_ref_text'] = {"widget": fish_ref_text_edit, "type": "textedit"}
+        
+        # Fish Audio测试按钮
+        fish_test_btn = PushButton("测试Fish Audio")
+        fish_test_btn.clicked.connect(self.test_fish_audio_tts)
+        fish_audio_form.addRow("", fish_test_btn)
+        
+        self.vBoxLayout.addWidget(fish_audio_group)
+        
+        # 通用TTS配置
+        common_tts_group = QGroupBox("通用TTS配置")
+        common_tts_form = QFormLayout(common_tts_group)
+        
+        # 输出目录
+        output_dir_layout = QHBoxLayout()
+        self.tts_output_dir_edit = LineEdit()
+        self.tts_output_dir_edit.setText(self.config_data.get('tts', {}).get('output_dir', 'output/audio'))
+        self.tts_output_dir_edit.setPlaceholderText("TTS音频文件输出目录")
+        output_dir_btn = PushButton("选择目录")
+        output_dir_btn.clicked.connect(self._select_tts_output_dir)
+        output_dir_layout.addWidget(self.tts_output_dir_edit)
+        output_dir_layout.addWidget(output_dir_btn)
+        output_dir_widget = QWidget()
+        output_dir_widget.setLayout(output_dir_layout)
+        common_tts_form.addRow("输出目录:", output_dir_widget)
+        self.widgets['tts.output_dir'] = {"widget": self.tts_output_dir_edit, "type": "lineedit"}
+        
+        # 音频格式
+        audio_format_combo = QComboBox()
+        audio_format_combo.addItems(["wav", "mp3", "ogg", "flac"])
+        format_val = self.config_data.get('tts', {}).get('audio_format', 'wav')
+        index = audio_format_combo.findText(format_val)
+        if index >= 0:
+            audio_format_combo.setCurrentIndex(index)
+        common_tts_form.addRow("音频格式:", audio_format_combo)
+        self.widgets['tts.audio_format'] = {"widget": audio_format_combo, "type": "combobox"}
+        
+        self.vBoxLayout.addWidget(common_tts_group)
         self.vBoxLayout.addStretch()
+    
+    def _select_fish_ref_audio(self):
+        """选择Fish Audio参考音频文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择参考音频文件", "", "音频文件 (*.wav *.mp3 *.ogg *.flac)"
+        )
+        if file_path:
+            self.fish_ref_audio_edit.setText(file_path)
+    
+    def _select_tts_output_dir(self):
+        """选择TTS输出目录"""
+        dir_path = QFileDialog.getExistingDirectory(self, "选择TTS输出目录")
+        if dir_path:
+            self.tts_output_dir_edit.setText(dir_path)
+    
+    def test_doubao_tts(self):
+        """测试豆包TTS配置"""
+        try:
+            # 获取配置
+            app_id = self.widgets.get('tts.doubao_app_id', {}).get('widget', LineEdit()).text().strip()
+            access_token = self.widgets.get('tts.doubao_access_token', {}).get('widget', PasswordLineEdit()).text().strip()
+            voice_type = self.widgets.get('tts.doubao_voice_type', {}).get('widget', LineEdit()).text().strip()
+            
+            if not all([app_id, access_token, voice_type]):
+                InfoBar.warning(
+                    title='配置不完整',
+                    content='请填写完整的豆包TTS配置信息',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 记录测试日志
+            self.log_tts_system_event("开始测试豆包TTS配置")
+            self.log_tts_doubao_request(app_id, voice_type, "wav", "这是一个测试文本")
+            
+            InfoBar.success(
+                title='配置检查完成',
+                content='豆包TTS配置信息已填写完整，请确保账户有效',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+        except Exception as e:
+            self.log_tts_error("豆包TTS测试", str(e))
+            InfoBar.error(
+                title='测试失败',
+                content=f'豆包TTS测试出错: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def test_fish_audio_tts(self):
+        """测试Fish Audio TTS配置"""
+        try:
+            # 获取配置
+            api_key = self.widgets.get('tts.fish_audio_api_key', {}).get('widget', PasswordLineEdit()).text().strip()
+            reference_id = self.widgets.get('tts.fish_audio_reference_id', {}).get('widget', LineEdit()).text().strip()
+            
+            if not api_key:
+                InfoBar.warning(
+                    title='配置不完整',
+                    content='请填写Fish Audio API Key',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 记录测试日志
+            self.log_tts_system_event("开始测试Fish Audio TTS配置")
+            backend = self.widgets.get('tts.fish_audio_backend', {}).get('widget', QComboBox()).currentText()
+            temperature = self.widgets.get('tts.fish_audio_temperature', {}).get('widget', DoubleSpinBox()).value()
+            top_p = self.widgets.get('tts.fish_audio_top_p', {}).get('widget', DoubleSpinBox()).value()
+            self.log_tts_fish_audio_request(reference_id, "这是一个测试文本", backend, temperature, top_p)
+            
+            InfoBar.success(
+                title='配置检查完成',
+                content='Fish Audio TTS配置信息已填写完整，请确保API Key有效',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+        except Exception as e:
+            self.log_tts_error("Fish Audio TTS测试", str(e))
+            InfoBar.error(
+                title='测试失败',
+                content=f'Fish Audio TTS测试出错: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
     def create_ui_tab(self):
         """创建UI配置标签页"""
