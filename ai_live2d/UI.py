@@ -8,6 +8,8 @@ import asyncio
 import uuid
 import base64
 import requests
+import time
+import random
 from logging.handlers import RotatingFileHandler
 
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
@@ -2009,6 +2011,10 @@ class Widget(Interface):
                 current_value = data if data is not None else widget.currentText()
             elif isinstance(widget, QTextEdit):
                 current_value = widget.toPlainText()
+            else:
+                # 处理其他未知类型的widget，避免current_value为None
+                print(f"Unknown widget type for {key_path}: {type(widget)}")
+                continue
             
             # 更新配置数据
             keys = key_path.split('.')
@@ -2371,27 +2377,11 @@ class Widget(Interface):
                         break
                 if idx >= 0:
                     widget.setCurrentIndex(idx)
-                current_value = widget.currentData() if widget.currentData() is not None else widget.currentText()
-            elif isinstance(widget, PasswordLineEdit):
-                current_value = widget.text()
-            elif isinstance(widget, CheckBox):
-                current_value = widget.isChecked()
-            elif isinstance(widget, SpinBox):
-                current_value = widget.value()
-            elif isinstance(widget, DoubleSpinBox):
-                current_value = widget.value()
-            elif isinstance(widget, QComboBox):
-                data = widget.currentData()
-                current_value = data if data is not None else widget.currentText()
             elif isinstance(widget, QTextEdit):
-                current_value = widget.toPlainText()
-            
-            # 更新配置数据
-            keys = key_path.split('.')
-            config_ptr = self.config_data
-            for key in keys[:-1]:
-                config_ptr = config_ptr.setdefault(key, {})
-            config_ptr[keys[-1]] = current_value
+                widget.setPlainText(str(value))
+            else:
+                # 处理其他未知类型的widget
+                print(f"Unknown widget type for {key_path}: {type(widget)} in update_widgets")
 
     def create_form_group(self, parent, title, fields):
         """创建表单组"""
@@ -3311,6 +3301,10 @@ class Widget(Interface):
 
         # 注册到统一收集器
         self.widgets['ui.model_path'] = {"widget": self.model_combo, "type": "combobox"}
+        
+        # 添加模型详情浏览功能
+        self.create_model_details_section()
+        
         self.vBoxLayout.addStretch()
 
     def _scan_model_roots(self):
@@ -3320,6 +3314,8 @@ class Widget(Interface):
             os.path.join(proj_root, 'models', '2d'),
             os.path.join(proj_root, 'live-2d', '2D'),
             os.path.join(os.path.dirname(__file__), '2D'),
+            os.path.join(proj_root, 'py-my-neuro', '2D'),  # 添加py-my-neuro路径
+            os.path.join(proj_root, 'py-my-neuro', 'UI', '2D'),  # 添加py-my-neuro/UI路径
         ]
 
     def _refresh_model_combo(self):
@@ -3341,6 +3337,465 @@ class Widget(Interface):
                         if display and key not in added:
                             self.model_combo.addItem(display, full)
                             added.add(key)
+
+    def create_model_details_section(self):
+        """创建模型详情浏览功能"""
+        details_group = QGroupBox("Live2D模型详情")
+        details_layout = QVBoxLayout(details_group)
+        
+        # 顶部按钮区域
+        button_layout = QHBoxLayout()
+        
+        # 加载模型详情按钮
+        self.load_details_btn = PrimaryToolButton(FIF.VIEW)
+        self.load_details_btn.setText("加载模型详情")
+        self.load_details_btn.clicked.connect(self.load_model_details)
+        button_layout.addWidget(self.load_details_btn)
+        
+        # 测试表情按钮
+        self.test_expression_btn = ToolButton(FIF.PLAY)
+        self.test_expression_btn.setText("测试随机表情")
+        self.test_expression_btn.clicked.connect(self.test_random_expression)
+        self.test_expression_btn.setEnabled(False)
+        button_layout.addWidget(self.test_expression_btn)
+        
+        button_layout.addStretch()
+        details_layout.addLayout(button_layout)
+        
+        # 创建水平分割的详情区域
+        details_splitter = QSplitter(Qt.Horizontal)
+        
+        # 左侧：基础信息
+        info_widget = QWidget()
+        info_layout = QVBoxLayout(info_widget)
+        
+        # 模型基础信息显示
+        self.model_info_browser = TextBrowser()
+        self.model_info_browser.setMaximumHeight(150)
+        self.model_info_browser.setPlainText("请选择模型并点击'加载模型详情'按钮")
+        info_layout.addWidget(QLabel("模型基础信息:"))
+        info_layout.addWidget(self.model_info_browser)
+        
+        details_splitter.addWidget(info_widget)
+        
+        # 右侧：表情和动作列表
+        lists_widget = QWidget()
+        lists_layout = QVBoxLayout(lists_widget)
+        
+        # 表情列表
+        expr_layout = QVBoxLayout()
+        expr_layout.addWidget(QLabel("支持的表情:"))
+        
+        self.expression_list = QListWidget()
+        self.expression_list.setMaximumHeight(120)
+        self.expression_list.itemDoubleClicked.connect(self.on_expression_double_click)
+        expr_layout.addWidget(self.expression_list)
+        
+        lists_layout.addLayout(expr_layout)
+        
+        # 动作组列表
+        motion_layout = QVBoxLayout()
+        motion_layout.addWidget(QLabel("支持的动作组:"))
+        
+        self.motion_list = QListWidget()
+        self.motion_list.setMaximumHeight(120)
+        self.motion_list.itemDoubleClicked.connect(self.on_motion_double_click)
+        motion_layout.addWidget(self.motion_list)
+        
+        lists_layout.addLayout(motion_layout)
+        
+        details_splitter.addWidget(lists_widget)
+        
+        # 设置分割器比例
+        details_splitter.setSizes([400, 300])
+        
+        details_layout.addWidget(details_splitter)
+        
+        self.vBoxLayout.addWidget(details_group)
+
+    def load_model_details(self):
+        """加载当前选中模型的详情信息"""
+        current_model_path = self.model_combo.currentData()
+        if not current_model_path or not os.path.exists(current_model_path):
+            self.model_info_browser.setPlainText("❌ 请先选择有效的模型文件")
+            self.expression_list.clear()
+            self.motion_list.clear()
+            self.test_expression_btn.setEnabled(False)
+            return
+        
+        try:
+            # 尝试导入Live2D模型类
+            # 添加模型路径到搜索路径
+            model_paths = [
+                os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'),
+                os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro'),
+                os.path.join(os.path.dirname(__file__), 'models'),
+                os.path.join(os.path.dirname(__file__))
+            ]
+            
+            for path in model_paths:
+                abs_path = os.path.abspath(path)
+                if abs_path not in sys.path:
+                    sys.path.insert(0, abs_path)
+            
+            # 尝试导入Live2D模型
+            Live2DModel = None
+            init_live2d = None
+            has_live2d = False
+            
+            try:
+                # 第一种方法：直接从py-my-neuro导入
+                sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI')))
+                live2d_module = __import__('live2d_model', fromlist=['Live2DModel', 'init_live2d'])
+                Live2DModel = getattr(live2d_module, 'Live2DModel', None)
+                init_live2d = getattr(live2d_module, 'init_live2d', None)
+                if Live2DModel and init_live2d:
+                    has_live2d = True
+                    print("✅ 成功从py-my-neuro导入Live2D模块")
+            except ImportError as e:
+                print(f"❌ 从py-my-neuro导入失败: {e}")
+                try:
+                    # 第二种方法：尝试通过完整模块路径导入
+                    models_module = __import__('models.live2d_model', fromlist=['Live2DModel', 'init_live2d'])
+                    Live2DModel = getattr(models_module, 'Live2DModel', None)
+                    init_live2d = getattr(models_module, 'init_live2d', None)
+                    if Live2DModel and init_live2d:
+                        has_live2d = True
+                        print("✅ 成功从models模块导入Live2D")
+                except ImportError as e2:
+                    print(f"❌ 从models导入失败: {e2}")
+                    # 最后尝试使用原始方法读取模型文件
+                    try:
+                        self.load_model_details_fallback(current_model_path)
+                        return
+                    except Exception as e3:
+                        print(f"❌ 备用方法也失败: {e3}")
+                        has_live2d = False
+            
+            if not has_live2d:
+                self.model_info_browser.setHtml("""
+                <div style='color: orange;'>
+                <h4>⚠️ Live2D模块未找到</h4>
+                <p>无法动态加载模型详情，但可以显示文件信息：</p>
+                <p><b>模型路径:</b> {}</p>
+                <p><b>文件大小:</b> {:.2f} KB</p>
+                <p><b>最后修改:</b> {}</p>
+                </div>
+                """.format(
+                    current_model_path,
+                    os.path.getsize(current_model_path) / 1024,
+                    time.ctime(os.path.getmtime(current_model_path))
+                ))
+                self.expression_list.clear()
+                self.motion_list.clear()
+                self.test_expression_btn.setEnabled(False)
+                return
+            
+            # 初始化Live2D引擎（如果尚未初始化）
+            if not init_live2d():
+                raise Exception("Live2D引擎初始化失败")
+            
+            # 创建临时模型实例来获取信息
+            temp_model = Live2DModel()
+            
+            # 尝试加载模型文件
+            if hasattr(temp_model, 'model') and temp_model.model:
+                temp_model.model.LoadModelJson(current_model_path)
+                
+                # 获取表情列表
+                expressions = []
+                if hasattr(temp_model.model, 'GetExpressionIds'):
+                    expressions = temp_model.model.GetExpressionIds() or []
+                
+                # 获取动作组列表
+                motions = {}
+                if hasattr(temp_model.model, 'GetMotionGroups'):
+                    motions = temp_model.model.GetMotionGroups() or {}
+                
+                # 获取参数数量
+                param_count = 0
+                if hasattr(temp_model.model, 'GetParameterCount'):
+                    param_count = temp_model.model.GetParameterCount()
+                
+                # 获取画布大小
+                canvas_info = "未知"
+                if hasattr(temp_model.model, 'GetCanvasSize'):
+                    try:
+                        w, h = temp_model.model.GetCanvasSize()
+                        canvas_info = f"{w} x {h}"
+                    except:
+                        canvas_info = "获取失败"
+                
+                # 更新UI显示
+                self.update_model_info_display(
+                    current_model_path, expressions, motions, param_count, canvas_info
+                )
+                
+                # 清理临时模型
+                del temp_model
+                
+            else:
+                raise Exception("无法创建模型实例")
+                
+        except Exception as e:
+            self.model_info_browser.setHtml(f"""
+            <div style='color: red;'>
+            <h4>❌ 加载模型详情失败</h4>
+            <p><b>错误信息:</b> {str(e)}</p>
+            <p><b>模型路径:</b> {current_model_path}</p>
+            <p><b>文件大小:</b> {os.path.getsize(current_model_path) / 1024:.2f} KB</p>
+            <p><b>最后修改:</b> {time.ctime(os.path.getmtime(current_model_path))}</p>
+            <p style='color: gray; font-size: 12px;'>提示：请确保Live2D模型文件完整且格式正确</p>
+            </div>
+            """)
+            self.expression_list.clear()
+            self.motion_list.clear()
+            self.test_expression_btn.setEnabled(False)
+
+    def update_model_info_display(self, model_path, expressions, motions, param_count, canvas_info):
+        """更新模型信息显示"""
+        # 更新基础信息
+        model_name = os.path.basename(os.path.dirname(model_path))
+        file_size = os.path.getsize(model_path) / 1024
+        mod_time = time.ctime(os.path.getmtime(model_path))
+        
+        info_html = f"""
+        <div style='font-family: Microsoft YaHei;'>
+        <h4 style='color: #0078d4; margin: 8px 0;'>✅ {model_name}</h4>
+        <p><b>文件路径:</b> {model_path}</p>
+        <p><b>文件大小:</b> {file_size:.2f} KB</p>
+        <p><b>最后修改:</b> {mod_time}</p>
+        <p><b>画布大小:</b> {canvas_info}</p>
+        <p><b>参数数量:</b> {param_count}</p>
+        <p><b>表情数量:</b> {len(expressions)}</p>
+        <p><b>动作组数量:</b> {len(motions)}</p>
+        </div>
+        """
+        self.model_info_browser.setHtml(info_html)
+        
+        # 更新表情列表
+        self.expression_list.clear()
+        if expressions:
+            for expr in expressions:
+                item = QListWidgetItem(f"🎭 {expr}")
+                item.setData(Qt.UserRole, expr)
+                item.setToolTip(f"双击测试表情: {expr}")
+                self.expression_list.addItem(item)
+            self.test_expression_btn.setEnabled(True)
+        else:
+            item = QListWidgetItem("😐 该模型不支持表情")
+            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+            self.expression_list.addItem(item)
+            self.test_expression_btn.setEnabled(False)
+        
+        # 更新动作组列表
+        self.motion_list.clear()
+        if motions:
+            for group_name, count in motions.items():
+                item = QListWidgetItem(f"🎬 {group_name} ({count}个动作)")
+                item.setData(Qt.UserRole, group_name)
+                item.setToolTip(f"动作组: {group_name}，包含 {count} 个动作")
+                self.motion_list.addItem(item)
+        else:
+            item = QListWidgetItem("🚫 该模型不包含动作组")
+            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+            self.motion_list.addItem(item)
+
+    def on_expression_double_click(self, item):
+        """双击表情项时测试该表情"""
+        expression_name = item.data(Qt.UserRole)
+        if expression_name:
+            self.test_specific_expression(expression_name)
+
+    def on_motion_double_click(self, item):
+        """双击动作组项时显示详情"""
+        motion_group = item.data(Qt.UserRole)
+        if motion_group:
+            InfoBar.success(
+                title='动作组信息',
+                content=f"动作组: {motion_group}\n双击动作组暂不支持直接测试，请在Live2D界面中测试",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def test_specific_expression(self, expression_name):
+        """测试指定表情"""
+        try:
+            # 这里可以通过事件总线或直接调用Live2D模型来测试表情
+            InfoBar.success(
+                title='表情测试',
+                content=f"正在测试表情: {expression_name}\n(需要Live2D模型正在运行)",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+            # 如果有事件总线，可以发送表情切换事件
+            # if hasattr(self, 'event_bus') and self.event_bus:
+            #     self.event_bus.emit('expression_change', expression_name)
+            
+        except Exception as e:
+            InfoBar.error(
+                title='表情测试失败',
+                content=f"无法测试表情 {expression_name}: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def test_random_expression(self):
+        """测试随机表情"""
+        if self.expression_list.count() > 0:
+            # 随机选择一个表情项
+            valid_items = []
+            for i in range(self.expression_list.count()):
+                item = self.expression_list.item(i)
+                if item.data(Qt.UserRole):  # 只选择有效的表情项
+                    valid_items.append(item)
+            
+            if valid_items:
+                selected_item = random.choice(valid_items)
+                expression_name = selected_item.data(Qt.UserRole)
+                self.test_specific_expression(expression_name)
+                # 高亮选中的表情
+                self.expression_list.setCurrentItem(selected_item)
+            else:
+                InfoBar.warning(
+                    title='无可用表情',
+                    content="当前模型没有可测试的表情",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+        else:
+            InfoBar.warning(
+                title='请先加载模型详情',
+                content="请先选择模型并加载详情信息",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+
+    def load_model_details_fallback(self, model_path):
+        """备用方法：直接解析model3.json文件获取信息"""
+        try:
+            print(f"🔍 使用备用方法解析模型文件: {model_path}")
+            
+            # 读取model3.json文件
+            with open(model_path, 'r', encoding='utf-8') as f:
+                model_data = json.load(f)
+            
+            # 解析表情信息
+            expressions = []
+            if 'FileReferences' in model_data and 'Expressions' in model_data['FileReferences']:
+                for expr in model_data['FileReferences']['Expressions']:
+                    if 'Name' in expr:
+                        expressions.append(expr['Name'])
+                    elif 'File' in expr:
+                        # 从文件名提取表情名
+                        expr_name = os.path.splitext(os.path.basename(expr['File']))[0]
+                        expressions.append(expr_name)
+            
+            # 解析动作信息
+            motions = {}
+            if 'FileReferences' in model_data and 'Motions' in model_data['FileReferences']:
+                for group_name, motion_list in model_data['FileReferences']['Motions'].items():
+                    if isinstance(motion_list, list):
+                        motions[group_name] = len(motion_list)
+                    else:
+                        motions[group_name] = 1
+            
+            # 获取参数信息（从文件中解析）
+            param_count = 0
+            if 'FileReferences' in model_data and 'Moc' in model_data['FileReferences']:
+                param_count = "通过.moc文件确定"
+            
+            # 获取画布信息
+            canvas_info = "默认"
+            if 'Layout' in model_data:
+                layout = model_data['Layout']
+                if 'CenterX' in layout and 'CenterY' in layout:
+                    canvas_info = f"中心点: ({layout.get('CenterX', 0)}, {layout.get('CenterY', 0)})"
+            
+            # 更新显示
+            self.update_model_info_display_fallback(
+                model_path, expressions, motions, param_count, canvas_info, model_data
+            )
+            
+            print(f"✅ 备用方法成功解析模型，找到 {len(expressions)} 个表情，{len(motions)} 个动作组")
+            
+        except Exception as e:
+            print(f"❌ 备用方法解析失败: {e}")
+            raise e
+
+    def update_model_info_display_fallback(self, model_path, expressions, motions, param_count, canvas_info, model_data):
+        """使用备用方法更新模型信息显示"""
+        # 更新基础信息
+        model_name = os.path.basename(os.path.dirname(model_path))
+        file_size = os.path.getsize(model_path) / 1024
+        mod_time = time.ctime(os.path.getmtime(model_path))
+        
+        # 获取额外信息
+        version = model_data.get('Version', '未知')
+        moc_file = model_data.get('FileReferences', {}).get('Moc', '未找到')
+        
+        info_html = f"""
+        <div style='font-family: Microsoft YaHei;'>
+        <h4 style='color: #0078d4; margin: 8px 0;'>✅ {model_name} (解析模式)</h4>
+        <p><b>文件路径:</b> {model_path}</p>
+        <p><b>文件大小:</b> {file_size:.2f} KB</p>
+        <p><b>最后修改:</b> {mod_time}</p>
+        <p><b>模型版本:</b> {version}</p>
+        <p><b>Moc文件:</b> {moc_file}</p>
+        <p><b>画布信息:</b> {canvas_info}</p>
+        <p><b>参数信息:</b> {param_count}</p>
+        <p><b>表情数量:</b> {len(expressions)}</p>
+        <p><b>动作组数量:</b> {len(motions)}</p>
+        <p style='color: #666; font-size: 12px;'>注：通过解析JSON文件获取信息，部分功能受限</p>
+        </div>
+        """
+        self.model_info_browser.setHtml(info_html)
+        
+        # 更新表情列表
+        self.expression_list.clear()
+        if expressions:
+            for expr in expressions:
+                item = QListWidgetItem(f"🎭 {expr}")
+                item.setData(Qt.UserRole, expr)
+                item.setToolTip(f"表情: {expr} (仅显示，无法直接测试)")
+                self.expression_list.addItem(item)
+            # 启用测试按钮，但功能受限
+            self.test_expression_btn.setEnabled(True)
+            self.test_expression_btn.setToolTip("表情测试功能需要Live2D运行时支持")
+        else:
+            item = QListWidgetItem("😐 该模型不包含表情定义")
+            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+            self.expression_list.addItem(item)
+            self.test_expression_btn.setEnabled(False)
+        
+        # 更新动作组列表
+        self.motion_list.clear()
+        if motions:
+            for group_name, count in motions.items():
+                item = QListWidgetItem(f"🎬 {group_name} ({count}个动作)")
+                item.setData(Qt.UserRole, group_name)
+                item.setToolTip(f"动作组: {group_name}，包含 {count} 个动作")
+                self.motion_list.addItem(item)
+        else:
+            item = QListWidgetItem("🚫 该模型不包含动作组定义")
+            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+            self.motion_list.addItem(item)
 
     def create_subtitle_tab(self):
         """创建字幕配置标签页"""

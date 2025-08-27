@@ -18,7 +18,7 @@
     "ui": {
         "intro_text": "你好，我叫fake neuro。",
         "model_scale": 1.0,
-        "model_path": "F:\\my-neuro\\live-2d\\2D\\胡桃\\Hu Tao.model3.json"
+        "model_path": "F:\\my-neuro\\py-my-neuro\\2D\\肥牛\\hiyori_pro_mic.model3.json"
     },
     "subtitle": {
         "font_family": "Microsoft YaHei",
