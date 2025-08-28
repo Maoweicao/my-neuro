@@ -1,0 +1,49 @@
+{
+  "llm": {
+    "api_type": "OpenAI兼容API",
+    "api_key": "your-api-key-here",
+    "api_url": "https://api.openai.com/v1",
+    "model": "gpt-3.5-turbo",
+    "system_prompt": "你是肥牛，一个可爱的AI助手。请用友好、活泼的语气回答问题。",
+    "enable_limit": true,
+    "max_messages": 10,
+    "log_enabled": true,
+    "log_path": "logs/llm_interactions.log"
+  },
+  "webapi": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8888,
+    "api_key": "",
+    "description": "WebAPI输入功能，可以通过HTTP接口与系统交互"
+  },
+  "setting": {
+    "llm_enabled": true,
+    "prompt_enabled": true,
+    "tts_enabled": true,
+    "asr_enabled": true,
+    "ui_enabled": true,
+    "subtitle_enabled": true,
+    "user_input_enabled": true,
+    "rag_enabled": false,
+    "mcp_enabled": false,
+    "vision_enabled": false,
+    "memory_enabled": false,
+    "auto_chat_enabled": false,
+    "bilibili_enabled": false
+  },
+  "asr": {
+    "asr_type": "本地ASR",
+    "vad_url": "ws://127.0.0.1:1000/v1/ws/vad",
+    "asr_url": "http://127.0.0.1:1000/v1/upload_audio",
+    "log_enabled": true,
+    "log_path": "logs/asr_interactions.log"
+  },
+  "tts": {
+    "tts_type": "本地TTS",
+    "url": "http://127.0.0.1:1000/v1/tts",
+    "output_dir": "output/audio",
+    "log_enabled": true,
+    "log_path": "logs/tts_interactions.log"
+  }
+}

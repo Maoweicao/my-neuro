@@ -10,6 +10,9 @@ import base64
 import requests
 import time
 import random
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
@@ -83,6 +86,173 @@ class QTextBrowserHandler(logging.Handler, QObject):
         self.text_browser.verticalScrollBar().setValue(
             self.text_browser.verticalScrollBar().maximum()
         )
+
+
+class WebAPIHandler(BaseHTTPRequestHandler):
+    """WebAPI请求处理器"""
+    
+    def __init__(self, *args, ui_widget=None, **kwargs):
+        self.ui_widget = ui_widget
+        super().__init__(*args, **kwargs)
+    
+    def do_POST(self):
+        """处理POST请求"""
+        try:
+            if self.path == '/api/chat':
+                self._handle_chat_request()
+            else:
+                self._send_error_response(404, "Not Found")
+        except Exception as e:
+            self._send_error_response(500, f"Internal Server Error: {str(e)}")
+    
+    def do_GET(self):
+        """处理GET请求"""
+        if self.path == '/api/status':
+            self._send_json_response({"status": "running", "message": "WebAPI服务正在运行"})
+        else:
+            self._send_error_response(404, "Not Found")
+    
+    def _handle_chat_request(self):
+        """处理聊天请求"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'message' not in data:
+                self._send_error_response(400, "Missing 'message' field")
+                return
+            
+            message = data['message'].strip()
+            if not message:
+                self._send_error_response(400, "Empty message")
+                return
+            
+            # 验证API密钥（如果配置了）
+            if hasattr(self.ui_widget, 'config_data'):
+                api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
+                if api_key and data.get('api_key') != api_key:
+                    self._send_error_response(401, "Invalid API key")
+                    return
+            
+            # 记录请求
+            if hasattr(self.ui_widget, 'log_user_input'):
+                self.ui_widget.log_user_input(f"[WebAPI] {message}")
+            
+            # 调用LLM处理逻辑
+            try:
+                if hasattr(self.ui_widget, 'process_llm_request'):
+                    response_text = self.ui_widget.process_llm_request(message)
+                else:
+                    response_text = f"收到您的消息: {message}"
+            except Exception as e:
+                response_text = f"处理错误: {str(e)}"
+            
+            # 记录响应
+            if hasattr(self.ui_widget, 'log_llm_response'):
+                self.ui_widget.log_llm_response(response_text)
+            
+            self._send_json_response({
+                "response": response_text,
+                "status": "success",
+                "timestamp": time.time()
+            })
+            
+        except json.JSONDecodeError:
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _send_json_response(self, data):
+        """发送JSON响应"""
+        response_data = json.dumps(data, ensure_ascii=False, indent=2)
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        self.wfile.write(response_data.encode('utf-8'))
+    
+    def _send_error_response(self, code, message):
+        """发送错误响应"""
+        error_data = {
+            "error": message,
+            "status": "error",
+            "code": code
+        }
+        response_data = json.dumps(error_data, ensure_ascii=False, indent=2)
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(response_data.encode('utf-8'))
+    
+    def do_OPTIONS(self):
+        """处理OPTIONS请求（CORS预检）"""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+    
+    def log_message(self, format, *args):
+        """重写日志方法，避免控制台输出"""
+        pass
+
+
+class WebAPIServer(QThread):
+    """WebAPI服务器线程"""
+    
+    status_changed = pyqtSignal(bool, str)  # 状态变化信号 (is_running, message)
+    
+    def __init__(self, host='127.0.0.1', port=8888, ui_widget=None):
+        super().__init__()
+        self.host = host
+        self.port = port
+        self.ui_widget = ui_widget
+        self.server = None
+        self.is_running = False
+    
+    def run(self):
+        """启动服务器"""
+        try:
+            # 创建处理器类，传入UI widget引用
+            handler_class = lambda *args, **kwargs: WebAPIHandler(*args, ui_widget=self.ui_widget, **kwargs)
+            
+            self.server = HTTPServer((self.host, self.port), handler_class)
+            self.is_running = True
+            self.status_changed.emit(True, f"WebAPI服务已启动 - {self.host}:{self.port}")
+            
+            # 启动服务器
+            self.server.serve_forever()
+            
+        except OSError as e:
+            if "Address already in use" in str(e):
+                self.status_changed.emit(False, f"端口 {self.port} 已被占用")
+            else:
+                self.status_changed.emit(False, f"启动失败: {str(e)}")
+        except Exception as e:
+            self.status_changed.emit(False, f"服务器错误: {str(e)}")
+        finally:
+            self.is_running = False
+    
+    def stop_server(self):
+        """停止服务器"""
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
+        self.is_running = False
+        self.status_changed.emit(False, "WebAPI服务已停止")
+        self.quit()
+        self.wait()
 
 
 class LLMInteractionLogger:
@@ -1860,8 +2030,15 @@ class Widget(Interface):
         self._model_fetchers = []  # 保持线程引用，避免被GC
         self.setObjectName(text.replace(' ', '-'))
 
+        # 初始化WebAPI服务器
+        self.webapi_server = None
+        self.webapi_server_thread = None
+
         # 初始化LLM交互日志记录器
         self.init_llm_logger()
+
+        # 初始化Live2D模型连接
+        self.init_live2d_connection()
 
         # 进入对应的标签页创建函数
         self.tab_chose(num)()
@@ -1904,6 +2081,36 @@ class Widget(Interface):
         
         if log_enabled:
             self.tts_logger.log_system_event("TTS交互日志系统已启动")
+    
+    def init_live2d_connection(self):
+        """初始化Live2D模型连接"""
+        try:
+            # 尝试获取Live2D模型实例的引用
+            self.live2d_model = None
+            
+            # 方法1：尝试从models模块获取全局实例
+            try:
+                import models.live2d_model as live2d_module
+                if hasattr(live2d_module, '_model') and live2d_module._model:
+                    self.live2d_model = live2d_module._model
+                    print("成功获取Live2D模型实例")
+                    return True
+            except ImportError:
+                print("无法导入models.live2d_model模块")
+            
+            # 方法2：尝试从其他可能的位置获取
+            try:
+                # 检查是否有全局的app_manager或event_bus
+                from core.app_manager import AppManager
+                # 这里可以添加更多获取模型实例的方法
+            except ImportError:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            print(f"初始化Live2D连接失败: {e}")
+            return False
 
     def tab_chose(self, num):
         """创建各个配置部分的标签页"""
@@ -1914,6 +2121,7 @@ class Widget(Interface):
                     self.create_ui_tab,
                     self.create_subtitle_tab,
                     self.create_user_input_tab,
+                    self.create_animation_tab,
                     self.create_other_tab,
                     self.create_setting_tab,
                     self.create_voice_clone_tab
@@ -2343,6 +2551,196 @@ class Widget(Interface):
     def on_bat_finished(self):
         """BAT完成时的处理"""
         self.append_output("BAT脚本已停止")
+
+    # WebAPI服务器相关方法
+    def start_webapi_server(self):
+        """启动WebAPI服务器"""
+        if self.webapi_server and self.webapi_server.is_running:
+            InfoBar.warning(
+                title='服务已运行',
+                content="WebAPI服务已在运行中",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        # 获取配置
+        host = self.config_data.get('webapi', {}).get('host', '127.0.0.1')
+        port = self.config_data.get('webapi', {}).get('port', 8888)
+        
+        # 创建并启动服务器
+        self.webapi_server = WebAPIServer(host, port, self)
+        self.webapi_server.status_changed.connect(self.on_webapi_status_changed)
+        self.webapi_server.start()
+    
+    def stop_webapi_server(self):
+        """停止WebAPI服务器"""
+        if self.webapi_server:
+            self.webapi_server.stop_server()
+            self.webapi_server = None
+        else:
+            InfoBar.info(
+                title='服务未运行',
+                content="WebAPI服务未启动",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+    
+    def on_webapi_status_changed(self, is_running, message):
+        """WebAPI服务状态变化处理"""
+        if hasattr(self, 'webapi_status_label'):
+            status_text = "服务状态: " + ("运行中" if is_running else "已停止")
+            self.webapi_status_label.setText(status_text)
+            
+            if is_running:
+                self.webapi_status_label.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.webapi_status_label.setStyleSheet("color: #666;")
+        
+        # 显示状态消息
+        if is_running:
+            InfoBar.success(
+                title='服务启动成功',
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        else:
+            InfoBar.info(
+                title='服务状态',
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+    
+    def test_webapi(self):
+        """测试WebAPI连接"""
+        host = self.config_data.get('webapi', {}).get('host', '127.0.0.1')
+        port = self.config_data.get('webapi', {}).get('port', 8888)
+        api_key = self.config_data.get('webapi', {}).get('api_key', '')
+        
+        test_url = f"http://{host}:{port}/api/status"
+        
+        try:
+            response = requests.get(test_url, timeout=5)
+            if response.status_code == 200:
+                InfoBar.success(
+                    title='连接成功',
+                    content=f"WebAPI服务响应正常: {response.json().get('message', '')}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+            else:
+                InfoBar.warning(
+                    title='连接异常',
+                    content=f"服务响应代码: {response.status_code}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+        except requests.exceptions.ConnectionError:
+            InfoBar.error(
+                title='连接失败',
+                content=f"无法连接到 {test_url}，请检查服务是否启动",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        except Exception as e:
+            InfoBar.error(
+                title='测试失败',
+                content=f"测试过程中出错: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def process_llm_request(self, message):
+        """处理LLM请求的核心方法"""
+        try:
+            # 获取LLM配置
+            llm_config = self.config_data.get('llm', {})
+            if not llm_config.get('api_url') or not llm_config.get('api_key'):
+                return "错误：LLM配置不完整，请检查API URL和API Key设置"
+            
+            # 构建请求
+            api_url = llm_config['api_url'].rstrip('/') + '/chat/completions'
+            api_key = llm_config['api_key']
+            model = llm_config.get('model', 'gpt-3.5-turbo')
+            system_prompt = llm_config.get('system_prompt', '你是一个有用的AI助手。')
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            
+            # 构建消息
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message}
+            ]
+            
+            data = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }
+            
+            # 记录API请求
+            self.log_api_request(api_url, model, len(message))
+            
+            # 发送请求
+            response = requests.post(api_url, headers=headers, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'choices' in result and len(result['choices']) > 0:
+                    llm_response = result['choices'][0]['message']['content']
+                    
+                    # 记录成功响应
+                    response_tokens = result.get('usage', {}).get('completion_tokens', 0)
+                    self.log_api_response(200, response_tokens)
+                    
+                    return llm_response
+                else:
+                    self.log_api_response(200, 0, "响应格式错误")
+                    return "错误：LLM返回的响应格式不正确"
+            else:
+                error_msg = f"HTTP {response.status_code}: {response.text}"
+                self.log_api_response(response.status_code, 0, error_msg)
+                return f"错误：LLM API请求失败 - {error_msg}"
+                
+        except requests.exceptions.Timeout:
+            self.log_api_response(0, 0, "请求超时")
+            return "错误：LLM API请求超时"
+        except requests.exceptions.ConnectionError:
+            self.log_api_response(0, 0, "连接错误")
+            return "错误：无法连接到LLM API服务"
+        except Exception as e:
+            self.log_api_response(0, 0, str(e))
+            return f"错误：处理LLM请求时发生异常 - {str(e)}"
 
     def update_widgets(self):
         """更新所有控件显示的值"""
@@ -3992,6 +4390,168 @@ class Widget(Interface):
         self.vBoxLayout.addWidget(color_group)
         self.vBoxLayout.addStretch()
 
+    def create_animation_tab(self):
+        """创建动画操控标签页"""
+        self.startButton.hide()
+        self.closeButton.hide()
+        while self.vBoxLayout.count():
+            item = self.vBoxLayout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        
+        # 主要布局 - 水平分割
+        main_splitter = QSplitter(Qt.Horizontal)
+        
+        # === 左侧：操控面板 ===
+        control_widget = QWidget()
+        control_layout = QVBoxLayout(control_widget)
+        
+        # 快捷操控组
+        quick_group = QGroupBox("快捷操控")
+        quick_layout = QVBoxLayout(quick_group)
+        
+        # 快捷按钮布局
+        quick_buttons_layout = QHBoxLayout()
+        
+        # 唱歌控制按钮
+        self.start_singing_btn = PrimaryToolButton(FIF.PLAY)
+        self.start_singing_btn.setText("开始唱歌")
+        self.start_singing_btn.setToolTip("播放唱歌动画")
+        self.start_singing_btn.clicked.connect(lambda: self.trigger_live2d_motion(5))
+        
+        self.stop_singing_btn = ToolButton(FIF.PAUSE)
+        self.stop_singing_btn.setText("停止唱歌")
+        self.stop_singing_btn.setToolTip("停止唱歌动画")
+        self.stop_singing_btn.clicked.connect(lambda: self.trigger_live2d_motion(7))
+        
+        quick_buttons_layout.addWidget(self.start_singing_btn)
+        quick_buttons_layout.addWidget(self.stop_singing_btn)
+        quick_buttons_layout.addStretch()
+        
+        # 其他快捷动作按钮
+        self.random_motion_btn = ToolButton(FIF.PLAY)
+        self.random_motion_btn.setText("随机动作")
+        self.random_motion_btn.setToolTip("播放随机动作")
+        self.random_motion_btn.clicked.connect(self.trigger_random_motion)
+        
+        self.stop_all_motion_btn = ToolButton(FIF.PAUSE)
+        self.stop_all_motion_btn.setText("停止所有动作")
+        self.stop_all_motion_btn.setToolTip("停止所有正在播放的动作")
+        self.stop_all_motion_btn.clicked.connect(self.stop_all_live2d_motions)
+        
+        quick_buttons_layout.addWidget(self.random_motion_btn)
+        quick_buttons_layout.addWidget(self.stop_all_motion_btn)
+        
+        quick_layout.addLayout(quick_buttons_layout)
+        control_layout.addWidget(quick_group)
+        
+        # 表情控制组
+        expression_group = QGroupBox("表情控制")
+        expression_layout = QVBoxLayout(expression_group)
+        
+        # 表情快捷按钮
+        expr_buttons_layout = QHBoxLayout()
+        
+        self.random_expression_btn = PrimaryToolButton(FIF.PLAY)
+        self.random_expression_btn.setText("随机表情")
+        self.random_expression_btn.setToolTip("设置随机表情")
+        self.random_expression_btn.clicked.connect(self.trigger_random_expression)
+        
+        self.reset_expression_btn = ToolButton(FIF.CLOSE)
+        self.reset_expression_btn.setText("重置表情")
+        self.reset_expression_btn.setToolTip("重置为默认表情")
+        self.reset_expression_btn.clicked.connect(self.reset_live2d_expression)
+        
+        expr_buttons_layout.addWidget(self.random_expression_btn)
+        expr_buttons_layout.addWidget(self.reset_expression_btn)
+        expr_buttons_layout.addStretch()
+        
+        expression_layout.addLayout(expr_buttons_layout)
+        control_layout.addWidget(expression_group)
+        
+        # 模型状态组
+        status_group = QGroupBox("模型状态")
+        status_layout = QVBoxLayout(status_group)
+        
+        self.model_status_label = QLabel("Live2D状态：检查中...")
+        self.model_status_label.setStyleSheet("color: #666; font-size: 12px;")
+        status_layout.addWidget(self.model_status_label)
+        
+        # 刷新按钮
+        refresh_layout = QHBoxLayout()
+        self.refresh_model_btn = ToolButton(FIF.UPDATE)
+        self.refresh_model_btn.setText("刷新模型信息")
+        self.refresh_model_btn.setToolTip("重新加载当前模型的表情和动作列表")
+        self.refresh_model_btn.clicked.connect(self.refresh_live2d_model_info)
+        
+        refresh_layout.addWidget(self.refresh_model_btn)
+        refresh_layout.addStretch()
+        status_layout.addLayout(refresh_layout)
+        
+        control_layout.addWidget(status_group)
+        control_layout.addStretch()
+        
+        # === 右侧：表情和动作列表 ===
+        lists_widget = QWidget()
+        lists_layout = QVBoxLayout(lists_widget)
+        
+        # 表情列表
+        expr_list_group = QGroupBox("可用表情列表")
+        expr_list_layout = QVBoxLayout(expr_list_group)
+        
+        expr_info_layout = QHBoxLayout()
+        expr_info_layout.addWidget(QLabel("双击表情名称播放"))
+        
+        self.expression_count_label = QLabel("表情数量: 0")
+        self.expression_count_label.setStyleSheet("color: #666; font-size: 11px;")
+        expr_info_layout.addStretch()
+        expr_info_layout.addWidget(self.expression_count_label)
+        
+        expr_list_layout.addLayout(expr_info_layout)
+        
+        self.animation_expression_list = QListWidget()
+        self.animation_expression_list.setMinimumHeight(200)
+        self.animation_expression_list.itemDoubleClicked.connect(self.on_animation_expression_click)
+        self.animation_expression_list.setToolTip("双击表情名称播放对应表情")
+        expr_list_layout.addWidget(self.animation_expression_list)
+        
+        lists_layout.addWidget(expr_list_group)
+        
+        # 动作列表
+        motion_list_group = QGroupBox("可用动作列表")
+        motion_list_layout = QVBoxLayout(motion_list_group)
+        
+        motion_info_layout = QHBoxLayout()
+        motion_info_layout.addWidget(QLabel("双击动作名称播放"))
+        
+        self.motion_count_label = QLabel("动作数量: 0")
+        self.motion_count_label.setStyleSheet("color: #666; font-size: 11px;")
+        motion_info_layout.addStretch()
+        motion_info_layout.addWidget(self.motion_count_label)
+        
+        motion_list_layout.addLayout(motion_info_layout)
+        
+        self.animation_motion_list = QListWidget()
+        self.animation_motion_list.setMinimumHeight(200)
+        self.animation_motion_list.itemDoubleClicked.connect(self.on_animation_motion_click)
+        self.animation_motion_list.setToolTip("双击动作名称播放对应动作")
+        motion_list_layout.addWidget(self.animation_motion_list)
+        
+        lists_layout.addWidget(motion_list_group)
+        
+        # 将控制面板和列表添加到分割器
+        main_splitter.addWidget(control_widget)
+        main_splitter.addWidget(lists_widget)
+        
+        # 设置分割器比例 (控制面板:列表 = 1:2)
+        main_splitter.setSizes([300, 600])
+        
+        self.vBoxLayout.addWidget(main_splitter)
+        
+        # 初始化时加载模型信息
+        self.refresh_live2d_model_info()
+
     def create_other_tab(self):
         self.startButton.hide()
         self.closeButton.hide()
@@ -4132,6 +4692,75 @@ class Widget(Interface):
         
         group = self.create_form_group(self, "项目设置", fields)
         self.vBoxLayout.addWidget(group)
+        
+        # WebAPI输入配置组
+        webapi_group = QGroupBox("WebAPI输入设置")
+        webapi_form = QFormLayout(webapi_group)
+        
+        # WebAPI开关
+        webapi_enabled_check = CheckBox()
+        webapi_enabled_check.setChecked(bool(self.config_data.get('webapi', {}).get('enabled', False)))
+        self.widgets['webapi.enabled'] = {"widget": webapi_enabled_check, "type": "checkbox"}
+        webapi_form.addRow("启用WebAPI输入:", webapi_enabled_check)
+        
+        # 端口设置
+        webapi_port_spin = SpinBox()
+        webapi_port_spin.setRange(1000, 65535)
+        webapi_port_spin.setValue(self.config_data.get('webapi', {}).get('port', 8888))
+        self.widgets['webapi.port'] = {"widget": webapi_port_spin, "type": "spinbox"}
+        webapi_form.addRow("监听端口:", webapi_port_spin)
+        
+        # 绑定地址
+        webapi_host_edit = LineEdit()
+        webapi_host_edit.setText(self.config_data.get('webapi', {}).get('host', '127.0.0.1'))
+        webapi_host_edit.setPlaceholderText("0.0.0.0 表示监听所有网卡")
+        self.widgets['webapi.host'] = {"widget": webapi_host_edit, "type": "lineedit"}
+        webapi_form.addRow("绑定地址:", webapi_host_edit)
+        
+        # API密钥
+        webapi_key_edit = PasswordLineEdit()
+        webapi_key_edit.setText(self.config_data.get('webapi', {}).get('api_key', ''))
+        webapi_key_edit.setPlaceholderText("可选：用于验证请求的API密钥")
+        self.widgets['webapi.api_key'] = {"widget": webapi_key_edit, "type": "passwordlineedit"}
+        webapi_form.addRow("API密钥 (可选):", webapi_key_edit)
+        
+        # 服务状态显示
+        self.webapi_status_label = QLabel("服务状态: 未启动")
+        self.webapi_status_label.setStyleSheet("color: #666;")
+        webapi_form.addRow("", self.webapi_status_label)
+        
+        # 控制按钮
+        webapi_btn_layout = QHBoxLayout()
+        self.webapi_start_btn = PushButton("启动服务", self)
+        self.webapi_stop_btn = PushButton("停止服务", self)
+        self.webapi_test_btn = PushButton("测试API", self)
+        
+        self.webapi_start_btn.clicked.connect(self.start_webapi_server)
+        self.webapi_stop_btn.clicked.connect(self.stop_webapi_server)
+        self.webapi_test_btn.clicked.connect(self.test_webapi)
+        
+        webapi_btn_layout.addWidget(self.webapi_start_btn)
+        webapi_btn_layout.addWidget(self.webapi_stop_btn)
+        webapi_btn_layout.addWidget(self.webapi_test_btn)
+        webapi_form.addRow("", webapi_btn_layout)
+        
+        # 使用说明
+        webapi_help_text = QTextEdit()
+        webapi_help_text.setMaximumHeight(120)
+        webapi_help_text.setReadOnly(True)
+        webapi_help_text.setPlainText(
+            "WebAPI使用说明:\n"
+            "POST /api/chat\n"
+            "Content-Type: application/json\n"
+            "{\n"
+            '  "message": "你好",\n'
+            '  "api_key": "你的密钥" (如果设置了密钥)\n'
+            "}\n\n"
+            "返回: {\"response\": \"LLM回复内容\", \"status\": \"success\"}"
+        )
+        webapi_form.addRow("使用说明:", webapi_help_text)
+        
+        self.vBoxLayout.addWidget(webapi_group)
         self.vBoxLayout.addStretch()
 
     def create_voice_clone_tab(self):
@@ -4462,6 +5091,592 @@ class Widget(Interface):
         """一键上传并触发克隆流程。"""
         if self._upload_source_audio():
             self._start_voice_train()
+
+    # ====== Live2D 动画操控相关方法 ======
+    
+    def trigger_live2d_motion(self, motion_index):
+        """触发Live2D动作"""
+        try:
+            success = False
+            
+            # 方法1：优先使用实例引用
+            if hasattr(self, 'live2d_model') and self.live2d_model:
+                try:
+                    if hasattr(self.live2d_model, 'play_tapbody_motion'):
+                        self.live2d_model.play_tapbody_motion(motion_index)
+                        success = True
+                    elif hasattr(self.live2d_model, 'model') and self.live2d_model.model:
+                        # 直接调用底层Live2D模型
+                        self.live2d_model.model.StartMotion("TapBody", motion_index, 3)
+                        success = True
+                except Exception as e:
+                    print(f"通过实例引用控制Live2D动作失败: {e}")
+            
+            # 方法2：尝试从全局获取Live2D模型实例
+            if not success:
+                try:
+                    import models.live2d_model as live2d_module
+                    if hasattr(live2d_module, '_model') and live2d_module._model:
+                        model = live2d_module._model
+                        if hasattr(model, 'play_tapbody_motion'):
+                            model.play_tapbody_motion(motion_index)
+                            success = True
+                        elif hasattr(model, 'model') and model.model:
+                            # 直接调用底层Live2D模型
+                            model.model.StartMotion("TapBody", motion_index, 3)
+                            success = True
+                except Exception as e:
+                    print(f"通过全局模块控制Live2D动作失败: {e}")
+            
+            # 方法3：通过文件写入方式向Live2D程序发送动作指令（备选）
+            if not success:
+                motion_file = "motion_trigger.tmp"
+                with open(motion_file, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        "action": "trigger_motion", 
+                        "motion_index": motion_index,
+                        "motion_group": "TapBody",
+                        "priority": 3,
+                        "timestamp": time.time()
+                    }))
+            
+            # 显示操作提示
+            InfoBar.success(
+                title='动作触发',
+                content=f"已播放动作: 动作{motion_index + 1} {'(直接控制)' if success else '(通过文件)'}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='动作触发失败',
+                content=f"无法触发动作: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def trigger_random_motion(self):
+        """触发随机动作"""
+        try:
+            # 从动作列表中随机选择一个
+            if hasattr(self, 'animation_motion_list') and self.animation_motion_list.count() > 0:
+                import random
+                random_index = random.randint(0, self.animation_motion_list.count() - 1)
+                item = self.animation_motion_list.item(random_index)
+                if item and item.data(Qt.UserRole) is not None:
+                    motion_index = item.data(Qt.UserRole)
+                    self.trigger_live2d_motion(motion_index)
+                    
+                    InfoBar.success(
+                        title='随机动作',
+                        content=f"播放随机动作: {item.text()}",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                else:
+                    self.trigger_live2d_motion(random.randint(0, 9))  # fallback
+            else:
+                # 如果没有动作列表，使用默认随机动作
+                import random
+                random_motion = random.randint(0, 9)
+                self.trigger_live2d_motion(random_motion)
+                
+        except Exception as e:
+            InfoBar.error(
+                title='随机动作失败',
+                content=f"无法播放随机动作: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def stop_all_live2d_motions(self):
+        """停止所有Live2D动作"""
+        try:
+            success = False
+            
+            # 方法1：优先使用实例引用
+            if hasattr(self, 'live2d_model') and self.live2d_model:
+                try:
+                    if hasattr(self.live2d_model, 'model') and self.live2d_model.model:
+                        # 停止所有动作组的动作
+                        try:
+                            self.live2d_model.model.StopMotion("TapBody")
+                            self.live2d_model.model.StopMotion("Tap") 
+                            self.live2d_model.model.StopMotion("Idle")
+                            success = True
+                        except:
+                            # 如果没有特定的停止方法，尝试播放一个空闲动作
+                            self.live2d_model.model.StartMotion("Idle", 0, 1)
+                            success = True
+                except Exception as e:
+                    print(f"通过实例引用停止Live2D动作失败: {e}")
+            
+            # 方法2：尝试从全局获取Live2D模型实例
+            if not success:
+                try:
+                    import models.live2d_model as live2d_module
+                    if hasattr(live2d_module, '_model') and live2d_module._model:
+                        model = live2d_module._model
+                        if hasattr(model, 'model') and model.model:
+                            # 停止所有动作组的动作
+                            try:
+                                model.model.StopMotion("TapBody")
+                                model.model.StopMotion("Tap") 
+                                model.model.StopMotion("Idle")
+                                success = True
+                            except:
+                                # 如果没有特定的停止方法，尝试播放一个空闲动作
+                                model.model.StartMotion("Idle", 0, 1)
+                                success = True
+                except Exception as e:
+                    print(f"通过全局模块停止Live2D动作失败: {e}")
+            
+            # 方法3：发送停止所有动作的指令文件
+            if not success:
+                motion_file = "motion_trigger.tmp"
+                with open(motion_file, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        "action": "stop_all_motions",
+                        "timestamp": time.time()
+                    }))
+            
+            InfoBar.success(
+                title='动作控制',
+                content=f"已停止所有动作 {'(直接控制)' if success else '(通过文件)'}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='停止动作失败',
+                content=f"无法停止动作: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def trigger_random_expression(self):
+        """触发随机表情"""
+        try:
+            # 从表情列表中随机选择一个
+            if hasattr(self, 'animation_expression_list') and self.animation_expression_list.count() > 0:
+                import random
+                random_index = random.randint(0, self.animation_expression_list.count() - 1)
+                item = self.animation_expression_list.item(random_index)
+                if item and item.data(Qt.UserRole):
+                    expression_name = item.data(Qt.UserRole)
+                    self.trigger_live2d_expression(expression_name)
+                    
+                    InfoBar.success(
+                        title='随机表情',
+                        content=f"设置表情: {item.text()}",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                else:
+                    self.trigger_live2d_expression("default")
+            else:
+                # 如果没有表情列表，使用默认随机表情
+                self.trigger_live2d_expression("random")
+                
+        except Exception as e:
+            InfoBar.error(
+                title='随机表情失败',
+                content=f"无法设置随机表情: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def trigger_live2d_expression(self, expression_name):
+        """触发Live2D表情"""
+        try:
+            success = False
+            
+            # 方法1：优先使用实例引用
+            if hasattr(self, 'live2d_model') and self.live2d_model:
+                try:
+                    if hasattr(self.live2d_model, 'set_expression'):
+                        if expression_name == "random":
+                            self.live2d_model.set_random_expression()
+                        else:
+                            self.live2d_model.set_expression(expression_name)
+                        success = True
+                    elif hasattr(self.live2d_model, 'model') and self.live2d_model.model:
+                        # 直接调用底层Live2D模型
+                        if expression_name == "random":
+                            self.live2d_model.model.SetRandomExpression()
+                        else:
+                            self.live2d_model.model.SetExpression(expression_name)
+                        success = True
+                except Exception as e:
+                    print(f"通过实例引用控制Live2D表情失败: {e}")
+            
+            # 方法2：尝试从全局获取Live2D模型实例
+            if not success:
+                try:
+                    import models.live2d_model as live2d_module
+                    if hasattr(live2d_module, '_model') and live2d_module._model:
+                        model = live2d_module._model
+                        if hasattr(model, 'set_expression'):
+                            if expression_name == "random":
+                                model.set_random_expression()
+                            else:
+                                model.set_expression(expression_name)
+                            success = True
+                        elif hasattr(model, 'model') and model.model:
+                            # 直接调用底层Live2D模型
+                            if expression_name == "random":
+                                model.model.SetRandomExpression()
+                            else:
+                                model.model.SetExpression(expression_name)
+                            success = True
+                except Exception as e:
+                    print(f"通过全局模块控制Live2D表情失败: {e}")
+            
+            # 方法3：通过文件写入方式向Live2D程序发送表情指令（备选）
+            if not success:
+                expression_file = "expression_trigger.tmp"
+                with open(expression_file, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        "action": "set_expression",
+                        "expression": expression_name,
+                        "timestamp": time.time()
+                    }))
+            
+            InfoBar.success(
+                title='表情设置',
+                content=f"已设置表情: {expression_name} {'(直接控制)' if success else '(通过文件)'}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='表情设置失败',
+                content=f"无法设置表情: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def reset_live2d_expression(self):
+        """重置Live2D表情"""
+        try:
+            success = False
+            
+            # 方法1：优先使用实例引用
+            if hasattr(self, 'live2d_model') and self.live2d_model:
+                try:
+                    if hasattr(self.live2d_model, 'reset_expression'):
+                        self.live2d_model.reset_expression()
+                        success = True
+                    elif hasattr(self.live2d_model, 'model') and self.live2d_model.model:
+                        # 直接调用底层Live2D模型
+                        self.live2d_model.model.ResetExpression()
+                        success = True
+                except Exception as e:
+                    print(f"通过实例引用重置Live2D表情失败: {e}")
+            
+            # 方法2：尝试从全局获取Live2D模型实例
+            if not success:
+                try:
+                    import models.live2d_model as live2d_module
+                    if hasattr(live2d_module, '_model') and live2d_module._model:
+                        model = live2d_module._model
+                        if hasattr(model, 'reset_expression'):
+                            model.reset_expression()
+                            success = True
+                        elif hasattr(model, 'model') and model.model:
+                            # 直接调用底层Live2D模型
+                            model.model.ResetExpression()
+                            success = True
+                except Exception as e:
+                    print(f"通过全局模块重置Live2D表情失败: {e}")
+            
+            # 方法3：fallback to default expression
+            if not success:
+                self.trigger_live2d_expression("default")
+            else:
+                InfoBar.success(
+                    title='表情重置',
+                    content="已重置为默认表情 (直接控制)",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='重置表情失败',
+                content=f"无法重置表情: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def on_animation_expression_click(self, item):
+        """点击表情列表项"""
+        expression_name = item.data(Qt.UserRole)
+        if expression_name:
+            self.trigger_live2d_expression(expression_name)
+        else:
+            # fallback: 使用显示的文本
+            self.trigger_live2d_expression(item.text())
+    
+    def on_animation_motion_click(self, item):
+        """点击动作列表项"""
+        motion_index = item.data(Qt.UserRole)
+        if motion_index is not None:
+            self.trigger_live2d_motion(motion_index)
+        else:
+            # fallback: 尝试从文本解析索引
+            try:
+                text = item.text()
+                if '[' in text and ']' in text:
+                    index_str = text.split('[')[1].split(']')[0]
+                    motion_index = int(index_str)
+                    self.trigger_live2d_motion(motion_index)
+            except:
+                InfoBar.warning(
+                    title='动作播放',
+                    content="无法获取动作索引",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+    
+    def refresh_live2d_model_info(self):
+        """刷新Live2D模型信息"""
+        try:
+            # 更新状态标签
+            if hasattr(self, 'model_status_label'):
+                self.model_status_label.setText("Live2D状态：正在加载...")
+            
+            # 清空现有列表
+            if hasattr(self, 'animation_expression_list'):
+                self.animation_expression_list.clear()
+            if hasattr(self, 'animation_motion_list'):
+                self.animation_motion_list.clear()
+            
+            # 尝试从配置文件或模型文件夹加载模型信息
+            self.load_live2d_model_lists()
+            
+        except Exception as e:
+            if hasattr(self, 'model_status_label'):
+                self.model_status_label.setText(f"Live2D状态：加载失败 - {str(e)}")
+            
+            InfoBar.error(
+                title='模型信息加载失败',
+                content=f"无法刷新模型信息: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def load_live2d_model_lists(self):
+        """加载Live2D模型的表情和动作列表"""
+        try:
+            # 检查是否有活跃的Live2D模型
+            current_model = self.config_data.get('ui', {}).get('live2d_model', '')
+            
+            if not current_model:
+                # 尝试从模型文件夹扫描
+                self.scan_and_load_model_info()
+                return
+            
+            # 尝试从模型配置文件加载
+            model_config_path = None
+            
+            # 搜索可能的模型路径
+            possible_paths = [
+                f"models/2d/{current_model}",
+                f"live-2d/2D/{current_model}",
+                f"2D/{current_model}",
+                current_model
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    model_config_path = path
+                    break
+            
+            if model_config_path:
+                self.load_model_from_path(model_config_path)
+            else:
+                self.load_default_model_info()
+                
+        except Exception as e:
+            print(f"加载模型列表失败: {e}")
+            self.load_default_model_info()
+    
+    def scan_and_load_model_info(self):
+        """扫描并加载模型信息"""
+        try:
+            # 扫描可能的模型目录
+            model_dirs = ["models/2d", "live-2d/2D", "2D", "ai_live2d/models"]
+            
+            for model_dir in model_dirs:
+                if os.path.exists(model_dir):
+                    for item in os.listdir(model_dir):
+                        item_path = os.path.join(model_dir, item)
+                        if os.path.isdir(item_path):
+                            # 检查是否是Live2D模型文件夹
+                            if any(f.endswith('.model3.json') for f in os.listdir(item_path) if os.path.isfile(os.path.join(item_path, f))):
+                                self.load_model_from_path(item_path)
+                                return
+            
+            # 如果没有找到模型，加载默认信息
+            self.load_default_model_info()
+            
+        except Exception as e:
+            print(f"扫描模型信息失败: {e}")
+            self.load_default_model_info()
+    
+    def load_model_from_path(self, model_path):
+        """从指定路径加载模型信息"""
+        try:
+            # 查找model3.json文件
+            model_files = [f for f in os.listdir(model_path) if f.endswith('.model3.json')]
+            
+            if not model_files:
+                self.load_default_model_info()
+                return
+            
+            model_file = os.path.join(model_path, model_files[0])
+            
+            # 读取模型配置
+            with open(model_file, 'r', encoding='utf-8') as f:
+                model_data = json.load(f)
+            
+            # 加载表情
+            expressions = []
+            if 'FileReferences' in model_data and 'Expressions' in model_data['FileReferences']:
+                for expr in model_data['FileReferences']['Expressions']:
+                    if 'Name' in expr:
+                        expressions.append(expr['Name'])
+            
+            # 加载动作组
+            motions = []
+            if 'FileReferences' in model_data and 'Motions' in model_data['FileReferences']:
+                for group_name, group_motions in model_data['FileReferences']['Motions'].items():
+                    for i, motion in enumerate(group_motions):
+                        motion_name = f"{group_name}[{i}]"
+                        motions.append((motion_name, i))
+            
+            # 更新UI列表
+            self.update_animation_lists(expressions, motions)
+            
+            # 更新状态
+            if hasattr(self, 'model_status_label'):
+                self.model_status_label.setText(f"Live2D状态：已加载模型 - {os.path.basename(model_path)}")
+            
+        except Exception as e:
+            print(f"从路径加载模型失败: {e}")
+            self.load_default_model_info()
+    
+    def load_default_model_info(self):
+        """加载默认模型信息"""
+        try:
+            # 默认表情列表
+            default_expressions = [
+                "default", "angry", "happy", "sad", "surprised", 
+                "blink", "smile", "wink", "normal"
+            ]
+            
+            # 默认动作列表（索引形式）
+            default_motions = [
+                ("待机动作[0]", 0),
+                ("打招呼[1]", 1),
+                ("点头[2]", 2),
+                ("摇头[3]", 3),
+                ("跳舞[4]", 4),
+                ("开始唱歌[5]", 5),
+                ("兴奋[6]", 6),
+                ("停止唱歌[7]", 7),
+                ("鼓掌[8]", 8),
+                ("挥手[9]", 9)
+            ]
+            
+            self.update_animation_lists(default_expressions, default_motions)
+            
+            if hasattr(self, 'model_status_label'):
+                self.model_status_label.setText("Live2D状态：使用默认配置")
+                
+        except Exception as e:
+            print(f"加载默认模型信息失败: {e}")
+            if hasattr(self, 'model_status_label'):
+                self.model_status_label.setText(f"Live2D状态：加载失败 - {str(e)}")
+    
+    def update_animation_lists(self, expressions, motions):
+        """更新动画列表显示"""
+        try:
+            # 更新表情列表
+            if hasattr(self, 'animation_expression_list'):
+                self.animation_expression_list.clear()
+                for expr in expressions:
+                    item = QListWidgetItem(expr)
+                    item.setData(Qt.UserRole, expr)
+                    item.setToolTip(f"双击播放表情: {expr}")
+                    self.animation_expression_list.addItem(item)
+                
+                # 更新表情数量标签
+                if hasattr(self, 'expression_count_label'):
+                    self.expression_count_label.setText(f"表情数量: {len(expressions)}")
+            
+            # 更新动作列表
+            if hasattr(self, 'animation_motion_list'):
+                self.animation_motion_list.clear()
+                for motion_name, motion_index in motions:
+                    item = QListWidgetItem(motion_name)
+                    item.setData(Qt.UserRole, motion_index)
+                    item.setToolTip(f"双击播放动作: {motion_name}")
+                    self.animation_motion_list.addItem(item)
+                
+                # 更新动作数量标签
+                if hasattr(self, 'motion_count_label'):
+                    self.motion_count_label.setText(f"动作数量: {len(motions)}")
+            
+        except Exception as e:
+            print(f"更新动画列表失败: {e}")
+
 
 class SystemTrayIcon(QSystemTrayIcon):
 
@@ -4800,9 +6015,10 @@ class Window(FramelessWindow):
         self.Live2dInterface = Widget('Live2d', 4, parent=self)
         self.SubtitleInterface = Widget('Subtitle', 5, parent=self)
         self.UserInputInterface = Widget('UserInput', 6, parent=self)
-        self.OtherInterface = Widget('Others', 7, parent=self)
-        self.SettingInterface = Widget('Setting', 8, parent=self)
-        self.VoiceCloneInterface = Widget('VoiceClone', 9, parent=self)
+        self.AnimationInterface = Widget('Animation', 7, parent=self)
+        self.OtherInterface = Widget('Others', 8, parent=self)
+        self.SettingInterface = Widget('Setting', 9, parent=self)
+        self.VoiceCloneInterface = Widget('VoiceClone', 10, parent=self)
         self.TerminalInterface = TerminalRoom(self)
 
 
@@ -4841,6 +6057,7 @@ class Window(FramelessWindow):
         self.addSubInterface(self.Live2dInterface, FIF.PEOPLE, 'Live 2D')
         self.addSubInterface(self.SubtitleInterface, FIF.FONT, '字幕')
         self.addSubInterface(self.UserInputInterface, FIF.SEND, '对话框')
+        self.addSubInterface(self.AnimationInterface, FIF.PLAY, '动画操控')
         self.addSubInterface(self.OtherInterface, FIF.APPLICATION, '其他')
         self.addSubInterface(self.VoiceCloneInterface, FIF.SPEAKERS, '声音克隆')
         terminal_icon = getattr(FIF, 'TERMINAL', getattr(FIF, 'CONSOLE', getattr(FIF, 'CODE', FIF.APPLICATION)))

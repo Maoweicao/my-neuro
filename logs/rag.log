@@ -5,11 +5,15 @@ F:\my-neuro\run_rag.py:117: DeprecationWarning:
         [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
         
   @app.on_event("startup")
-INFO:     Started server process [33628]
+INFO:     Started server process [3716]
 INFO:     Waiting for application startup.
 启动BGE API服务...
 加载模型...
-No sentence-transformers model found with name ./RAG-model. Creating a new one with mean pooling.
+C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\_utils.py:831: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+  return self.fget.__get__(instance, owner)()
+模型加载完成，使用GPU
+知识库加载完成，共 1 个段落
+生成知识库嵌入...
 ERROR:    Traceback (most recent call last):
   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 692, in lifespan
     async with self.lifespan_context(app) as maybe_state:
@@ -17,32 +21,18 @@ ERROR:    Traceback (most recent call last):
     await self._router.startup()
   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 669, in startup
     await handler()
-  File "F:\my-neuro\run_rag.py", line 125, in startup_event
-    model = SentenceTransformer("./RAG-model")
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\sentence_transformers\SentenceTransformer.py", line 339, in __init__
-    modules = self._load_auto_model(
-              ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\sentence_transformers\SentenceTransformer.py", line 2060, in _load_auto_model
-    transformer_model = Transformer(
-                        ^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\sentence_transformers\models\Transformer.py", line 86, in __init__
-    config, is_peft_model = self._load_config(model_name_or_path, cache_dir, backend, config_args)
-                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\sentence_transformers\models\Transformer.py", line 151, in _load_config
-    return AutoConfig.from_pretrained(model_name_or_path, **config_args, cache_dir=cache_dir), False
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\transformers\models\auto\configuration_auto.py", line 976, in from_pretrained
-    config_dict, unused_kwargs = PretrainedConfig.get_config_dict(pretrained_model_name_or_path, **kwargs)
-                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\transformers\configuration_utils.py", line 632, in get_config_dict
-    config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\transformers\configuration_utils.py", line 689, in _get_config_dict
-    resolved_config_file = cached_file(
-                           ^^^^^^^^^^^^
-  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\transformers\utils\hub.py", line 373, in cached_file
-    raise EnvironmentError(
-OSError: ./RAG-model does not appear to have a file named config.json. Checkout 'https://huggingface.co/./RAG-model/tree/None' for available files.
+  File "F:\my-neuro\run_rag.py", line 133, in startup_event
+    knowledge_embeddings = model.encode(knowledge_base)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\utils\_contextlib.py", line 115, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\sentence_transformers\SentenceTransformer.py", line 1109, in encode
+    all_embeddings = np.asarray([emb.numpy() for emb in all_embeddings])
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\sentence_transformers\SentenceTransformer.py", line 1109, in <listcomp>
+    all_embeddings = np.asarray([emb.numpy() for emb in all_embeddings])
+                                 ^^^^^^^^^^^
+RuntimeError: Numpy is not available
 
 ERROR:    Application startup failed. Exiting.

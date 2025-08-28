@@ -1,3 +1,27 @@
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.6 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "F:\my-neuro\tts-studio\tts_api.py", line 191, in <module>
+    import torch
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\__init__.py", line 1382, in <module>
+    from .functional import *  # noqa: F403
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\functional.py", line 7, in <module>
+    import torch.nn.functional as F
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\nn\__init__.py", line 1, in <module>
+    from .modules import *  # noqa: F403
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\nn\modules\__init__.py", line 35, in <module>
+    from .transformer import TransformerEncoder, TransformerDecoder, \
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\nn\modules\transformer.py", line 20, in <module>
+    device: torch.device = torch.device(torch._C._get_default_device()),  # torch.device('cpu'),
+C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\site-packages\torch\nn\modules\transformer.py:20: UserWarning: Failed to initialize NumPy: _ARRAY_API not found (Triggered internally at ..\torch\csrc\utils\tensor_numpy.cpp:84.)
+  device: torch.device = torch.device(torch._C._get_default_device()),  # torch.device('cpu'),
 WARNING:  未指定GPT模型路径, fallback后当前值: GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt
 INFO:     默认参考音频路径: tts-model/neuro/01.wav
 INFO:     默认参考音频文本: Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday.
@@ -6,9 +30,889 @@ INFO:     半精: True
 INFO:     编码格式: wav
 sovits版本: v2
 INFO:     Number of parameter: 77.49M
-INFO:     Started server process [24488]
+INFO:     Started server process [27368]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 5000): 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59714 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
+INFO:     127.0.0.1:59715 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
+INFO:     127.0.0.1:59926 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
+INFO:     127.0.0.1:59927 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
+INFO:     127.0.0.1:59931 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
+INFO:     127.0.0.1:59932 - "POST / HTTP/1.1" 200 OK
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 263, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    |     await response(scope, receive, send)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    |     with collapse_excgroups():
+    |   File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(typ, value, traceback)
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    |     await func()
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    |     async for chunk in self.body_iterator:
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    |     yield await anyio.to_thread.run_sync(_next, as_iterator)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    |     return next(iterator)
+    |            ^^^^^^^^^^^^^^
+    |   File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    |     wav16k = torch.from_numpy(wav16k)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | RuntimeError: Numpy is not available
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\routing.py", line 74, in app
+    await response(scope, receive, send)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 262, in __call__
+    with collapse_excgroups():
+  File "C:\Users\Maoweicao\.conda\envs\my-neuro\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 266, in wrap
+    await func()
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\responses.py", line 246, in stream_response
+    async for chunk in self.body_iterator:
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 60, in iterate_in_threadpool
+    yield await anyio.to_thread.run_sync(_next, as_iterator)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Maoweicao\AppData\Roaming\Python\Python311\site-packages\starlette\concurrency.py", line 49, in _next
+    return next(iterator)
+           ^^^^^^^^^^^^^^
+  File "F:\my-neuro\tts-studio\tts_api.py", line 550, in get_tts_wav
+    wav16k = torch.from_numpy(wav16k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Numpy is not available
