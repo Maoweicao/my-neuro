@@ -22,6 +22,10 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         try:
             if self.path == '/api/chat':
                 self._handle_chat_request()
+            elif self.path == '/api/live2d/motion':
+                self._handle_live2d_motion_request()
+            elif self.path == '/api/live2d/expression':
+                self._handle_live2d_expression_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -133,6 +137,148 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             return "错误：无法连接到LLM API服务"
         except Exception as e:
             return f"错误：处理LLM请求时发生异常 - {str(e)}"
+    
+    def _handle_live2d_motion_request(self):
+        """处理Live2D动作请求"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'motion_index' not in data:
+                self._send_error_response(400, "Missing 'motion_index' field")
+                return
+            
+            motion_index = data['motion_index']
+            motion_group = data.get('motion_group', 'TapBody')
+            priority = data.get('priority', 3)
+            
+            # 尝试控制Live2D模型
+            success = self._control_live2d_motion(motion_index, motion_group, priority)
+            
+            if success:
+                self._send_json_response({
+                    "status": "success",
+                    "message": f"Motion {motion_index} triggered successfully",
+                    "motion_group": motion_group,
+                    "timestamp": time.time()
+                })
+            else:
+                self._send_error_response(500, "Failed to trigger Live2D motion")
+                
+        except json.JSONDecodeError:
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _handle_live2d_expression_request(self):
+        """处理Live2D表情请求"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'expression_name' not in data:
+                self._send_error_response(400, "Missing 'expression_name' field")
+                return
+            
+            expression_name = data['expression_name']
+            
+            # 尝试控制Live2D模型
+            success = self._control_live2d_expression(expression_name)
+            
+            if success:
+                self._send_json_response({
+                    "status": "success",
+                    "message": f"Expression '{expression_name}' set successfully",
+                    "expression_name": expression_name,
+                    "timestamp": time.time()
+                })
+            else:
+                self._send_error_response(500, "Failed to set Live2D expression")
+                
+        except json.JSONDecodeError:
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _control_live2d_motion(self, motion_index, motion_group, priority):
+        """控制Live2D动作"""
+        try:
+            # 方法1：尝试从全局获取Live2D模型实例
+            try:
+                import models.live2d_model as live2d_module
+                if hasattr(live2d_module, '_model') and live2d_module._model:
+                    model = live2d_module._model
+                    # 临时设置动作组名称
+                    original_group = getattr(model, 'motion_group_name', None)
+                    model.motion_group_name = motion_group
+                    model.play_tapbody_motion(motion_index)
+                    # 恢复原来的动作组名称
+                    if original_group:
+                        model.motion_group_name = original_group
+                    return True
+            except Exception as e:
+                print(f"通过全局模块控制Live2D动作失败: {e}")
+            
+            # 方法2：写入文件触发器
+            motion_file = "motion_trigger.tmp"
+            with open(motion_file, 'w', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    "action": "trigger_motion",
+                    "motion_index": motion_index,
+                    "motion_group": motion_group,
+                    "priority": priority,
+                    "timestamp": time.time()
+                }))
+            return True
+            
+        except Exception as e:
+            print(f"控制Live2D动作失败: {e}")
+            return False
+    
+    def _control_live2d_expression(self, expression_name):
+        """控制Live2D表情"""
+        try:
+            # 方法1：尝试从全局获取Live2D模型实例
+            try:
+                import models.live2d_model as live2d_module
+                if hasattr(live2d_module, '_model') and live2d_module._model:
+                    model = live2d_module._model
+                    if hasattr(model, 'set_expression'):
+                        if expression_name == "random":
+                            model.set_random_expression()
+                        else:
+                            model.set_expression(expression_name)
+                        return True
+            except Exception as e:
+                print(f"通过全局模块控制Live2D表情失败: {e}")
+            
+            # 方法2：写入文件触发器
+            expression_file = "expression_trigger.tmp"
+            with open(expression_file, 'w', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    "action": "trigger_expression",
+                    "expression_name": expression_name,
+                    "timestamp": time.time()
+                }))
+            return True
+            
+        except Exception as e:
+            print(f"控制Live2D表情失败: {e}")
+            return False
     
     def _send_json_response(self, data):
         """发送JSON响应"""

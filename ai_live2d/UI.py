@@ -100,6 +100,10 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         try:
             if self.path == '/api/chat':
                 self._handle_chat_request()
+            elif self.path == '/api/live2d/motion':
+                self._handle_live2d_motion_request()
+            elif self.path == '/api/live2d/expression':
+                self._handle_live2d_expression_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -167,6 +171,140 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _handle_live2d_motion_request(self):
+        """处理Live2D动作请求"""
+        try:
+            print(f"[WebAPI] 收到Live2D动作请求: {self.path}")
+            
+            content_length = int(self.headers.get('Content-Length', 0))
+            print(f"[WebAPI] Content-Length: {content_length}")
+            
+            if content_length == 0:
+                print("[WebAPI] 错误: 请求体为空")
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            print(f"[WebAPI] 原始请求数据: {post_data}")
+            
+            data = json.loads(post_data.decode('utf-8'))
+            print(f"[WebAPI] 解析后的JSON数据: {data}")
+            
+            # 验证必需字段 - 接受两种格式：motion 或 motion_index
+            motion = None
+            if 'motion' in data:
+                motion = data['motion']
+            elif 'motion_index' in data:
+                motion = data['motion_index']
+            else:
+                print("[WebAPI] 错误: 缺少motion或motion_index字段")
+                self._send_error_response(400, "Missing 'motion' or 'motion_index' field")
+                return
+            
+            print(f"[WebAPI] 要触发的动作: {motion}")
+            
+            # 检查ui_widget是否存在
+            if not self.ui_widget:
+                print("[WebAPI] 错误: ui_widget为None")
+                self._send_error_response(500, "UI widget not available")
+                return
+            
+            # 触发Live2D动作
+            if hasattr(self.ui_widget, 'trigger_live2d_motion_via_file'):
+                print("[WebAPI] 调用trigger_live2d_motion_via_file方法")
+                result = self.ui_widget.trigger_live2d_motion_via_file(motion)
+                print(f"[WebAPI] 方法执行结果: {result}")
+                
+                if result:
+                    response_data = {
+                        "status": "success",
+                        "message": f"动作 {motion} 已触发",
+                        "timestamp": time.time()
+                    }
+                    print(f"[WebAPI] 发送成功响应: {response_data}")
+                    self._send_json_response(response_data)
+                else:
+                    print("[WebAPI] 错误: 触发动作失败")
+                    self._send_error_response(500, "触发动作失败")
+            else:
+                print("[WebAPI] 错误: UI widget没有trigger_live2d_motion_via_file方法")
+                self._send_error_response(500, "Live2D动作控制功能不可用")
+            
+        except json.JSONDecodeError as e:
+            print(f"[WebAPI] JSON解析错误: {e}")
+            self._send_error_response(400, f"Invalid JSON: {str(e)}")
+        except Exception as e:
+            print(f"[WebAPI] 服务器错误: {e}")
+            import traceback
+            traceback.print_exc()
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _handle_live2d_expression_request(self):
+        """处理Live2D表情请求"""
+        try:
+            print(f"[WebAPI] 收到Live2D表情请求: {self.path}")
+            
+            content_length = int(self.headers.get('Content-Length', 0))
+            print(f"[WebAPI] Content-Length: {content_length}")
+            
+            if content_length == 0:
+                print("[WebAPI] 错误: 请求体为空")
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            print(f"[WebAPI] 原始请求数据: {post_data}")
+            
+            data = json.loads(post_data.decode('utf-8'))
+            print(f"[WebAPI] 解析后的JSON数据: {data}")
+            
+            # 验证必需字段
+            if 'expression' not in data:
+                print("[WebAPI] 错误: 缺少expression字段")
+                self._send_error_response(400, "Missing 'expression' field")
+                return
+            
+            expression = data['expression']
+            print(f"[WebAPI] 要触发的表情: {expression}")
+            
+            # 检查ui_widget是否存在
+            if not self.ui_widget:
+                print("[WebAPI] 错误: ui_widget为None")
+                self._send_error_response(500, "UI widget not available")
+                return
+            
+            # 触发Live2D表情
+            if hasattr(self.ui_widget, 'trigger_live2d_expression_via_file'):
+                print("[WebAPI] 调用trigger_live2d_expression_via_file方法")
+                result = self.ui_widget.trigger_live2d_expression_via_file(expression)
+                print(f"[WebAPI] 方法执行结果: {result}")
+                
+                if result:
+                    response_data = {
+                        "status": "success",
+                        "message": f"表情 {expression} 已触发",
+                        "timestamp": time.time()
+                    }
+                    print(f"[WebAPI] 发送成功响应: {response_data}")
+                    self._send_json_response(response_data)
+                else:
+                    print("[WebAPI] 错误: 触发表情失败")
+                    self._send_error_response(500, "触发表情失败")
+            else:
+                print("[WebAPI] 错误: UI widget没有trigger_live2d_expression_via_file方法")
+                self._send_error_response(500, "Live2D表情控制功能不可用")
+            
+        except json.JSONDecodeError as e:
+            print(f"[WebAPI] JSON解析错误: {e}")
+            self._send_error_response(400, f"Invalid JSON: {str(e)}")
+        except Exception as e:
+            print(f"[WebAPI] 服务器错误: {e}")
+            import traceback
+            traceback.print_exc()
             self._send_error_response(500, f"Server error: {str(e)}")
     
     def _send_json_response(self, data):
@@ -5128,7 +5266,25 @@ class Widget(Interface):
                 except Exception as e:
                     print(f"通过全局模块控制Live2D动作失败: {e}")
             
-            # 方法3：通过文件写入方式向Live2D程序发送动作指令（备选）
+            # 方法3：通过WebAPI发送请求
+            if not success:
+                try:
+                    import requests
+                    api_url = "http://127.0.0.1:8888/api/live2d/motion"
+                    response = requests.post(api_url, json={
+                        "motion_index": motion_index,
+                        "motion_group": "TapBody",
+                        "priority": 3
+                    }, timeout=2)
+                    if response.status_code == 200:
+                        success = True
+                        print(f"通过WebAPI控制Live2D动作成功")
+                    else:
+                        print(f"WebAPI响应错误: {response.status_code}")
+                except Exception as e:
+                    print(f"通过WebAPI控制Live2D动作失败: {e}")
+            
+            # 方法4：通过文件写入方式向Live2D程序发送动作指令（备选）
             if not success:
                 motion_file = "motion_trigger.tmp"
                 with open(motion_file, 'w', encoding='utf-8') as f:
@@ -5358,13 +5514,29 @@ class Widget(Interface):
                 except Exception as e:
                     print(f"通过全局模块控制Live2D表情失败: {e}")
             
-            # 方法3：通过文件写入方式向Live2D程序发送表情指令（备选）
+            # 方法3：通过WebAPI发送请求
+            if not success:
+                try:
+                    import requests
+                    api_url = "http://127.0.0.1:8888/api/live2d/expression"
+                    response = requests.post(api_url, json={
+                        "expression_name": expression_name
+                    }, timeout=2)
+                    if response.status_code == 200:
+                        success = True
+                        print(f"通过WebAPI控制Live2D表情成功")
+                    else:
+                        print(f"WebAPI响应错误: {response.status_code}")
+                except Exception as e:
+                    print(f"通过WebAPI控制Live2D表情失败: {e}")
+            
+            # 方法4：通过文件写入方式向Live2D程序发送表情指令（备选）
             if not success:
                 expression_file = "expression_trigger.tmp"
                 with open(expression_file, 'w', encoding='utf-8') as f:
                     f.write(json.dumps({
-                        "action": "set_expression",
-                        "expression": expression_name,
+                        "action": "trigger_expression",
+                        "expression_name": expression_name,
                         "timestamp": time.time()
                     }))
             
@@ -5676,6 +5848,38 @@ class Widget(Interface):
             
         except Exception as e:
             print(f"更新动画列表失败: {e}")
+
+    def trigger_live2d_motion_via_file(self, motion_index):
+        """通过文件触发Live2D动作 - 用于WebAPI接口"""
+        try:
+            motion_file = "motion_trigger.tmp"
+            with open(motion_file, 'w', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    "action": "trigger_motion", 
+                    "motion_index": motion_index,
+                    "motion_group": "TapBody",
+                    "priority": 3,
+                    "timestamp": time.time()
+                }))
+            return True
+        except Exception as e:
+            print(f"文件触发Live2D动作失败: {e}")
+            return False
+
+    def trigger_live2d_expression_via_file(self, expression_name):
+        """通过文件触发Live2D表情 - 用于WebAPI接口"""
+        try:
+            expression_file = "expression_trigger.tmp"
+            with open(expression_file, 'w', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    "action": "set_expression",
+                    "expression": expression_name,
+                    "timestamp": time.time()
+                }))
+            return True
+        except Exception as e:
+            print(f"文件触发Live2D表情失败: {e}")
+            return False
 
 
 class SystemTrayIcon(QSystemTrayIcon):
