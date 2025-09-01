@@ -12,6 +12,265 @@ import wave
 import io
 import logging
 import sounddevice as sd
+import gzip
+import base64
+import hmac
+import uuid
+import struct
+from hashlib import sha256
+from urllib.parse import urlparse
+from enum import Enum
+from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
+
+logger = logging.getLogger("asr_client")
+
+# SAUC协议常量
+class ProtocolVersion:
+    V1 = 0b0001
+
+class MessageType:
+    CLIENT_FULL_REQUEST = 0b0001
+    CLIENT_AUDIO_ONLY_REQUEST = 0b0010
+    SERVER_FULL_RESPONSE = 0b1001
+    SERVER_ERROR_RESPONSE = 0b1111
+
+class MessageTypeSpecificFlags:
+    NO_SEQUENCE = 0b0000
+    POS_SEQUENCE = 0b0001
+    NEG_SEQUENCE = 0b0010
+    NEG_WITH_SEQUENCE = 0b0011
+
+class SerializationType:
+    NO_SERIALIZATION = 0b0000
+    JSON = 0b0001
+
+class CompressionType:
+    GZIP = 0b0001
+
+# 豆包ASR协议常量 (保留兼容性)
+PROTOCOL_VERSION = 0b0001
+DEFAULT_HEADER_SIZE = 0b0001
+
+PROTOCOL_VERSION_BITS = 4
+HEADER_BITS = 4
+MESSAGE_TYPE_BITS = 4
+MESSAGE_TYPE_SPECIFIC_FLAGS_BITS = 4
+MESSAGE_SERIALIZATION_BITS = 4
+MESSAGE_COMPRESSION_BITS = 4
+RESERVED_BITS = 8
+
+# Message Type:
+CLIENT_FULL_REQUEST = 0b0001
+CLIENT_AUDIO_ONLY_REQUEST = 0b0010
+SERVER_FULL_RESPONSE = 0b1001
+SERVER_ACK = 0b1011
+SERVER_ERROR_RESPONSE = 0b1111
+
+# Message Type Specific Flags
+NO_SEQUENCE = 0b0000  # no check sequence
+POS_SEQUENCE = 0b0001
+NEG_SEQUENCE = 0b0010
+NEG_SEQUENCE_1 = 0b0011
+
+# Message Serialization
+NO_SERIALIZATION = 0b0000
+JSON = 0b0001
+THRIFT = 0b0011
+CUSTOM_TYPE = 0b1111
+
+# Message Compression
+NO_COMPRESSION = 0b0000
+GZIP = 0b0001
+CUSTOM_COMPRESSION = 0b1111
+
+class CommonUtils:
+    @staticmethod
+    def gzip_compress(data: bytes) -> bytes:
+        return gzip.compress(data)
+
+    @staticmethod
+    def gzip_decompress(data: bytes) -> bytes:
+        return gzip.decompress(data)
+
+class AsrRequestHeader:
+    def __init__(self):
+        self.message_type = MessageType.CLIENT_FULL_REQUEST
+        self.message_type_specific_flags = MessageTypeSpecificFlags.POS_SEQUENCE
+        self.serialization_type = SerializationType.JSON
+        self.compression_type = CompressionType.GZIP
+        self.reserved_data = bytes([0x00])
+
+    def with_message_type(self, message_type: int) -> 'AsrRequestHeader':
+        self.message_type = message_type
+        return self
+
+    def with_message_type_specific_flags(self, flags: int) -> 'AsrRequestHeader':
+        self.message_type_specific_flags = flags
+        return self
+
+    def with_serialization_type(self, serialization_type: int) -> 'AsrRequestHeader':
+        self.serialization_type = serialization_type
+        return self
+
+    def with_compression_type(self, compression_type: int) -> 'AsrRequestHeader':
+        self.compression_type = compression_type
+        return self
+
+    def with_reserved_data(self, reserved_data: bytes) -> 'AsrRequestHeader':
+        self.reserved_data = reserved_data
+        return self
+
+    def to_bytes(self) -> bytes:
+        header = bytearray()
+        header.append((ProtocolVersion.V1 << 4) | 1)
+        header.append((self.message_type << 4) | self.message_type_specific_flags)
+        header.append((self.serialization_type << 4) | self.compression_type)
+        header.extend(self.reserved_data)
+        return bytes(header)
+
+    @staticmethod
+    def default_header() -> 'AsrRequestHeader':
+        return AsrRequestHeader()
+
+class RequestBuilder:
+    @staticmethod
+    def new_auth_headers(appid: str, token: str, resource_id: str) -> dict:
+        reqid = str(uuid.uuid4())
+        return {
+            "X-Api-Resource-Id": resource_id,
+            "X-Api-Request-Id": reqid,
+            "X-Api-Access-Key": token,
+            "X-Api-App-Key": appid
+        }
+
+    @staticmethod
+    def new_full_client_request(seq: int, uid: str, sample_rate: int) -> bytes:
+        header = AsrRequestHeader.default_header() \
+            .with_message_type_specific_flags(MessageTypeSpecificFlags.POS_SEQUENCE)
+
+        payload = {
+            "user": {
+                "uid": uid
+            },
+            "audio": {
+                "format": "wav",
+                "codec": "raw",
+                "rate": sample_rate,
+                "bits": 16,
+                "channel": 1
+            },
+            "request": {
+                "model_name": "bigmodel",
+                "enable_itn": True,
+                "enable_punc": True,
+                "enable_ddc": True,
+                "show_utterances": True,
+                "enable_nonstream": False
+            }
+        }
+
+        payload_bytes = json.dumps(payload).encode('utf-8')
+        compressed_payload = CommonUtils.gzip_compress(payload_bytes)
+        payload_size = len(compressed_payload)
+
+        request = bytearray()
+        request.extend(header.to_bytes())
+        request.extend(struct.pack('>i', seq))
+        request.extend(struct.pack('>I', payload_size))
+        request.extend(compressed_payload)
+
+        return bytes(request)
+
+    @staticmethod
+    def new_audio_only_request(seq: int, segment: bytes, is_last: bool = False) -> bytes:
+        header = AsrRequestHeader.default_header()
+        if is_last:
+            header.with_message_type_specific_flags(MessageTypeSpecificFlags.NEG_WITH_SEQUENCE)
+            seq = -seq
+        else:
+            header.with_message_type_specific_flags(MessageTypeSpecificFlags.POS_SEQUENCE)
+        header.with_message_type(MessageType.CLIENT_AUDIO_ONLY_REQUEST)
+
+        request = bytearray()
+        request.extend(header.to_bytes())
+        request.extend(struct.pack('>i', seq))
+
+        compressed_segment = CommonUtils.gzip_compress(segment)
+        request.extend(struct.pack('>I', len(compressed_segment)))
+        request.extend(compressed_segment)
+
+        return bytes(request)
+
+class AsrResponse:
+    def __init__(self):
+        self.code = 0
+        self.event = 0
+        self.is_last_package = False
+        self.payload_sequence = 0
+        self.payload_size = 0
+        self.payload_msg = None
+
+    def to_dict(self) -> dict:
+        return {
+            "code": self.code,
+            "event": self.event,
+            "is_last_package": self.is_last_package,
+            "payload_sequence": self.payload_sequence,
+            "payload_size": self.payload_size,
+            "payload_msg": self.payload_msg
+        }
+
+class ResponseParser:
+    @staticmethod
+    def parse_response(msg: bytes) -> AsrResponse:
+        response = AsrResponse()
+
+        header_size = msg[0] & 0x0f
+        message_type = msg[1] >> 4
+        message_type_specific_flags = msg[1] & 0x0f
+        serialization_method = msg[2] >> 4
+        message_compression = msg[2] & 0x0f
+
+        payload = msg[header_size*4:]
+
+        # 解析message_type_specific_flags
+        if message_type_specific_flags & 0x01:
+            response.payload_sequence = struct.unpack('>i', payload[:4])[0]
+            payload = payload[4:]
+        if message_type_specific_flags & 0x02:
+            response.is_last_package = True
+        if message_type_specific_flags & 0x04:
+            response.event = struct.unpack('>i', payload[:4])[0]
+            payload = payload[4:]
+
+        # 解析message_type
+        if message_type == MessageType.SERVER_FULL_RESPONSE:
+            response.payload_size = struct.unpack('>I', payload[:4])[0]
+            payload = payload[4:]
+        elif message_type == MessageType.SERVER_ERROR_RESPONSE:
+            response.code = struct.unpack('>i', payload[:4])[0]
+            response.payload_size = struct.unpack('>I', payload[4:8])[0]
+            payload = payload[8:]
+
+        if not payload:
+            return response
+
+        # 解压缩
+        if message_compression == CompressionType.GZIP:
+            try:
+                payload = CommonUtils.gzip_decompress(payload)
+            except Exception as e:
+                logger.error(f"Failed to decompress payload: {e}")
+                return response
+
+        # 解析payload
+        try:
+            if serialization_method == SerializationType.JSON:
+                response.payload_msg = json.loads(payload.decode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to parse payload: {e}")
+
+        return response
 
 logger = logging.getLogger("asr_client")
 
@@ -38,9 +297,24 @@ class ASRClient:
         self.fish_audio_language = config.get("asr", {}).get("fish_audio_language", "zh")
         self.fish_audio_ignore_timestamps = config.get("asr", {}).get("fish_audio_ignore_timestamps", True)
         
+        # 豆包ASR配置
+        self.doubao_appid = config.get("asr", {}).get("doubao_appid", "")
+        self.doubao_token = config.get("asr", {}).get("doubao_token", "")
+        self.doubao_cluster = config.get("asr", {}).get("doubao_cluster", "volcano_asr")
+        self.doubao_ws_url = config.get("asr", {}).get("doubao_ws_url", "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream")
+        self.doubao_language = config.get("asr", {}).get("doubao_language", "zh-CN")
+        self.doubao_format = config.get("asr", {}).get("doubao_format", "wav")
+        self.doubao_sample_rate = config.get("asr", {}).get("doubao_sample_rate", 16000)
+        self.doubao_seg_duration = config.get("asr", {}).get("doubao_seg_duration", 15000)
+        self.doubao_resource_id = config.get("asr", {}).get("doubao_resource_id", "volc.bigasr.sauc.duration")
+        
         # 初始化Fish Audio客户端
         self.fish_audio_session = None
         self._init_fish_audio_client()
+        
+        # 初始化豆包ASR客户端
+        self.doubao_ws_client = None
+        self._init_doubao_client()
         
         # 音频相关参数
         self.sample_rate = 16000
@@ -101,6 +375,33 @@ class ASRClient:
                 logger.error(f"Fish Audio ASR客户端初始化失败: {e}")
         else:
             logger.info("使用本地ASR服务")
+    
+    def _init_doubao_client(self):
+        """初始化豆包ASR客户端"""
+        if self.asr_type == "豆包ASR":
+            try:
+                if not self.doubao_appid or not self.doubao_token:
+                    logger.error("豆包ASR APPID或Token未配置")
+                    return
+                
+                logger.info("正在初始化豆包ASR客户端...")
+                self.doubao_ws_client = DoubaoASRClient(
+                    appid=self.doubao_appid,
+                    token=self.doubao_token,
+                    cluster=self.doubao_cluster,
+                    ws_url=self.doubao_ws_url,
+                    language=self.doubao_language,
+                    format=self.doubao_format,
+                    sample_rate=self.doubao_sample_rate,
+                    seg_duration=self.doubao_seg_duration,
+                    resource_id=self.doubao_resource_id
+                )
+                logger.info("豆包ASR客户端初始化成功")
+                
+            except Exception as e:
+                logger.error(f"豆包ASR客户端初始化失败: {e}")
+        else:
+            logger.info("不使用豆包ASR服务")
     
     async def setup_websocket(self):
         """设置WebSocket连接"""
@@ -566,6 +867,8 @@ class ASRClient:
         try:
             if self.asr_type == "Fish Audio":
                 return await self._process_with_fish_audio(audio_blob)
+            elif self.asr_type == "豆包ASR":
+                return await self._process_with_doubao_asr(audio_blob)
             else:
                 return await self._process_with_local_asr(audio_blob)
         
@@ -657,6 +960,52 @@ class ASRClient:
         
         return None
 
+    async def _process_with_doubao_asr(self, audio_blob):
+        """使用豆包ASR进行语音识别"""
+        try:
+            if not self.doubao_ws_client:
+                logger.error("豆包ASR客户端未初始化")
+                return None
+            
+            logger.info("开始豆包ASR语音识别...")
+            
+            # 调用豆包ASR客户端进行识别
+            result = await self.doubao_ws_client.recognize_audio(audio_blob)
+            
+            if result and 'payload_msg' in result:
+                payload = result['payload_msg']
+                
+                if payload.get('code') == self.doubao_ws_client.success_code:
+                    # 提取识别结果
+                    utterances = payload.get('result', [])
+                    recognized_text = ""
+                    
+                    for utterance in utterances:
+                        if utterance.get('text'):
+                            recognized_text += utterance['text']
+                    
+                    recognized_text = recognized_text.strip()
+                    
+                    if recognized_text:
+                        logger.info(f"豆包ASR识别结果: {recognized_text}")
+                        
+                        # 通知事件总线
+                        if self.event_bus:
+                            await self.event_bus.publish("speech_recognized", {"text": recognized_text})
+                        
+                        return recognized_text
+                    else:
+                        logger.warning("豆包ASR未识别到有效文本")
+                else:
+                    logger.error(f"豆包ASR失败: {payload}")
+            else:
+                logger.error(f"豆包ASR响应异常: {result}")
+        
+        except Exception as e:
+            logger.error(f"豆包ASR处理失败: {e}")
+        
+        return None
+
     def _cleanup_audio_queue(self):
         """清理音频队列"""
         while not self.audio_data_queue.empty():
@@ -696,3 +1045,503 @@ class ASRClient:
                 self.audio_stream.close()
             except:
                 pass
+
+
+class DoubaoASRClient:
+    """豆包ASR WebSocket客户端 - 基于SAUC协议"""
+
+    def __init__(self, appid, token, cluster, ws_url, language="zh-CN",
+                 format="wav", sample_rate=16000, seg_duration=15000, resource_id="volc.bigasr.sauc.duration"):
+        self.appid = appid
+        self.token = token
+        self.cluster = cluster
+        self.ws_url = ws_url
+        self.language = language
+        self.format = format
+        self.sample_rate = sample_rate
+        self.seg_duration = seg_duration
+        self.resource_id = resource_id or "volc.bigasr.sauc.duration"
+        self.success_code = 1000
+        self.uid = "doubao_asr_client"
+        self.session = None
+        self.conn = None
+        self.seq = 1
+        
+    def generate_header(self, version=PROTOCOL_VERSION, message_type=CLIENT_FULL_REQUEST,
+                       message_type_specific_flags=NO_SEQUENCE, serial_method=JSON,
+                       compression_type=GZIP, reserved_data=0x00, extension_header=bytes()):
+        """生成协议头"""
+        header = bytearray()
+        header_size = int(len(extension_header) / 4) + 1
+        header.append((version << 4) | header_size)
+        header.append((message_type << 4) | message_type_specific_flags)
+        header.append((serial_method << 4) | compression_type)
+        header.append(reserved_data)
+        header.extend(extension_header)
+        return header
+
+    def parse_response(self, res):
+        """解析响应"""
+        protocol_version = res[0] >> 4
+        header_size = res[0] & 0x0f
+        message_type = res[1] >> 4
+        message_type_specific_flags = res[1] & 0x0f
+        serialization_method = res[2] >> 4
+        message_compression = res[2] & 0x0f
+        reserved = res[3]
+        header_extensions = res[4:header_size * 4]
+        payload = res[header_size * 4:]
+        result = {}
+        payload_msg = None
+        payload_size = 0
+        
+        if message_type == SERVER_FULL_RESPONSE:
+            payload_size = int.from_bytes(payload[:4], "big", signed=True)
+            payload_msg = payload[4:]
+        elif message_type == SERVER_ACK:
+            seq = int.from_bytes(payload[:4], "big", signed=True)
+            result['seq'] = seq
+            if len(payload) >= 8:
+                payload_size = int.from_bytes(payload[4:8], "big", signed=False)
+                payload_msg = payload[8:]
+        elif message_type == SERVER_ERROR_RESPONSE:
+            code = int.from_bytes(payload[:4], "big", signed=False)
+            result['code'] = code
+            payload_size = int.from_bytes(payload[4:8], "big", signed=False)
+            payload_msg = payload[8:]
+            
+        if payload_msg is None:
+            return result
+            
+        if message_compression == GZIP:
+            payload_msg = gzip.decompress(payload_msg)
+        if serialization_method == JSON:
+            payload_msg = json.loads(str(payload_msg, "utf-8"))
+        elif serialization_method != NO_SERIALIZATION:
+            payload_msg = str(payload_msg, "utf-8")
+            
+        result['payload_msg'] = payload_msg
+        result['payload_size'] = payload_size
+        return result
+
+    def construct_request(self, reqid):
+        """构建请求"""
+        logger.info(f"构建请求 - appid: {self.appid}, cluster: {self.cluster}, resource_id: {self.resource_id}")
+        req = {
+            'app': {
+                'appid': self.appid,
+                'cluster': self.cluster,
+                'token': self.token
+            },
+            'user': {
+                'uid': self.uid
+            },
+            'request': {
+                'reqid': reqid,
+                'nbest': 1,
+                'workflow': 'audio_in,resample,partition,vad,fe,decode,itn,nlu_punctuate',
+                'show_language': False,
+                'show_utterances': False,
+                'result_type': 'full',
+                "sequence": 1
+            },
+            'audio': {
+                'format': self.format,
+                'rate': self.sample_rate,
+                'language': self.language,
+                'bits': 16,
+                'channel': 1,
+                'codec': 'raw'
+            }
+        }
+        
+        return req
+
+    @staticmethod
+    def slice_data(data: bytes, chunk_size: int):
+        """切分数据"""
+        data_len = len(data)
+        offset = 0
+        while offset + chunk_size < data_len:
+            yield data[offset: offset + chunk_size], False
+            offset += chunk_size
+        else:
+            yield data[offset: data_len], True
+
+    def token_auth(self):
+        """Token认证 - 使用SAUC格式"""
+        logger.info("生成SAUC协议认证头...")
+        logger.info(f"APP ID: {self.appid}")
+        logger.info(f"Token: {self.token[:10]}..." if self.token else "Token: None")
+        logger.info(f"Resource ID: {self.resource_id}")
+
+        headers = RequestBuilder.new_auth_headers(self.appid, self.token, self.resource_id)
+
+        logger.info("认证头生成完成")
+        logger.info(f"X-Api-App-Key: {headers.get('X-Api-App-Key', 'None')}")
+        logger.info(f"X-Api-Access-Key: {headers.get('X-Api-Access-Key', 'None')[:10]}..." if headers.get('X-Api-Access-Key') else "X-Api-Access-Key: None")
+        logger.info(f"X-Api-Resource-Id: {headers.get('X-Api-Resource-Id', 'None')}")
+        logger.info(f"X-Api-Request-Id: {headers.get('X-Api-Request-Id', 'None')}")
+
+        return headers
+
+    async def __aenter__(self):
+        logger.info("创建aiohttp会话...")
+        self.session = aiohttp.ClientSession()
+        logger.info("aiohttp会话创建成功")
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        logger.info("清理ASR客户端资源...")
+        if self.conn and not self.conn.closed:
+            logger.info("关闭WebSocket连接...")
+            await self.conn.close()
+            logger.info("WebSocket连接已关闭")
+        if self.session and not self.session.closed:
+            logger.info("关闭aiohttp会话...")
+            await self.session.close()
+            logger.info("aiohttp会话已关闭")
+
+    async def create_connection(self) -> None:
+        """创建WebSocket连接"""
+        logger.info("开始创建WebSocket连接...")
+        logger.info(f"目标URL: {self.ws_url}")
+
+        headers = self.token_auth()
+        logger.info("生成认证头...")
+        logger.info(f"认证头: {headers}")
+
+        try:
+            logger.info("正在连接到WebSocket服务器...")
+            self.conn = await self.session.ws_connect(
+                self.ws_url,
+                headers=headers
+            )
+            logger.info(f"✅ WebSocket连接成功建立: {self.ws_url}")
+            logger.info(f"连接状态: {self.conn.closed}")
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"❌ 网络连接错误: {e}")
+            logger.error(f"请检查网络连接和URL: {self.ws_url}")
+            raise
+        except aiohttp.WSServerHandshakeError as e:
+            logger.error(f"❌ WebSocket握手错误: {e}")
+            logger.error(f"服务器可能拒绝连接，请检查认证信息")
+            raise
+        except Exception as e:
+            logger.error(f"❌ WebSocket连接失败: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            logger.error(f"URL: {self.ws_url}")
+            logger.error(f"Headers: {headers}")
+            raise
+
+    async def send_full_client_request(self) -> None:
+        """发送完整客户端请求"""
+        logger.info("准备发送完整客户端请求...")
+        logger.info(f"当前序列号: {self.seq}")
+
+        request = RequestBuilder.new_full_client_request(self.seq, self.uid, self.sample_rate)
+        logger.info(f"构建的请求大小: {len(request)} bytes")
+        logger.info(f"采样率: {self.sample_rate}, UID: {self.uid}")
+
+        self.seq += 1
+        logger.info(f"序列号递增为: {self.seq}")
+
+        try:
+            logger.info("正在发送完整客户端请求...")
+            await self.conn.send_bytes(request)
+            logger.info(f"✅ 完整客户端请求发送成功 (seq: {self.seq-1})")
+
+            logger.info("等待服务器响应...")
+            msg = await self.conn.receive()
+            logger.info(f"收到服务器消息，类型: {msg.type}")
+
+            if msg.type == aiohttp.WSMsgType.BINARY:
+                response = ResponseParser.parse_response(msg.data)
+                logger.info("✅ 服务器响应解析成功")
+                logger.info(f"响应详情: {response.to_dict()}")
+            else:
+                logger.error(f"❌ 意外的消息类型: {msg.type}")
+                if hasattr(msg, 'data'):
+                    logger.error(f"消息数据: {msg.data}")
+        except Exception as e:
+            logger.error(f"❌ 发送完整客户端请求失败: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            raise
+
+    async def send_audio_segments(self, segments: List[bytes]) -> AsyncGenerator[None, None]:
+        """发送音频段"""
+        total_segments = len(segments)
+        logger.info(f"开始发送音频段，共 {total_segments} 个段")
+
+        for i, segment in enumerate(segments):
+            segment_num = i + 1
+            is_last = (i == len(segments) - 1)
+
+            logger.info(f"准备发送音频段 {segment_num}/{total_segments}")
+            logger.info(f"段大小: {len(segment)} bytes, 是否最后一段: {is_last}")
+
+            request = RequestBuilder.new_audio_only_request(
+                self.seq,
+                segment,
+                is_last=is_last
+            )
+
+            logger.info(f"构建的音频请求大小: {len(request)} bytes")
+
+            try:
+                logger.info(f"正在发送音频段 (seq: {self.seq})...")
+                await self.conn.send_bytes(request)
+                logger.info(f"✅ 音频段 {segment_num} 发送成功 (seq: {self.seq}, last: {is_last})")
+
+                if not is_last:
+                    self.seq += 1
+                    logger.info(f"序列号递增为: {self.seq}")
+
+                # 等待一段时间再发送下一个段
+                wait_time = self.seg_duration / 1000
+                logger.info(f"等待 {wait_time:.2f} 秒后发送下一个段...")
+                await asyncio.sleep(wait_time)
+
+            except Exception as e:
+                logger.error(f"❌ 发送音频段 {segment_num} 失败: {e}")
+                logger.error(f"错误类型: {type(e).__name__}")
+                raise
+
+            yield
+
+    async def receive_responses(self) -> AsyncGenerator[AsrResponse, None]:
+        """接收响应"""
+        logger.info("开始监听WebSocket响应...")
+
+        try:
+            async for msg in self.conn:
+                logger.info(f"📨 收到WebSocket消息，类型: {msg.type}")
+
+                if msg.type == aiohttp.WSMsgType.BINARY:
+                    logger.info("解析二进制消息...")
+                    response = ResponseParser.parse_response(msg.data)
+                    logger.info("✅ 响应解析成功")
+                    logger.info(f"响应详情: {response.to_dict()}")
+
+                    # 检查响应状态
+                    if response.code != 0:
+                        logger.warning(f"⚠️ 服务器返回错误码: {response.code}")
+
+                    if response.is_last_package:
+                        logger.info("📦 收到最后一个数据包")
+
+                    yield response
+
+                    # 只有在错误或连接关闭时才break
+                    if response.code != 0:
+                        logger.info("由于错误响应，结束接收")
+                        break
+
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error(f"❌ WebSocket错误: {msg.data}")
+                    break
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    logger.info("🔌 WebSocket连接已关闭")
+                    break
+                else:
+                    logger.warning(f"⚠️ 未知消息类型: {msg.type}")
+                    if hasattr(msg, 'data'):
+                        logger.info(f"消息数据: {msg.data}")
+
+        except Exception as e:
+            logger.error(f"❌ 接收消息时出错: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            raise
+
+    @staticmethod
+    def split_audio(data: bytes, segment_size: int) -> List[bytes]:
+        """分割音频数据"""
+        if segment_size <= 0:
+            return []
+
+        segments = []
+        for i in range(0, len(data), segment_size):
+            end = i + segment_size
+            if end > len(data):
+                end = len(data)
+            segments.append(data[i:end])
+        return segments
+
+    def get_segment_size(self, content: bytes) -> int:
+        """计算分段大小"""
+        logger.info("🔍 开始计算音频分段大小...")
+        logger.info(f"音频文件大小: {len(content)} bytes")
+
+        try:
+            # 简单的WAV解析
+            if len(content) < 44:
+                logger.warning("⚠️ WAV文件头不完整，使用默认分段大小")
+                # 使用默认分段大小：采样率 * 通道数 * 位深度/8 * 时间(ms)/1000
+                default_size = self.sample_rate * 1 * 2 * (self.seg_duration // 1000)
+                logger.info(f"默认分段大小: {default_size} bytes (采样率: {self.sample_rate}, 时长: {self.seg_duration}ms)")
+                return default_size
+
+            # 解析WAV头
+            sample_rate = struct.unpack('<I', content[24:28])[0]
+            bits_per_sample = struct.unpack('<H', content[34:36])[0]
+            num_channels = struct.unpack('<H', content[22:24])[0]
+
+            logger.info("✅ WAV文件解析成功:")
+            logger.info(f"  • 采样率: {sample_rate} Hz")
+            logger.info(f"  • 位深度: {bits_per_sample} bits")
+            logger.info(f"  • 通道数: {num_channels}")
+
+            # 计算每秒字节数
+            bytes_per_second = sample_rate * num_channels * (bits_per_sample // 8)
+            logger.info(f"每秒字节数: {bytes_per_second}")
+
+            # 计算分段大小（毫秒转换为秒）
+            segment_size = bytes_per_second * (self.seg_duration // 1000)
+            logger.info(f"✅ 计算分段大小: {segment_size} bytes")
+            logger.info(f"分段时间: {self.seg_duration} ms")
+
+            return segment_size
+        except Exception as e:
+            logger.error(f"❌ 计算分段大小失败: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            # 返回默认分段大小
+            default_size = self.sample_rate * 1 * 2 * (self.seg_duration // 1000)
+            logger.info(f"使用默认分段大小: {default_size} bytes")
+            return default_size
+
+    async def segment_data_processor(self, wav_data: bytes, segment_size: int):
+        """分段处理音频数据 - 使用SAUC协议"""
+        logger.info("🚀 开始SAUC协议音频处理")
+        logger.info(f"音频数据大小: {len(wav_data)} bytes")
+        logger.info(f"分段大小: {segment_size} bytes")
+
+        self.seq = 1
+        logger.info("重置序列号为: 1")
+
+        try:
+            logger.info("步骤1: 创建WebSocket连接")
+            await self.create_connection()
+
+            logger.info("步骤2: 发送完整客户端请求")
+            await self.send_full_client_request()
+
+            logger.info("步骤3: 分割音频数据")
+            segments = self.split_audio(wav_data, segment_size)
+            logger.info(f"音频分割完成，共 {len(segments)} 个段")
+
+            logger.info("步骤4: 启动发送和接收任务")
+            async def sender():
+                logger.info("启动音频段发送任务")
+                async for _ in self.send_audio_segments(segments):
+                    pass
+                logger.info("音频段发送任务完成")
+
+            sender_task = asyncio.create_task(sender())
+            logger.info("发送任务已启动")
+
+            try:
+                logger.info("开始监听服务器响应...")
+                final_result = None
+                async for response in self.receive_responses():
+                    logger.info(f"处理响应: is_last={response.is_last_package}, code={response.code}")
+
+                    if response.payload_msg:
+                        logger.info("响应包含有效数据，开始解析文本")
+
+                        # 检查result.text或直接的text字段
+                        text = ''
+                        if 'result' in response.payload_msg and 'text' in response.payload_msg['result']:
+                            text = response.payload_msg['result']['text']
+                            logger.info("从 result.text 提取文本")
+                        elif 'text' in response.payload_msg:
+                            text = response.payload_msg['text']
+                            logger.info("从直接 text 字段提取文本")
+
+                        if text:
+                            logger.info(f"✅ 识别结果: {text}")
+                            final_result = {
+                                'code': response.code,
+                                'text': text,
+                                'payload_msg': response.payload_msg
+                            }
+
+                            # 如果是最后一个包，立即返回结果
+                            if response.is_last_package:
+                                logger.info("📦 收到最后一个包，返回最终结果")
+                                return final_result
+                        else:
+                            logger.info("响应中未找到文本内容")
+                    elif response.code != 0:
+                        logger.error(f"❌ ASR服务器错误: {response.code}")
+                        logger.error(f"错误详情: {response.payload_msg}")
+                        return {
+                            'code': response.code,
+                            'payload_msg': response.payload_msg
+                        }
+
+                # 如果循环结束还没有返回，检查是否有结果
+                if final_result:
+                    logger.info("🔄 响应循环结束，返回最终结果")
+                    return final_result
+                else:
+                    logger.error("❌ 未收到任何识别结果")
+                    return {
+                        'code': -1,
+                        'error': 'No recognition result received'
+                    }
+
+            finally:
+                logger.info("清理发送任务...")
+                sender_task.cancel()
+                try:
+                    await sender_task
+                    logger.info("发送任务清理完成")
+                except asyncio.CancelledError:
+                    logger.info("发送任务已被取消")
+
+        except Exception as e:
+            logger.error(f"❌ SAUC协议处理失败: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            logger.error(f"错误详情: {str(e)}")
+            return {
+                'code': -1,
+                'error': str(e)
+            }
+        finally:
+            logger.info("清理WebSocket连接...")
+            if self.conn:
+                await self.conn.close()
+                logger.info("WebSocket连接已清理")
+
+    async def recognize_audio(self, audio_data: bytes):
+        """识别音频数据"""
+        logger.info("🎤 开始音频识别处理")
+        logger.info(f"输入音频大小: {len(audio_data)} bytes")
+
+        try:
+            # 计算分段大小
+            logger.info("计算音频分段参数...")
+            segment_size = self.get_segment_size(audio_data)
+            logger.info(f"✅ 分段大小计算完成: {segment_size} bytes")
+
+            logger.info("启动SAUC协议客户端...")
+            async with self as client:
+                logger.info("SAUC客户端启动成功，开始处理音频")
+                result = await self.segment_data_processor(audio_data, segment_size)
+
+                if result and 'text' in result:
+                    logger.info(f"🎉 识别成功! 文本: {result['text']}")
+                elif result and 'error' in result:
+                    logger.error(f"❌ 识别失败: {result['error']}")
+                else:
+                    logger.warning("⚠️ 识别结果异常")
+
+                return result
+
+        except Exception as e:
+            logger.error(f"❌ 音频识别失败: {e}")
+            logger.error(f"错误类型: {type(e).__name__}")
+            return {
+                'code': -1,
+                'error': str(e)
+            }

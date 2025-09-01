@@ -12,9 +12,25 @@ import re
 import wave
 import sounddevice as sd  # 高性能异步音频库
 import os
+import websockets
+import uuid
+from typing import Dict, List, Any, Optional, Callable, Coroutine
+
+import websockets
+import uuid
 from typing import Dict, List, Any, Optional, Callable, Coroutine
 
 logger = logging.getLogger("tts_client")
+
+# 导入豆包TTS协议模块
+try:
+    from voice.volcengine_unidirectional_stream_demo.protocols import (
+        EventType, MsgType, full_client_request, receive_message
+    )
+    PROTOCOLS_AVAILABLE = True
+except ImportError:
+    logger.warning("豆包TTS协议模块未找到，将使用HTTP流式API")
+    PROTOCOLS_AVAILABLE = False
 
 class TTSClient:
     def __init__(self, config:dict, event_bus=None):
@@ -106,8 +122,33 @@ class TTSClient:
 
     def _create_doubao_client(self):
         """创建豆包TTS客户端"""
-        # 这里可以实现豆包TTS的初始化
-        return {'type': 'doubao'}
+        try:
+            app_id = self.config.get('tts', {}).get('doubao_app_id', '')
+            access_token = self.config.get('tts', {}).get('doubao_access_token', '')
+            voice_type = self.config.get('tts', {}).get('doubao_voice_type', '')
+            encoding = self.config.get('tts', {}).get('doubao_encoding', 'wav')
+            resource_id = self.config.get('tts', {}).get('doubao_resource_id', '')
+
+            if not app_id or not access_token:
+                logger.error("豆包TTS APP ID或Access Token未配置")
+                return None
+
+            logger.info("正在初始化豆包TTS客户端...")
+
+            return {
+                'type': 'doubao',
+                'app_id': app_id,  # 用于WebSocket的X-Api-App-Key
+                'access_token': access_token,
+                'resource_id': resource_id,
+                'voice_type': voice_type,
+                'encoding': encoding,
+                'websocket_url': 'wss://openspeech.bytedance.com/api/v3/tts/unidirectional/stream',
+                'http_url': 'https://openspeech.bytedance.com/api/v3/tts/unidirectional',
+                'app_key': 'aGjiRDfUWi'  # 固定值，用于HTTP的X-Api-App-Key
+            }
+        except Exception as e:
+            logger.error(f"创建豆包TTS客户端失败: {e}")
+            return None
 
     def _create_local_client(self):
         """创建本地TTS客户端"""
@@ -143,6 +184,15 @@ class TTSClient:
                     self.tts_client['session'].close()
             except Exception as e:
                 logger.error(f"关闭Fish Audio会话错误: {e}")
+        
+        # 关闭豆包TTS WebSocket连接 (如果存在)
+        if self.tts_client and self.tts_type == "豆包TTS":
+            try:
+                if 'websocket' in self.tts_client and self.tts_client['websocket']:
+                    await self.tts_client['websocket'].close()
+                    logger.info("豆包TTS WebSocket连接已关闭")
+            except Exception as e:
+                logger.error(f"关闭豆包TTS WebSocket连接错误: {e}")
         
         # 关闭HTTP会话
         if self.session and not self.session.closed:
@@ -635,9 +685,227 @@ class TTSClient:
 
     async def _convert_with_doubao(self, text):
         """使用豆包TTS转换文本为语音"""
-        # 这里实现豆包TTS的逻辑
-        logger.warning("豆包TTS暂未实现，使用本地TTS")
-        return await self._convert_with_local(text)
+        try:
+            if not self.tts_client:
+                logger.error("豆包TTS客户端未初始化")
+                return await self._convert_with_local(text)
+
+            # 根据协议模块可用性选择API
+            if PROTOCOLS_AVAILABLE:
+                return await self._convert_with_doubao_websocket(text)
+            else:
+                return await self._convert_with_doubao_rest(text)
+
+        except Exception as e:
+            logger.error(f"豆包TTS转换错误: {e}")
+            return await self._convert_with_local(text)
+
+    async def _convert_with_doubao_rest(self, text):
+        """使用豆包TTS REST API转换文本为语音（HTTP单向流式接口）"""
+        try:
+            import aiohttp
+            import base64
+
+            # 豆包TTS HTTP单向流式API URL
+            api_url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+
+            # 构建请求头
+            headers = {
+                "X-Api-App-Id": self.tts_client['app_id'],  # HTTP版本使用App-Id
+                "X-Api-Access-Key": self.tts_client['access_token'],
+                "X-Api-Resource-Id": self.tts_client['resource_id'] or self._get_resource_id(self.tts_client['voice_type']),
+                "X-Api-App-Key": self.tts_client['app_key'],  # 固定值
+                "Content-Type": "application/json",
+                "Connection": "keep-alive"
+            }
+
+            # 构建请求体
+            request_data = {
+                "user": {
+                    "uid": "doubao_tts_user"
+                },
+                "req_params": {
+                    "text": text,
+                    "speaker": self.tts_client['voice_type'],
+                    "audio_params": {
+                        "format": self.tts_client['encoding'],
+                        "sample_rate": 24000,
+                        "enable_timestamp": True
+                    },
+                    "additions": json.dumps({
+                        "explicit_language": "zh",
+                        "disable_markdown_filter": True,
+                        "enable_timestamp": True
+                    })
+                }
+            }
+
+            logger.info(f"发送豆包TTS HTTP流式请求: {text[:50]}...")
+
+            # 用于存储音频数据
+            audio_data = bytearray()
+
+            # 发送POST请求并处理流式响应
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, headers=headers, json=request_data) as response:
+                    logger.info(f"豆包TTS响应状态码: {response.status}")
+                    logger.info(f"豆包TTS响应头: {dict(response.headers)}")
+
+                    if response.status == 200:
+                        # 处理流式响应
+                        async for line in response.content:
+                            if not line:
+                                continue
+
+                            try:
+                                # 解析JSON数据
+                                line_str = line.decode('utf-8').strip()
+                                if not line_str:
+                                    continue
+
+                                data = json.loads(line_str)
+                                logger.debug(f"豆包TTS流式数据: {data}")
+
+                                # 处理音频数据
+                                if data.get("code") == 0 and "data" in data and data["data"]:
+                                    chunk_audio = base64.b64decode(data["data"])
+                                    audio_data.extend(chunk_audio)
+                                    logger.debug(f"收到音频块，大小: {len(chunk_audio)} bytes")
+
+                                # 处理句子信息
+                                elif data.get("code") == 0 and "sentence" in data and data["sentence"]:
+                                    logger.info(f"句子信息: {data['sentence']}")
+
+                                # 处理结束标记
+                                elif data.get("code") == 20000000:
+                                    logger.info("豆包TTS流式响应结束")
+                                    break
+
+                                # 处理错误
+                                elif data.get("code", 0) > 0:
+                                    logger.error(f"豆包TTS流式响应错误: {data}")
+                                    return None
+
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"解析JSON数据失败: {e}, 原始数据: {line_str}")
+                                continue
+                            except Exception as e:
+                                logger.error(f"处理流式数据时出错: {e}")
+                                continue
+
+                        # 检查是否收到了音频数据
+                        if audio_data:
+                            logger.info(f"豆包TTS合成成功，音频总大小: {len(audio_data)} bytes")
+                            return bytes(audio_data)
+                        else:
+                            logger.error("豆包TTS未收到音频数据")
+                            return None
+
+                    else:
+                        logger.error(f"豆包TTS HTTP请求失败: {response.status}")
+                        error_text = await response.text()
+                        logger.error(f"错误详情: {error_text}")
+                        return None
+
+        except Exception as e:
+            logger.error(f"豆包TTS HTTP流式API调用失败: {e}")
+            return None
+
+    async def _convert_with_doubao_websocket(self, text):
+        """使用豆包TTS WebSocket流式API转换文本为语音"""
+        try:
+            # WebSocket端点
+            websocket_url = "wss://openspeech.bytedance.com/api/v3/tts/unidirectional/stream"
+
+            # 构建请求头
+            headers = {
+                "X-Api-App-Key": self.tts_client['app_id'],  # 注意：使用App-Key而不是App-Id
+                "X-Api-Access-Key": self.tts_client['access_token'],
+                "X-Api-Resource-Id": self.tts_client['resource_id'] or self._get_resource_id(self.tts_client['voice_type']),
+                "X-Api-Connect-Id": str(uuid.uuid4()),
+            }
+
+            logger.info(f"连接豆包TTS WebSocket: {websocket_url}")
+            logger.info(f"请求头: {headers}")
+
+            # 连接WebSocket
+            websocket = await websockets.connect(
+                websocket_url,
+                additional_headers=headers,
+                max_size=10 * 1024 * 1024
+            )
+
+            try:
+                # 记录连接日志
+                logger.info(f"WebSocket连接成功")
+
+                # 准备请求数据
+                request_data = {
+                    "user": {
+                        "uid": str(uuid.uuid4()),
+                    },
+                    "req_params": {
+                        "speaker": self.tts_client['voice_type'],
+                        "audio_params": {
+                            "format": self.tts_client['encoding'],
+                            "sample_rate": 24000,
+                            "enable_timestamp": True,
+                        },
+                        "text": text,
+                        "additions": json.dumps({
+                            "disable_markdown_filter": False,
+                        }),
+                    },
+                }
+
+                # 发送请求
+                await full_client_request(websocket, json.dumps(request_data).encode())
+                logger.info(f"发送豆包TTS请求: {text[:50]}...")
+
+                # 接收音频数据
+                audio_data = bytearray()
+                while True:
+                    msg = await receive_message(websocket)
+
+                    if msg.type == MsgType.FullServerResponse:
+                        if msg.event == EventType.SessionFinished:
+                            break
+                    elif msg.type == MsgType.AudioOnlyServer:
+                        audio_data.extend(msg.payload)
+                        logger.debug(f"收到音频块，大小: {len(msg.payload)} bytes")
+                    else:
+                        logger.error(f"TTS转换失败: {msg}")
+                        return None
+
+                # 检查是否收到了音频数据
+                if not audio_data:
+                    logger.error("豆包TTS未收到音频数据")
+                    return None
+
+                logger.info(f"豆包TTS合成成功，音频总大小: {len(audio_data)} bytes")
+                return bytes(audio_data)
+
+            finally:
+                await websocket.close()
+                logger.info("WebSocket连接已关闭")
+
+        except Exception as e:
+            logger.error(f"豆包TTS WebSocket流式API调用失败: {e}")
+            return None
+
+    def _get_resource_id(self, voice_type):
+        """根据音色类型获取资源ID"""
+        # 根据豆包TTS官方文档，不同的音色类型对应不同的资源ID
+        if voice_type.startswith("S_"):
+            return "volc.megatts.default"
+        elif voice_type.startswith("zh_"):
+            return "volc.btts.voice"  # 中文音色使用这个资源ID
+        elif voice_type.startswith("en_"):
+            return "volc.btts.voice.en"  # 英文音色使用这个资源ID
+        else:
+            return "volc.service_type.10029"  # 默认值
+
+
 
     async def _convert_with_local(self, text):
         """使用本地TTS转换文本为语音"""
