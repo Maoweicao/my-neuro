@@ -26,9 +26,21 @@ class ASRClient:
         self.config = config
         self.event_bus = event_bus
         
-        # 从配置中读取VAD和ASR服务的URL
+        # 从配置中读取ASR类型和相关参数
+        self.asr_type = config.get("asr", {}).get("asr_type", "本地ASR")
+        
+        # 本地ASR配置
         self.vad_url = config.get("asr", {}).get("vad_url", "ws://localhost:6006/v1/ws/vad")
         self.asr_url = config.get("asr", {}).get("asr_url", "http://localhost:6006/v1/upload_audio")
+        
+        # Fish Audio ASR配置
+        self.fish_audio_api_key = config.get("asr", {}).get("fish_audio_api_key", "")
+        self.fish_audio_language = config.get("asr", {}).get("fish_audio_language", "zh")
+        self.fish_audio_ignore_timestamps = config.get("asr", {}).get("fish_audio_ignore_timestamps", True)
+        
+        # 初始化Fish Audio客户端
+        self.fish_audio_session = None
+        self._init_fish_audio_client()
         
         # 音频相关参数
         self.sample_rate = 16000
@@ -68,7 +80,27 @@ class ASRClient:
         # 任务管理
         self.tasks = set()  # 跟踪所有异步任务
         
-        logger.info("初始化ASR客户端... [ 完成 ]")
+        logger.info(f"初始化ASR客户端 ({self.asr_type})... [ 完成 ]")
+
+    def _init_fish_audio_client(self):
+        """初始化Fish Audio ASR客户端"""
+        if self.asr_type == "Fish Audio":
+            try:
+                if not self.fish_audio_api_key:
+                    logger.error("Fish Audio API Key未配置")
+                    return
+                
+                logger.info("正在初始化Fish Audio ASR客户端...")
+                from fish_audio_sdk import Session
+                self.fish_audio_session = Session(self.fish_audio_api_key)
+                logger.info("Fish Audio ASR客户端初始化成功")
+                
+            except ImportError as e:
+                logger.error(f"Fish Audio SDK未安装: {e}")
+            except Exception as e:
+                logger.error(f"Fish Audio ASR客户端初始化失败: {e}")
+        else:
+            logger.info("使用本地ASR服务")
     
     async def setup_websocket(self):
         """设置WebSocket连接"""
@@ -526,11 +558,69 @@ class ASRClient:
         return buffer.getvalue()
     
     async def process_recording(self, audio_blob):
-        """处理录音数据并发送到ASR服务 - 使用aiohttp异步请求
+        """处理录音数据并发送到ASR服务
         
         Args:
             audio_blob: WAV格式的音频数据
         """
+        try:
+            if self.asr_type == "Fish Audio":
+                return await self._process_with_fish_audio(audio_blob)
+            else:
+                return await self._process_with_local_asr(audio_blob)
+        
+        except Exception as e:
+            logger.error(f"处理录音失败: {e}")
+        
+        finally:
+            self._unlock_asr()
+            # 清理音频数据
+            self._cleanup_audio_queue()
+
+    async def _process_with_fish_audio(self, audio_blob):
+        """使用Fish Audio进行语音识别"""
+        try:
+            if not self.fish_audio_session:
+                logger.error("Fish Audio ASR客户端未初始化")
+                return None
+            
+            logger.info("开始Fish Audio语音识别...")
+            
+            # 导入Fish Audio ASR相关类
+            from fish_audio_sdk import ASRRequest
+            
+            # 创建ASR请求
+            asr_request = ASRRequest(
+                audio=audio_blob,
+                language=self.fish_audio_language,
+                ignore_timestamps=self.fish_audio_ignore_timestamps
+            )
+            
+            # 发送识别请求
+            response = self.fish_audio_session.asr(asr_request)
+            
+            # 处理响应
+            recognized_text = response.text.strip()
+            logger.info(f"Fish Audio识别结果: {recognized_text}")
+            
+            # 记录时间戳信息（如果有）
+            if hasattr(response, 'segments') and response.segments:
+                logger.debug("识别时间戳:")
+                for segment in response.segments:
+                    logger.debug(f"  {segment.text} ({segment.start:.2f}s - {segment.end:.2f}s)")
+            
+            # 通知事件总线
+            if self.event_bus:
+                await self.event_bus.publish("speech_recognized", {"text": recognized_text})
+            
+            return recognized_text
+            
+        except Exception as e:
+            logger.error(f"Fish Audio ASR失败: {e}")
+            return None
+
+    async def _process_with_local_asr(self, audio_blob):
+        """使用本地ASR服务进行语音识别"""
         try:
             # 使用连接池优化HTTP请求
             async with aiohttp.ClientSession() as session:
@@ -546,7 +636,7 @@ class ASRClient:
                         
                         if result.get("status") == "success" and result.get("text"):
                             recognized_text = result.get("text").strip()
-                            logger.info(f"用户: {recognized_text}")
+                            logger.info(f"本地ASR识别结果: {recognized_text}")
                             
                             # 通知事件总线
                             if self.event_bus:
@@ -554,21 +644,18 @@ class ASRClient:
                             
                             return recognized_text
                         else:
-                            logger.error(f"ASR失败: {result.get('message', '未知错误')}")
+                            logger.error(f"本地ASR失败: {result.get('message', '未知错误')}")
                     else:
-                        logger.error(f"ASR请求失败: {response.status}")
+                        logger.error(f"本地ASR请求失败: {response.status}")
                         response_text = await response.text()
                         logger.error(f"响应内容: {response_text}")
         
         except asyncio.TimeoutError:
-            logger.error("ASR请求超时")
+            logger.error("本地ASR请求超时")
         except Exception as e:
-            logger.error(f"处理录音失败: {e}")
+            logger.error(f"本地ASR处理失败: {e}")
         
-        finally:
-            self._unlock_asr()
-            # 清理音频数据
-            self._cleanup_audio_queue()
+        return None
 
     def _cleanup_audio_queue(self):
         """清理音频队列"""

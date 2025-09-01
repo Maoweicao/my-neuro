@@ -11,6 +11,7 @@ import logging
 import re
 import wave
 import sounddevice as sd  # 高性能异步音频库
+import os
 from typing import Dict, List, Any, Optional, Callable, Coroutine
 
 logger = logging.getLogger("tts_client")
@@ -20,14 +21,22 @@ class TTSClient:
         """初始化TTS客户端"""
         self.config = config
         self.event_bus = event_bus
+        self.tts_type = config.get("tts", {}).get("tts_type", "本地TTS")
         self.tts_url = config.get("tts", {}).get("url", "http://localhost:6006/v3")
         self.language = config.get("tts", {}).get("language", "zh")
 
-        # 创建持久化HTTP连接池
-        self.session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(limit_per_host=4),
-            timeout=aiohttp.ClientTimeout(total=50)
-        )
+        # 根据TTS类型初始化相应的客户端
+        self.tts_client = None
+        self._init_tts_client()
+
+        # 创建持久化HTTP连接池（用于本地TTS）
+        if self.tts_type == "本地TTS":
+            self.session = aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(limit_per_host=4),
+                timeout=aiohttp.ClientTimeout(total=50)
+            )
+        else:
+            self.session = None
         
         # 音频处理相关
         self.audio_chunk_size = 1024
@@ -56,7 +65,53 @@ class TTSClient:
         self.on_audio_data_callback = None  # 音频数据回调(用于控制模型嘴部动作)
         self.on_text_update_callback = None # 文本更新回调(用于显示字幕)
         
-        logger.info("初始化TTS客户端... [ 完成 ]")
+        logger.info(f"初始化TTS客户端 ({self.tts_type})... [ 完成 ]")
+
+    def _init_tts_client(self):
+        """根据TTS类型初始化相应的客户端"""
+        if self.tts_type == "Fish Audio":
+            self.tts_client = self._create_fish_audio_client()
+        elif self.tts_type == "豆包TTS":
+            self.tts_client = self._create_doubao_client()
+        elif self.tts_type == "本地TTS":
+            self.tts_client = self._create_local_client()
+        else:
+            logger.warning(f"未知的TTS类型: {self.tts_type}，使用本地TTS")
+            self.tts_client = self._create_local_client()
+
+    def _create_fish_audio_client(self):
+        """创建Fish Audio客户端"""
+        try:
+            api_key = self.config.get('tts', {}).get('fish_audio_api_key', '')
+            if not api_key:
+                logger.error("Fish Audio API Key未配置")
+                return None
+            
+            logger.info(f"正在初始化Fish Audio客户端，API Key: {api_key[:10]}...")
+            
+            from fish_audio_sdk import WebSocketSession, TTSRequest, ReferenceAudio
+            session = WebSocketSession(api_key)
+            
+            logger.info("Fish Audio客户端初始化成功")
+            return {
+                'type': 'fish_audio',
+                'session': session
+            }
+        except ImportError as e:
+            logger.error(f"Fish Audio SDK未安装: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Fish Audio客户端初始化失败: {e}")
+            return None
+
+    def _create_doubao_client(self):
+        """创建豆包TTS客户端"""
+        # 这里可以实现豆包TTS的初始化
+        return {'type': 'doubao'}
+
+    def _create_local_client(self):
+        """创建本地TTS客户端"""
+        return {'type': 'local'}
 
     async def start(self):
         """启动处理任务"""
@@ -81,8 +136,16 @@ class TTSClient:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         
+        # 关闭Fish Audio会话
+        if self.tts_client and self.tts_type == "Fish Audio":
+            try:
+                if 'session' in self.tts_client and self.tts_client['session']:
+                    self.tts_client['session'].close()
+            except Exception as e:
+                logger.error(f"关闭Fish Audio会话错误: {e}")
+        
         # 关闭HTTP会话
-        if not self.session.closed:
+        if self.session and not self.session.closed:
             await self.session.close()
         
         # 重置状态
@@ -231,23 +294,16 @@ class TTSClient:
                 logger.warning("处理后的文本为空，跳过TTS请求")
                 return None
             
-            # 使用aiohttp发送异步请求
-            async with self.session.post(
-                self.tts_url,
-                headers={'Content-Type': 'application/json'},
-                json={'text': text_for_tts, 'text_language': self.language}
-            ) as response:
-                    
-                if response.status == 200:
-                    return await response.read()
-                else:
-                    logger.error(f"TTS请求失败: {response.status}")
-                    try:
-                        error_info = await response.json()
-                        logger.error(f"服务器返回错误信息: {error_info}")
-                    except:
-                        pass
-                    return None
+            # 根据TTS类型调用相应的转换方法
+            if self.tts_type == "Fish Audio":
+                return await self._convert_with_fish_audio(text_for_tts)
+            elif self.tts_type == "豆包TTS":
+                return await self._convert_with_doubao(text_for_tts)
+            elif self.tts_type == "本地TTS":
+                return await self._convert_with_local(text_for_tts)
+            else:
+                logger.warning(f"未知的TTS类型: {self.tts_type}，使用本地TTS")
+                return await self._convert_with_local(text_for_tts)
         
         except Exception as e:
             logger.error(f"TTS转换错误: {e}")
@@ -262,6 +318,12 @@ class TTSClient:
             return
         
         try:
+            # 检测音频格式并转换为WAV
+            audio_data = self._convert_to_wav(audio_data)
+            if not audio_data:
+                logger.error("音频格式转换失败")
+                return
+            
             # 解析WAV音频数据
             with io.BytesIO(audio_data) as wav_io:
                 with wave.open(wav_io, 'rb') as wave_file:
@@ -321,6 +383,70 @@ class TTSClient:
                     await self.text_animation_task
                 except asyncio.CancelledError:
                     pass
+
+    def _convert_to_wav(self, audio_data):
+        """将音频数据转换为WAV格式"""
+        try:
+            # 如果数据已经是WAV格式，直接返回
+            if len(audio_data) > 12 and audio_data[:4] == b'RIFF':
+                logger.debug("音频已经是WAV格式")
+                return audio_data
+            
+            # 检测MP3格式
+            if len(audio_data) > 2 and audio_data[:2] == b'\xff\xfb':
+                logger.info("检测到MP3格式，正在转换为WAV...")
+                try:
+                    from pydub import AudioSegment
+                    
+                    # 从MP3数据创建AudioSegment
+                    audio_segment = AudioSegment.from_mp3(io.BytesIO(audio_data))
+                    
+                    # 转换为WAV格式
+                    wav_buffer = io.BytesIO()
+                    audio_segment.export(wav_buffer, format='wav')
+                    wav_data = wav_buffer.getvalue()
+                    
+                    logger.info(f"MP3转换为WAV成功，大小: {len(wav_data)} bytes")
+                    return wav_data
+                    
+                except ImportError:
+                    logger.error("pydub未安装，无法转换MP3格式")
+                    return None
+                except Exception as e:
+                    logger.error(f"MP3转换失败: {e}")
+                    return None
+            
+            # 检测FLAC格式
+            if len(audio_data) > 4 and audio_data[:4] == b'fLaC':
+                logger.info("检测到FLAC格式，正在转换为WAV...")
+                try:
+                    from pydub import AudioSegment
+                    
+                    # 从FLAC数据创建AudioSegment
+                    audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format='flac')
+                    
+                    # 转换为WAV格式
+                    wav_buffer = io.BytesIO()
+                    audio_segment.export(wav_buffer, format='wav')
+                    wav_data = wav_buffer.getvalue()
+                    
+                    logger.info(f"FLAC转换为WAV成功，大小: {len(wav_data)} bytes")
+                    return wav_data
+                    
+                except ImportError:
+                    logger.error("pydub未安装，无法转换FLAC格式")
+                    return None
+                except Exception as e:
+                    logger.error(f"FLAC转换失败: {e}")
+                    return None
+            
+            # 其他格式或未知格式
+            logger.warning(f"未知音频格式，尝试直接处理。数据头: {audio_data[:12].hex() if len(audio_data) > 12 else 'N/A'}")
+            return audio_data
+            
+        except Exception as e:
+            logger.error(f"音频格式转换失败: {e}")
+            return None
 
     async def add_streaming_text(self, text):
         """添加流式文本进行处理
@@ -419,6 +545,125 @@ class TTSClient:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        """异步上下文管理器退出"""
-        await self.stop()
+    async def _convert_with_fish_audio(self, text):
+        """使用Fish Audio转换文本为语音"""
+        try:
+            # 如果客户端未初始化，尝试重新初始化
+            if not self.tts_client:
+                logger.info("Fish Audio客户端未初始化，尝试重新初始化...")
+                self.tts_client = self._create_fish_audio_client()
+                if not self.tts_client:
+                    logger.error("Fish Audio客户端重新初始化失败")
+                    return None
+            
+            # 获取配置
+            api_key = self.config.get('tts', {}).get('fish_audio_api_key', '')
+            if not api_key:
+                logger.error("Fish Audio API Key未配置")
+                return None
+            
+            reference_id = self.config.get('tts', {}).get('fish_audio_reference_id', '')
+            backend = self.config.get('tts', {}).get('fish_audio_backend', 'speech-1.6')
+            temperature = self.config.get('tts', {}).get('fish_audio_temperature', 0.7)
+            top_p = self.config.get('tts', {}).get('fish_audio_top_p', 0.7)
+            
+            logger.info(f"开始Fish Audio TTS转换，文本长度: {len(text)}")
+            
+            # 导入Fish Audio SDK
+            try:
+                from fish_audio_sdk import TTSRequest, ReferenceAudio
+            except ImportError:
+                logger.error("Fish Audio SDK未安装")
+                return None
+                return None
+            
+            # 创建TTS请求
+            if reference_id:
+                # 使用预设的reference_id
+                tts_request = TTSRequest(
+                    text=text,
+                    reference_id=reference_id,
+                    temperature=temperature,
+                    top_p=top_p
+                )
+            else:
+                # 使用参考音频文件
+                ref_audio_path = self.config.get('tts', {}).get('fish_audio_ref_audio', '')
+                ref_text = self.config.get('tts', {}).get('fish_audio_ref_text', '')
+                
+                if not ref_audio_path or not os.path.exists(ref_audio_path):
+                    logger.error("Fish Audio参考音频文件不存在")
+                    return None
+                
+                with open(ref_audio_path, 'rb') as f:
+                    ref_audio_data = f.read()
+                
+                tts_request = TTSRequest(
+                    text=text,
+                    references=[
+                        ReferenceAudio(
+                            audio=ref_audio_data,
+                            text=ref_text
+                        )
+                    ],
+                    temperature=temperature,
+                    top_p=top_p
+                )
+            
+            # 生成语音
+            audio_data = bytearray()
+            
+            def text_stream():
+                """文本流生成器"""
+                for word in text.split():
+                    yield word + " "
+            
+            # 调用TTS API
+            session = self.tts_client['session']
+            for chunk in session.tts(
+                tts_request,
+                text_stream(),
+                backend=backend
+            ):
+                audio_data.extend(chunk)
+            
+            return bytes(audio_data)
+            
+        except Exception as e:
+            logger.error(f"Fish Audio TTS转换错误: {e}")
+            return None
+
+    async def _convert_with_doubao(self, text):
+        """使用豆包TTS转换文本为语音"""
+        # 这里实现豆包TTS的逻辑
+        logger.warning("豆包TTS暂未实现，使用本地TTS")
+        return await self._convert_with_local(text)
+
+    async def _convert_with_local(self, text):
+        """使用本地TTS转换文本为语音"""
+        try:
+            if not self.session:
+                logger.error("本地TTS会话未初始化")
+                return None
+            
+            # 使用aiohttp发送异步请求
+            async with self.session.post(
+                self.tts_url,
+                headers={'Content-Type': 'application/json'},
+                json={'text': text, 'text_language': self.language}
+            ) as response:
+                    
+                if response.status == 200:
+                    return await response.read()
+                else:
+                    logger.error(f"本地TTS请求失败: {response.status}")
+                    try:
+                        error_info = await response.json()
+                        logger.error(f"服务器返回错误信息: {error_info}")
+                    except:
+                        pass
+                    return None
+        
+        except Exception as e:
+            logger.error(f"本地TTS转换错误: {e}")
+            return None

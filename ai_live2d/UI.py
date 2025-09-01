@@ -100,10 +100,6 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         try:
             if self.path == '/api/chat':
                 self._handle_chat_request()
-            elif self.path == '/api/live2d/motion':
-                self._handle_live2d_motion_request()
-            elif self.path == '/api/live2d/expression':
-                self._handle_live2d_expression_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -171,140 +167,6 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
-            self._send_error_response(500, f"Server error: {str(e)}")
-    
-    def _handle_live2d_motion_request(self):
-        """处理Live2D动作请求"""
-        try:
-            print(f"[WebAPI] 收到Live2D动作请求: {self.path}")
-            
-            content_length = int(self.headers.get('Content-Length', 0))
-            print(f"[WebAPI] Content-Length: {content_length}")
-            
-            if content_length == 0:
-                print("[WebAPI] 错误: 请求体为空")
-                self._send_error_response(400, "Empty request body")
-                return
-            
-            # 读取请求体
-            post_data = self.rfile.read(content_length)
-            print(f"[WebAPI] 原始请求数据: {post_data}")
-            
-            data = json.loads(post_data.decode('utf-8'))
-            print(f"[WebAPI] 解析后的JSON数据: {data}")
-            
-            # 验证必需字段 - 接受两种格式：motion 或 motion_index
-            motion = None
-            if 'motion' in data:
-                motion = data['motion']
-            elif 'motion_index' in data:
-                motion = data['motion_index']
-            else:
-                print("[WebAPI] 错误: 缺少motion或motion_index字段")
-                self._send_error_response(400, "Missing 'motion' or 'motion_index' field")
-                return
-            
-            print(f"[WebAPI] 要触发的动作: {motion}")
-            
-            # 检查ui_widget是否存在
-            if not self.ui_widget:
-                print("[WebAPI] 错误: ui_widget为None")
-                self._send_error_response(500, "UI widget not available")
-                return
-            
-            # 触发Live2D动作
-            if hasattr(self.ui_widget, 'trigger_live2d_motion_via_file'):
-                print("[WebAPI] 调用trigger_live2d_motion_via_file方法")
-                result = self.ui_widget.trigger_live2d_motion_via_file(motion)
-                print(f"[WebAPI] 方法执行结果: {result}")
-                
-                if result:
-                    response_data = {
-                        "status": "success",
-                        "message": f"动作 {motion} 已触发",
-                        "timestamp": time.time()
-                    }
-                    print(f"[WebAPI] 发送成功响应: {response_data}")
-                    self._send_json_response(response_data)
-                else:
-                    print("[WebAPI] 错误: 触发动作失败")
-                    self._send_error_response(500, "触发动作失败")
-            else:
-                print("[WebAPI] 错误: UI widget没有trigger_live2d_motion_via_file方法")
-                self._send_error_response(500, "Live2D动作控制功能不可用")
-            
-        except json.JSONDecodeError as e:
-            print(f"[WebAPI] JSON解析错误: {e}")
-            self._send_error_response(400, f"Invalid JSON: {str(e)}")
-        except Exception as e:
-            print(f"[WebAPI] 服务器错误: {e}")
-            import traceback
-            traceback.print_exc()
-            self._send_error_response(500, f"Server error: {str(e)}")
-    
-    def _handle_live2d_expression_request(self):
-        """处理Live2D表情请求"""
-        try:
-            print(f"[WebAPI] 收到Live2D表情请求: {self.path}")
-            
-            content_length = int(self.headers.get('Content-Length', 0))
-            print(f"[WebAPI] Content-Length: {content_length}")
-            
-            if content_length == 0:
-                print("[WebAPI] 错误: 请求体为空")
-                self._send_error_response(400, "Empty request body")
-                return
-            
-            # 读取请求体
-            post_data = self.rfile.read(content_length)
-            print(f"[WebAPI] 原始请求数据: {post_data}")
-            
-            data = json.loads(post_data.decode('utf-8'))
-            print(f"[WebAPI] 解析后的JSON数据: {data}")
-            
-            # 验证必需字段
-            if 'expression' not in data:
-                print("[WebAPI] 错误: 缺少expression字段")
-                self._send_error_response(400, "Missing 'expression' field")
-                return
-            
-            expression = data['expression']
-            print(f"[WebAPI] 要触发的表情: {expression}")
-            
-            # 检查ui_widget是否存在
-            if not self.ui_widget:
-                print("[WebAPI] 错误: ui_widget为None")
-                self._send_error_response(500, "UI widget not available")
-                return
-            
-            # 触发Live2D表情
-            if hasattr(self.ui_widget, 'trigger_live2d_expression_via_file'):
-                print("[WebAPI] 调用trigger_live2d_expression_via_file方法")
-                result = self.ui_widget.trigger_live2d_expression_via_file(expression)
-                print(f"[WebAPI] 方法执行结果: {result}")
-                
-                if result:
-                    response_data = {
-                        "status": "success",
-                        "message": f"表情 {expression} 已触发",
-                        "timestamp": time.time()
-                    }
-                    print(f"[WebAPI] 发送成功响应: {response_data}")
-                    self._send_json_response(response_data)
-                else:
-                    print("[WebAPI] 错误: 触发表情失败")
-                    self._send_error_response(500, "触发表情失败")
-            else:
-                print("[WebAPI] 错误: UI widget没有trigger_live2d_expression_via_file方法")
-                self._send_error_response(500, "Live2D表情控制功能不可用")
-            
-        except json.JSONDecodeError as e:
-            print(f"[WebAPI] JSON解析错误: {e}")
-            self._send_error_response(400, f"Invalid JSON: {str(e)}")
-        except Exception as e:
-            print(f"[WebAPI] 服务器错误: {e}")
-            import traceback
-            traceback.print_exc()
             self._send_error_response(500, f"Server error: {str(e)}")
     
     def _send_json_response(self, data):
@@ -3216,7 +3078,7 @@ class Widget(Interface):
         
         # ASR类型下拉选择
         self.asr_type_combo = QComboBox()
-        self.asr_type_combo.addItems(["本地ASR", "豆包语音识别"])
+        self.asr_type_combo.addItems(["本地ASR", "豆包语音识别", "Fish Audio"])
         current_asr_type = self.config_data.get('asr', {}).get('asr_type', '本地ASR')
         index = self.asr_type_combo.findText(current_asr_type)
         if index >= 0:
@@ -3289,6 +3151,24 @@ class Widget(Interface):
         
         self.vBoxLayout.addWidget(doubao_asr_group)
         
+        # Fish Audio ASR配置组
+        fish_audio_asr_group = QGroupBox("Fish Audio ASR配置")
+        fish_audio_asr_form = QFormLayout(fish_audio_asr_group)
+        
+        # Fish Audio ASR基础配置
+        fish_audio_asr_fields = [
+            ("API Key", "asr.fish_audio_api_key", "passwordlineedit", ""),
+            ("语言", "asr.fish_audio_language", "lineedit", "zh"),
+            ("忽略时间戳", "asr.fish_audio_ignore_timestamps", "checkbox", True)
+        ]
+        
+        for label, key_path, widget_type, default in fish_audio_asr_fields:
+            widget = self.create_widget(widget_type, key_path, default)
+            fish_audio_asr_form.addRow(f"{label}:", widget)
+            self.widgets[key_path] = {"widget": widget, "type": widget_type}
+        
+        self.vBoxLayout.addWidget(fish_audio_asr_group)
+        
         # ASR测试区域
         test_group = QGroupBox("ASR测试")
         test_form = QFormLayout(test_group)
@@ -3303,6 +3183,10 @@ class Widget(Interface):
         test_doubao_btn = PushButton("测试豆包ASR连接")
         test_doubao_btn.clicked.connect(self.test_doubao_asr)
         test_layout.addWidget(test_doubao_btn)
+        
+        test_fish_audio_btn = PushButton("测试Fish Audio ASR")
+        test_fish_audio_btn.clicked.connect(self.test_fish_audio_asr)
+        test_layout.addWidget(test_fish_audio_btn)
         
         test_container = QWidget()
         test_container.setLayout(test_layout)
@@ -3427,6 +3311,76 @@ class Widget(Interface):
             InfoBar.error(
                 title='验证失败',
                 content=f"豆包ASR配置验证失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+
+    def test_fish_audio_asr(self):
+        """测试Fish Audio ASR配置"""
+        asr_config = self.config_data.get('asr', {})
+        
+        # 检查必要配置
+        api_key = asr_config.get('fish_audio_api_key', '')
+        
+        if not api_key:
+            InfoBar.warning(
+                title='配置缺失',
+                content="请先配置Fish Audio ASR的API Key",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+        
+        # 记录测试日志
+        self.log_asr_system_event("开始测试Fish Audio ASR配置")
+        
+        try:
+            # 测试Fish Audio SDK导入和初始化
+            from fish_audio_sdk import Session, ASRRequest
+            
+            session = Session(api_key)
+            
+            # 创建一个简单的测试请求（不发送实际音频）
+            test_request = ASRRequest(
+                audio=b"test",  # 虚拟音频数据
+                language=asr_config.get('fish_audio_language', 'zh'),
+                ignore_timestamps=asr_config.get('fish_audio_ignore_timestamps', True)
+            )
+            
+            InfoBar.success(
+                title='配置验证',
+                content=f"Fish Audio ASR配置验证完成\n语言: {asr_config.get('fish_audio_language', 'zh')}\n忽略时间戳: {asr_config.get('fish_audio_ignore_timestamps', True)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+            
+            self.log_asr_system_event("Fish Audio ASR配置验证完成")
+            
+        except ImportError as e:
+            self.log_asr_error("Fish Audio SDK未安装", str(e))
+            InfoBar.error(
+                title='SDK缺失',
+                content="Fish Audio SDK未安装，请运行: uv add fish-audio-sdk",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+        except Exception as e:
+            self.log_asr_error("Fish Audio ASR配置验证失败", str(e))
+            InfoBar.error(
+                title='验证失败',
+                content=f"Fish Audio ASR配置验证失败: {str(e)}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -5848,38 +5802,6 @@ class Widget(Interface):
             
         except Exception as e:
             print(f"更新动画列表失败: {e}")
-
-    def trigger_live2d_motion_via_file(self, motion_index):
-        """通过文件触发Live2D动作 - 用于WebAPI接口"""
-        try:
-            motion_file = "motion_trigger.tmp"
-            with open(motion_file, 'w', encoding='utf-8') as f:
-                f.write(json.dumps({
-                    "action": "trigger_motion", 
-                    "motion_index": motion_index,
-                    "motion_group": "TapBody",
-                    "priority": 3,
-                    "timestamp": time.time()
-                }))
-            return True
-        except Exception as e:
-            print(f"文件触发Live2D动作失败: {e}")
-            return False
-
-    def trigger_live2d_expression_via_file(self, expression_name):
-        """通过文件触发Live2D表情 - 用于WebAPI接口"""
-        try:
-            expression_file = "expression_trigger.tmp"
-            with open(expression_file, 'w', encoding='utf-8') as f:
-                f.write(json.dumps({
-                    "action": "set_expression",
-                    "expression": expression_name,
-                    "timestamp": time.time()
-                }))
-            return True
-        except Exception as e:
-            print(f"文件触发Live2D表情失败: {e}")
-            return False
 
 
 class SystemTrayIcon(QSystemTrayIcon):
