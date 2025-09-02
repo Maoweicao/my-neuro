@@ -102,6 +102,64 @@ class WebAPITester:
             print(f"❌ {error_msg}")
             return {"error": error_msg}
     
+    def test_interrupt(self) -> Dict[str, Any]:
+        """
+        测试打断API
+        
+        Returns:
+            API响应的字典
+        """
+        url = f"{self.base_url}/api/interrupt"
+        
+        # 构建请求数据
+        data = {}
+        if self.api_key:
+            data["api_key"] = self.api_key
+        
+        # 设置请求头
+        headers = {"Content-Type": "application/json"}
+        
+        try:
+            print(f"🔄 发送打断请求到: {url}")
+            print(f"📤 请求数据: {json.dumps(data, ensure_ascii=False, indent=2)}")
+            
+            start_time = time.time()
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+            end_time = time.time()
+            
+            print(f"⏱️ 响应时间: {end_time - start_time:.2f}秒")
+            print(f"📊 状态码: {response.status_code}")
+            
+            # 解析响应
+            if response.headers.get('content-type', '').startswith('application/json'):
+                result = response.json()
+                print(f"📥 响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
+                return result
+            else:
+                print(f"📥 响应内容: {response.text}")
+                return {"error": "非JSON响应", "content": response.text}
+                
+        except requests.exceptions.Timeout:
+            error_msg = "打断请求超时"
+            print(f"❌ 错误: {error_msg}")
+            return {"error": error_msg}
+        except requests.exceptions.ConnectionError:
+            error_msg = "连接失败，请检查服务是否启动"
+            print(f"❌ 错误: {error_msg}")
+            return {"error": error_msg}
+        except requests.exceptions.RequestException as e:
+            error_msg = f"请求异常: {str(e)}"
+            print(f"❌ 错误: {error_msg}")
+            return {"error": error_msg}
+        except json.JSONDecodeError:
+            error_msg = "响应不是有效的JSON格式"
+            print(f"❌ 错误: {error_msg}")
+            return {"error": error_msg}
+        except Exception as e:
+            error_msg = f"未知错误: {str(e)}"
+            print(f"❌ 错误: {error_msg}")
+            return {"error": error_msg}
+    
     def run_batch_tests(self):
         """运行批量测试"""
         print("=" * 60)
@@ -154,8 +212,20 @@ class WebAPITester:
         print(f"❌ 失败: {total_count - success_count}/{total_count}")
         print(f"📈 成功率: {success_count/total_count*100:.1f}%")
         
-        # 4. 错误测试
-        print("\n🔧 4. 错误处理测试")
+        # 4. 打断功能测试
+        print("\n🛑 4. 打断功能测试")
+        print("-" * 30)
+        print("📝 测试打断API:")
+        interrupt_result = self.test_interrupt()
+        if "error" not in interrupt_result and interrupt_result.get("status") == "success":
+            print("✅ 打断功能正常")
+        elif interrupt_result.get("status") == "warning":
+            print("⚠️ 打断功能响应正常（没有正在进行的操作）")
+        else:
+            print(f"❌ 打断功能测试失败 - {interrupt_result.get('error', '未知错误')}")
+        
+        # 5. 错误测试
+        print("\n🔧 5. 错误处理测试")
         print("-" * 30)
         
         # 空消息测试

@@ -54,6 +54,9 @@ from qfluentwidgets import (NavigationInterface,NavigationItemPosition, Navigati
 from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, DoubleSpinBox, SpinBox, CheckBox, ScrollArea, PrimaryToolButton, ToolButton, InfoBar, InfoBarPosition, PasswordLineEdit, TextBrowser, PixmapLabel, PushButton, ColorDialog
 from qframelesswindow import FramelessWindow, TitleBar
 
+# 导入自定义界面模块
+from interface.action_buttons import ActionButtonsWindow
+
 
 class QTextBrowserHandler(logging.Handler, QObject):
     log_signal = pyqtSignal(str)  # 自定义信号
@@ -100,6 +103,8 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         try:
             if self.path == '/api/chat':
                 self._handle_chat_request()
+            elif self.path == '/api/interrupt':
+                self._handle_interrupt_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -168,6 +173,46 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
             self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _handle_interrupt_request(self):
+        """处理打断请求"""
+        try:
+            # 验证API密钥（如果配置了）
+            content_length = int(self.headers.get('Content-Length', 0))
+            api_key = ""
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                api_key = data.get('api_key', '')
+            
+            if hasattr(self.ui_widget, 'config_data'):
+                expected_api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
+                if expected_api_key and api_key != expected_api_key:
+                    self._send_error_response(401, "Invalid API key")
+                    return
+            
+            # 执行打断操作
+            if hasattr(self.ui_widget, 'interrupt_current_operations'):
+                success = self.ui_widget.interrupt_current_operations()
+                if success:
+                    self._send_json_response({
+                        "status": "success",
+                        "message": "已打断当前AI输出和语音播放",
+                        "timestamp": time.time()
+                    })
+                else:
+                    self._send_json_response({
+                        "status": "warning", 
+                        "message": "没有正在进行的操作需要打断",
+                        "timestamp": time.time()
+                    })
+            else:
+                self._send_error_response(501, "Interrupt functionality not implemented")
+                
+        except json.JSONDecodeError:
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            self._send_error_response(500, f"Interrupt error: {str(e)}")
     
     def _send_json_response(self, data):
         """发送JSON响应"""
@@ -2088,15 +2133,25 @@ class Widget(Interface):
             # 尝试获取Live2D模型实例的引用
             self.live2d_model = None
             
+            # 配置Live2D模型日志处理器
+            if hasattr(self, 'log_handler') and self.log_handler:
+                live2d_logger = logging.getLogger('live2d_model')
+                live2d_logger.addHandler(self.log_handler)
+                live2d_logger.setLevel(logging.DEBUG)  # 设置为DEBUG级别以显示详细日志
+                main_logger = logging.getLogger()
+                main_logger.info("Live2D模型日志处理器已配置")
+            
             # 方法1：尝试从models模块获取全局实例
             try:
                 import models.live2d_model as live2d_module
                 if hasattr(live2d_module, '_model') and live2d_module._model:
                     self.live2d_model = live2d_module._model
-                    print("成功获取Live2D模型实例")
+                    main_logger = logging.getLogger()
+                    main_logger.info("成功获取Live2D模型实例")
                     return True
             except ImportError:
-                print("无法导入models.live2d_model模块")
+                main_logger = logging.getLogger()
+                main_logger.warning("无法导入models.live2d_model模块")
             
             # 方法2：尝试从其他可能的位置获取
             try:
@@ -2109,7 +2164,8 @@ class Widget(Interface):
             return False
             
         except Exception as e:
-            print(f"初始化Live2D连接失败: {e}")
+            main_logger = logging.getLogger()
+            main_logger.error(f"初始化Live2D连接失败: {e}")
             return False
 
     def tab_chose(self, num):
@@ -2506,6 +2562,24 @@ class Widget(Interface):
         # 清除之前的输出
         self.left_browser.clear()
 
+        # 启动BAT时显示动作按钮（如果设置中启用）
+        action_buttons_enabled = self.config_data.get('setting', {}).get('action_buttons_enabled', False)
+        self.append_output(f"动作按钮启用状态: {action_buttons_enabled}")
+        if action_buttons_enabled:
+            # 通过parent链访问Window实例的actionButtonsWindow
+            # Widget -> QStackedWidget -> Window
+            window = None
+            if self.parent() and self.parent().parent():
+                window = self.parent().parent()
+            
+            if window and hasattr(window, 'actionButtonsWindow'):
+                window.actionButtonsWindow.show()
+                self.append_output("动作按钮悬浮窗口已显示")
+            else:
+                self.append_output("无法访问动作按钮窗口")
+        else:
+            self.append_output("动作按钮已禁用，不显示悬浮窗口")
+
         # 确保日志处理器已设置
         if not self.log_handler:
             self.log_handler = QTextBrowserHandler(self.left_browser)
@@ -2522,12 +2596,24 @@ class Widget(Interface):
         
         # 更新UI
         self.append_output("BAT脚本已启动...")
+        
+     
     
     def stop_bat(self):
         """停止BAT进程"""
         if self.bat_worker and self.bat_worker.isRunning():
             self.bat_worker.stop()
             self.append_output("正在停止BAT脚本...")
+
+        # 隐藏动作按钮悬浮窗口
+        # 通过parent链访问Window实例
+        window = None
+        if self.parent() and self.parent().parent():
+            window = self.parent().parent()
+        
+        if window and hasattr(window, 'actionButtonsWindow'):
+            window.actionButtonsWindow.hide()
+            self.append_output("动作按钮悬浮窗口已隐藏")
 
     def append_output(self, text):
         # 根据日志级别添加HTML样式
@@ -2551,6 +2637,16 @@ class Widget(Interface):
     def on_bat_finished(self):
         """BAT完成时的处理"""
         self.append_output("BAT脚本已停止")
+        
+        # BAT停止时隐藏动作按钮
+        # 通过parent链访问Window实例
+        window = None
+        if self.parent() and self.parent().parent():
+            window = self.parent().parent()
+        
+        if window and hasattr(window, 'actionButtonsWindow'):
+            window.actionButtonsWindow.hide()
+            self.append_output("动作按钮悬浮窗口已隐藏")
 
     # WebAPI服务器相关方法
     def start_webapi_server(self):
@@ -2741,6 +2837,65 @@ class Widget(Interface):
         except Exception as e:
             self.log_api_response(0, 0, str(e))
             return f"错误：处理LLM请求时发生异常 - {str(e)}"
+    
+    def interrupt_current_operations(self):
+        """打断当前AI输出和语音播放"""
+        try:
+            interrupted_something = False
+            
+            # 1. 尝试通过app_manager访问TTS客户端
+            try:
+                from core.app_manager import AppManager
+                # 尝试获取全局app_manager实例（如果存在）
+                if hasattr(AppManager, '_instance') and AppManager._instance:
+                    app_manager = AppManager._instance
+                    if hasattr(app_manager, 'tts_client') and app_manager.tts_client:
+                        asyncio.create_task(app_manager.tts_client.stop())
+                        interrupted_something = True
+                        print("已通过app_manager停止TTS播放")
+            except Exception as e:
+                print(f"通过app_manager停止TTS时出错: {e}")
+            
+            # 2. 尝试直接访问voice模块的TTS客户端
+            try:
+                from voice.tts_client import TTSClient
+                # 这里可能需要根据实际情况调整访问方式
+                # 如果有全局TTS实例，可以在这里添加访问逻辑
+                pass
+            except Exception as e:
+                print(f"通过voice模块停止TTS时出错: {e}")
+            
+            # 3. 停止Live2D动作
+            try:
+                self.stop_all_live2d_motions()
+                interrupted_something = True
+                main_logger = logging.getLogger()
+                main_logger.info("已停止Live2D动作")
+            except Exception as e:
+                main_logger = logging.getLogger()
+                main_logger.error(f"停止Live2D动作时出错: {e}")
+            
+            # 4. 创建打断信号文件（用于与其他进程通信）
+            try:
+                with open("interrupt_signal.tmp", 'w', encoding='utf-8') as f:
+                    import json
+                    f.write(json.dumps({
+                        "action": "interrupt",
+                        "timestamp": time.time()
+                    }))
+                print("已创建打断信号文件")
+            except Exception as e:
+                print(f"创建打断信号文件时出错: {e}")
+            
+            # 5. 记录打断操作
+            if hasattr(self, 'log_system_event'):
+                self.log_system_event("用户通过WebAPI打断当前操作")
+            
+            return interrupted_something
+            
+        except Exception as e:
+            print(f"打断操作时出错: {e}")
+            return False
 
     def update_widgets(self):
         """更新所有控件显示的值"""
@@ -4185,18 +4340,33 @@ class Widget(Interface):
         # 添加模型详情浏览功能
         self.create_model_details_section()
         
+        # 动作按钮绑定设置
+        self.create_action_buttons_binding_section()
+        
         self.vBoxLayout.addStretch()
 
     def _scan_model_roots(self):
         """返回可能的模型根目录列表，优先 models/2d，再回退 live-2d/2D 与 ai_live2d/2D"""
         proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        return [
+        potential_roots = [
             os.path.join(proj_root, 'models', '2d'),
             os.path.join(proj_root, 'live-2d', '2D'),
             os.path.join(os.path.dirname(__file__), '2D'),
             os.path.join(proj_root, 'py-my-neuro', '2D'),  # 添加py-my-neuro路径
             os.path.join(proj_root, 'py-my-neuro', 'UI', '2D'),  # 添加py-my-neuro/UI路径
         ]
+        
+        # 只返回存在的目录
+        existing_roots = []
+        main_logger = logging.getLogger()
+        for root in potential_roots:
+            if os.path.isdir(root):
+                existing_roots.append(root)
+                main_logger.info(f"✅ 发现模型目录: {root}")
+            else:
+                main_logger.debug(f"ℹ️  跳过不存在的目录: {root}")
+        
+        return existing_roots
 
     def _refresh_model_combo(self):
         """扫描 *.model3.json 并刷新下拉列表，二级文件夹名作为显示文本，值为文件绝对路径"""
@@ -4312,6 +4482,182 @@ class Widget(Interface):
         
         self.vBoxLayout.addWidget(details_group)
 
+    def create_action_buttons_binding_section(self):
+        """创建动作按钮绑定设置功能"""
+        binding_group = QGroupBox("动作按钮绑定设置")
+        binding_layout = QVBoxLayout(binding_group)
+        
+        # 说明文本
+        desc_label = QLabel("在这里可以为动作一和动作二按钮绑定特定的Live2D动作。\n"
+                           "选择动作后，点击对应的'绑定'按钮即可设置。")
+        desc_label.setStyleSheet("color: #666; font-size: 12px;")
+        desc_label.setWordWrap(True)
+        binding_layout.addWidget(desc_label)
+        
+        # 动作一绑定区域
+        action1_layout = QHBoxLayout()
+        action1_layout.addWidget(QLabel("动作一:"))
+        
+        self.action1_combo = QComboBox()
+        self.action1_combo.addItem("未绑定", "")
+        self._populate_action_combo(self.action1_combo)
+        action1_layout.addWidget(self.action1_combo)
+        
+        self.bind_action1_btn = ToolButton(FIF.LINK)
+        self.bind_action1_btn.setText("绑定")
+        self.bind_action1_btn.setToolTip("将选中的动作绑定到动作一按钮")
+        self.bind_action1_btn.clicked.connect(lambda: self.bind_action_to_button(1))
+        action1_layout.addWidget(self.bind_action1_btn)
+        
+        action1_layout.addStretch()
+        binding_layout.addLayout(action1_layout)
+        
+        # 动作二绑定区域
+        action2_layout = QHBoxLayout()
+        action2_layout.addWidget(QLabel("动作二:"))
+        
+        self.action2_combo = QComboBox()
+        self.action2_combo.addItem("未绑定", "")
+        self._populate_action_combo(self.action2_combo)
+        action2_layout.addWidget(self.action2_combo)
+        
+        self.bind_action2_btn = ToolButton(FIF.LINK)
+        self.bind_action2_btn.setText("绑定")
+        self.bind_action2_btn.setToolTip("将选中的动作绑定到动作二按钮")
+        self.bind_action2_btn.clicked.connect(lambda: self.bind_action_to_button(2))
+        action2_layout.addWidget(self.bind_action2_btn)
+        
+        action2_layout.addStretch()
+        binding_layout.addLayout(action2_layout)
+        
+        # 当前绑定状态显示
+        status_layout = QVBoxLayout()
+        status_layout.addWidget(QLabel("当前绑定状态:"))
+        
+        self.binding_status_browser = TextBrowser()
+        self.binding_status_browser.setMaximumHeight(80)
+        self.binding_status_browser.setPlainText("未设置绑定")
+        status_layout.addWidget(self.binding_status_browser)
+        
+        binding_layout.addLayout(status_layout)
+        
+        # 刷新按钮
+        refresh_binding_btn = ToolButton(FIF.UPDATE)
+        refresh_binding_btn.setText("刷新动作列表")
+        refresh_binding_btn.setToolTip("重新加载当前模型的动作列表")
+        refresh_binding_btn.clicked.connect(self.refresh_action_bindings)
+        
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(refresh_binding_btn)
+        button_layout.addStretch()
+        binding_layout.addLayout(button_layout)
+        
+        self.vBoxLayout.addWidget(binding_group)
+        
+        # 初始化绑定状态
+        self.refresh_action_bindings()
+
+    def _populate_action_combo(self, combo):
+        """填充动作下拉列表"""
+        try:
+            # 尝试从动画列表中获取动作
+            if hasattr(self, 'animation_motion_list') and self.animation_motion_list.count() > 0:
+                for i in range(self.animation_motion_list.count()):
+                    item = self.animation_motion_list.item(i)
+                    if item:
+                        combo.addItem(item.text(), item.data(Qt.UserRole))
+            else:
+                # 如果没有动画列表，添加一些默认选项
+                combo.addItem("Idle", 0)
+                combo.addItem("Tap", 1)
+                combo.addItem("随机动作", -1)
+        except Exception as e:
+            print(f"填充动作列表失败: {e}")
+            combo.addItem("Idle", 0)
+
+    def bind_action_to_button(self, button_num):
+        """绑定动作到按钮"""
+        try:
+            combo = self.action1_combo if button_num == 1 else self.action2_combo
+            action_name = combo.currentText()
+            action_data = combo.currentData()
+            
+            if not action_name or action_name == "未绑定":
+                InfoBar.warning(
+                    title=f'动作{button_num}绑定',
+                    content="请选择要绑定的动作",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                return
+            
+            # 保存到配置
+            action_config = self.config_data.setdefault('action_buttons', {})
+            action_config[f'action_{button_num}'] = action_name
+            
+            # 保存配置
+            self.save_config()
+            
+            # 更新状态显示
+            self.refresh_action_bindings()
+            
+            InfoBar.success(
+                title=f'动作{button_num}绑定成功',
+                content=f"已将 '{action_name}' 绑定到动作{button_num}按钮",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title=f'动作{button_num}绑定失败',
+                content=f"绑定失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def refresh_action_bindings(self):
+        """刷新动作绑定状态"""
+        try:
+            action_config = self.config_data.get('action_buttons', {})
+            
+            status_text = ""
+            for i in [1, 2]:
+                action_name = action_config.get(f'action_{i}', '未绑定')
+                status_text += f"动作{i}: {action_name}\n"
+            
+            if not status_text.strip():
+                status_text = "未设置任何绑定"
+            
+            self.binding_status_browser.setPlainText(status_text.strip())
+            
+            # 更新下拉列表的选中状态
+            for i in [1, 2]:
+                combo = self.action1_combo if i == 1 else self.action2_combo
+                action_name = action_config.get(f'action_{i}', '')
+                
+                if action_name:
+                    # 查找对应的索引
+                    for j in range(combo.count()):
+                        if combo.itemText(j) == action_name:
+                            combo.setCurrentIndex(j)
+                            break
+                else:
+                    combo.setCurrentIndex(0)  # 未绑定
+            
+        except Exception as e:
+            print(f"刷新动作绑定状态失败: {e}")
+            self.binding_status_browser.setPlainText("刷新失败")
+
     def load_model_details(self):
         """加载当前选中模型的详情信息"""
         current_model_path = self.model_combo.currentData()
@@ -4344,15 +4690,23 @@ class Widget(Interface):
             
             try:
                 # 第一种方法：直接从py-my-neuro导入
-                sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI')))
+                py_my_neuro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'))
+                main_logger = logging.getLogger()
+                main_logger.info(f"尝试从路径导入Live2D: {py_my_neuro_path}")
+                sys.path.insert(0, py_my_neuro_path)
                 live2d_module = __import__('live2d_model', fromlist=['Live2DModel', 'init_live2d'])
                 Live2DModel = getattr(live2d_module, 'Live2DModel', None)
                 init_live2d = getattr(live2d_module, 'init_live2d', None)
                 if Live2DModel and init_live2d:
                     has_live2d = True
-                    print("✅ 成功从py-my-neuro导入Live2D模块")
+                    main_logger = logging.getLogger()
+                    main_logger.info("✅ 成功从py-my-neuro导入Live2D模块")
             except ImportError as e:
-                print(f"❌ 从py-my-neuro导入失败: {e}")
+                py_my_neuro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'))
+                main_logger = logging.getLogger()
+                main_logger.error(f"❌ 从py-my-neuro导入失败: {e}")
+                main_logger.warning(f"ℹ️  py-my-neuro路径不存在或不可访问: {py_my_neuro_path}")
+                main_logger.info("ℹ️  尝试备用导入方法...")
                 try:
                     # 第二种方法：尝试通过完整模块路径导入
                     models_module = __import__('models.live2d_model', fromlist=['Live2DModel', 'init_live2d'])
@@ -4360,7 +4714,9 @@ class Widget(Interface):
                     init_live2d = getattr(models_module, 'init_live2d', None)
                     if Live2DModel and init_live2d:
                         has_live2d = True
-                        print("✅ 成功从models模块导入Live2D")
+                        main_logger = logging.getLogger()
+                        main_logger.info("✅ 成功从models模块导入Live2D")
+                        main_logger.info("💡 提示: 如果需要使用py-my-neuro，请确保该目录存在且包含正确的Live2D模块")
                 except ImportError as e2:
                     print(f"❌ 从models导入失败: {e2}")
                     # 最后尝试使用原始方法读取模型文件
@@ -5164,6 +5520,7 @@ class Widget(Interface):
             ("Live2d开关", "setting.ui_enabled", "checkbox", True),
             ("字幕开关", "setting.subtitle_enabled", "checkbox", True),
             ("输入框开关", "setting.user_input_enabled", "checkbox", True),
+            ("动作按钮开关", "setting.action_buttons_enabled", "checkbox", False),
             ("RAG开关", "setting.rag_enabled", "checkbox", True),
             ("MCP开关", "setting.mcp_enabled", "checkbox", True),
             ("视觉开关", "setting.vision_enabled", "checkbox", True),
@@ -5173,6 +5530,12 @@ class Widget(Interface):
         ]
         
         group = self.create_form_group(self, "项目设置", fields)
+        
+        # 为动作按钮开关添加状态变化处理
+        if 'setting.action_buttons_enabled' in self.widgets:
+            action_buttons_checkbox = self.widgets['setting.action_buttons_enabled']['widget']
+            action_buttons_checkbox.stateChanged.connect(self.on_action_buttons_enabled_changed)
+        
         self.vBoxLayout.addWidget(group)
         
         # WebAPI输入配置组
@@ -5244,6 +5607,47 @@ class Widget(Interface):
         
         self.vBoxLayout.addWidget(webapi_group)
         self.vBoxLayout.addStretch()
+
+    def on_action_buttons_enabled_changed(self, state):
+        """处理动作按钮开关状态变化"""
+        try:
+            enabled = state == Qt.Checked
+
+            # 更新配置
+            self.config_data.setdefault('setting', {})['action_buttons_enabled'] = enabled
+
+            # 控制悬浮窗口的显示/隐藏
+            # 只有在BAT正在运行时才响应开关，否则保持隐藏
+            if hasattr(self, 'bat_worker') and self.bat_worker and self.bat_worker.isRunning():
+                # 通过parent链访问Window实例
+                window = None
+                if self.parent() and self.parent().parent():
+                    window = self.parent().parent()
+                
+                if window and hasattr(window, 'actionButtonsWindow'):
+                    if enabled:
+                        window.actionButtonsWindow.show()
+                    else:
+                        window.actionButtonsWindow.hide()
+            else:
+                # BAT未运行时，开关变化不影响显示状态（保持隐藏）
+                pass
+
+            # 显示状态提示
+            status_text = "已启用" if enabled else "已禁用"
+            note_text = " (BAT运行时生效)" if not (hasattr(self, 'bat_worker') and self.bat_worker and self.bat_worker.isRunning()) else ""
+            InfoBar.info(
+                title='动作按钮设置',
+                content=f"动作按钮悬浮窗口{status_text}{note_text}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+
+        except Exception as e:
+            print(f"处理动作按钮开关状态变化失败: {e}")
 
     def create_voice_clone_tab(self):
         """创建“声音克隆”页面：包含两个子选项卡
@@ -5385,7 +5789,7 @@ class Widget(Interface):
         if clear_icon is None:
             clear_icon = getattr(FIF, 'BRUSH', None)
         if clear_icon is None:
-            clear_icon = getattr(FIF, 'CLOSE', FIF.STOP)
+            clear_icon = getattr(FIF, 'CLOSE', FIF.CANCEL)
         self.train_clear_btn = ToolButton(clear_icon)
         self.train_clear_btn.setText("清空日志")
         self.train_clear_btn.clicked.connect(self.train_browser.clear)
@@ -5701,6 +6105,69 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+    
+    def trigger_custom_action(self, action_num):
+        """触发自定义动作"""
+        try:
+            # 从配置中获取绑定的动作
+            action_config = self.config_data.get('action_buttons', {})
+            action_key = f'action_{action_num}'
+            
+            if action_key in action_config:
+                motion_name = action_config[action_key]
+                if motion_name:
+                    # 查找对应的动作索引
+                    motion_index = self.find_motion_index_by_name(motion_name)
+                    if motion_index is not None:
+                        self.trigger_live2d_motion(motion_index)
+                        
+                        InfoBar.success(
+                            title=f'动作{action_num}',
+                            content=f"播放动作: {motion_name}",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                        return
+            
+            # 如果没有找到绑定动作，使用默认动作
+            default_motion = action_num  # 使用动作编号作为默认索引
+            self.trigger_live2d_motion(default_motion)
+            
+            InfoBar.info(
+                title=f'动作{action_num}',
+                content=f"播放默认动作 (索引: {default_motion})",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title=f'动作{action_num}失败',
+                content=f"无法播放动作: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def find_motion_index_by_name(self, motion_name):
+        """根据动作名称查找动作索引"""
+        try:
+            if hasattr(self, 'animation_motion_list'):
+                for i in range(self.animation_motion_list.count()):
+                    item = self.animation_motion_list.item(i)
+                    if item and item.text() == motion_name:
+                        return item.data(Qt.UserRole)
+        except Exception as e:
+            print(f"查找动作索引失败: {e}")
+        return None
     
     def stop_all_live2d_motions(self):
         """停止所有Live2D动作"""
@@ -6203,9 +6670,8 @@ class SystemTrayIcon(QSystemTrayIcon):
 
         self.menu = SystemTrayMenu(parent=parent)
         self.menu.addActions([
-            Action('显示', triggered=self.restore_window),
-            Action('设置'),
-            Action('退出', triggered=self.exit_menu)
+            Action('显示肥牛', triggered=self.restore_window),
+            Action('直接退出', triggered=self.exit_direct)
         ])
         self.setContextMenu(self.menu)
         # 左键单击托盘图标恢复窗口
@@ -6225,6 +6691,10 @@ class SystemTrayIcon(QSystemTrayIcon):
         w.cancelButton.setText('我点错啦')
         if w.exec():
             sys.exit()
+
+    def exit_direct(self):
+        """直接退出应用程序"""
+        sys.exit()
 
     def restore_window(self):
         w = self.parent()
@@ -6537,6 +7007,9 @@ class Window(FramelessWindow):
         self.VoiceCloneInterface = Widget('VoiceClone', 10, parent=self)
         self.TerminalInterface = TerminalRoom(self)
 
+        # 创建动作按钮悬浮窗口
+        self.actionButtonsWindow = ActionButtonsWindow(self.MainInterface.config_data, None, self)
+
 
         # initialize layout
         self.initLayout()
@@ -6610,6 +7083,10 @@ class Window(FramelessWindow):
 
         self.setQss()
 
+        # 初始化动作按钮悬浮窗口状态
+        # 默认隐藏，只有在启动BAT时才显示
+        self.actionButtonsWindow.hide()
+
     def addSubInterface(self, interface, icon, text: str, position=NavigationItemPosition.TOP):
         """ add sub interface """
         self.stackWidget.addWidget(interface)
@@ -6664,6 +7141,10 @@ class Window(FramelessWindow):
         if w.exec():
             # 用户选择直接退出
             event.accept()
+            # 关闭动作按钮悬浮窗口
+            if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
+                self.actionButtonsWindow.close()
+            # 隐藏系统托盘
             if self.systemTrayIcon:
                 self.systemTrayIcon.hide()
         else:
@@ -6672,9 +7153,9 @@ class Window(FramelessWindow):
             self.hide()
             if self.systemTrayIcon:
                 self.systemTrayIcon.showMessage(
-                    '肥牛提醒', 
-                    '肥牛已经躲到托盘里啦~ 点击托盘图标可以重新召唤我哦！', 
-                    QSystemTrayIcon.Information, 
+                    '肥牛提醒',
+                    '肥牛已经躲到托盘里啦~ 点击托盘图标可以重新召唤我哦！',
+                    QSystemTrayIcon.Information,
                     3000
                 )
 
@@ -6684,8 +7165,30 @@ class Window(FramelessWindow):
         if e.type() == QEvent.WindowStateChange:
             if self.isMinimized():
                 self.hide()
+                # 同时隐藏动作按钮悬浮窗口
+                if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
+                    self.actionButtonsWindow.hide()
                 if self.systemTrayIcon:
                     self.systemTrayIcon.showMessage('提示', '程序已最小化到托盘', QSystemTrayIcon.Information, 2000)
+
+    def showEvent(self, event):
+        """窗口显示事件"""
+        super().showEvent(event)
+        # 主窗口显示时，根据设置和BAT运行状态显示或隐藏动作按钮悬浮窗口
+        if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
+            action_buttons_enabled = self.MainInterface.config_data.get('setting', {}).get('action_buttons_enabled', False)
+            bat_running = hasattr(self, 'bat_worker') and self.bat_worker and self.bat_worker.isRunning()
+            
+            if action_buttons_enabled and bat_running:
+                self.actionButtonsWindow.show()
+            else:
+                self.actionButtonsWindow.hide()
+
+    def close_bat_msg(self):
+        """重写关闭方法，关闭动作按钮悬浮窗口"""
+        # 关闭动作按钮悬浮窗口
+        if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
+            self.actionButtonsWindow.close()
 
 
 if __name__ == '__main__':
