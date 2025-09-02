@@ -185,7 +185,8 @@ class ModuleConnector:
             await mcp_client.start()
             return mcp_client
         else:
-            logger.warning("MCP客户端... [ 已停用 ]")   
+            logger.warning("MCP客户端... [ 已停用 ]")
+            return None   
 
     async def _init_memory_module(self) -> 'MemoryManager|None':
         """
@@ -198,6 +199,7 @@ class ModuleConnector:
             return memory_manager
         else:
             logger.warning("记忆管理器... [ 已停用 ]")
+            return None
 
     async def _init_vision_module(self) -> 'VisionClient|None':
         """

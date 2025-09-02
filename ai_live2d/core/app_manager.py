@@ -144,7 +144,7 @@ class AppManager:
             (self.llm_client, self.context_processor, self.prompt_integrator), *modules = modules
             self.asr_client, self.tts_client, self.live2d_model, *modules = modules
             self.subtitle_manager, self.user_input, self.rag_system, *modules = modules
-            self.memory_manager, self.mcp_client, self.vision_client, *modules = modules
+            self.mcp_client, self.memory_manager, self.vision_client, *modules = modules
             self.auto_chat, self.bilibili_listener = modules
             
             logger.info("初始化模块组件... [ 完成 ]")

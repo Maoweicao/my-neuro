@@ -15,6 +15,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
+# MCP相关导入
+from mcp import ClientSession, stdio_client
+from mcp.client.sse import sse_client
+from mcp.client.stdio import StdioServerParameters
+from contextlib import AsyncExitStack
+
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
 from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject
@@ -823,12 +829,12 @@ class TTSInteractionLogger:
 
 
 class MCPToolManager(QWidget):
-    """MCP工具管理器 - 支持增删改查MCP工具配置"""
+    """MCP工具管理器 - 支持标准MCP协议格式"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_widget = parent
-        self.mcp_tools = []
+        self.mcp_servers = {}  # 标准MCP服务器配置
         self.setup_ui()
         self.load_mcp_config()
     
@@ -837,15 +843,15 @@ class MCPToolManager(QWidget):
         layout = QHBoxLayout(self)
         layout.setSpacing(10)
         
-        # 左侧：工具列表和操作按钮
+        # 左侧：服务器列表和操作按钮
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         
-        # 工具列表
-        self.tool_list = QListWidget()
-        self.tool_list.itemClicked.connect(self.on_tool_selected)
-        left_layout.addWidget(QLabel("MCP工具列表:"))
-        left_layout.addWidget(self.tool_list)
+        # 服务器列表
+        self.server_list = QListWidget()
+        self.server_list.itemClicked.connect(self.on_server_selected)
+        left_layout.addWidget(QLabel("MCP服务器列表:"))
+        left_layout.addWidget(self.server_list)
         
         # 操作按钮
         btn_layout = QHBoxLayout()
@@ -853,53 +859,106 @@ class MCPToolManager(QWidget):
         self.edit_btn = PushButton("编辑", self)
         self.delete_btn = PushButton("删除", self)
         self.test_btn = PushButton("测试连接", self)
+        self.import_btn = PushButton("导入JSON", self)
         
-        self.add_btn.clicked.connect(self.add_tool)
-        self.edit_btn.clicked.connect(self.edit_tool)
-        self.delete_btn.clicked.connect(self.delete_tool)
-        self.test_btn.clicked.connect(self.test_tool)
+        self.add_btn.clicked.connect(self.add_server)
+        self.edit_btn.clicked.connect(self.edit_server)
+        self.delete_btn.clicked.connect(self.delete_server)
+        self.test_btn.clicked.connect(self.test_server)
+        self.import_btn.clicked.connect(self.import_json)
         
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.delete_btn)
         btn_layout.addWidget(self.test_btn)
+        btn_layout.addWidget(self.import_btn)
         left_layout.addLayout(btn_layout)
+        
+        # 资源加载按钮
+        resource_btn_layout = QHBoxLayout()
+        self.load_tools_btn = PushButton("加载工具", self)
+        self.load_prompts_btn = PushButton("加载提示", self)
+        self.load_resources_btn = PushButton("加载资源", self)
+        
+        self.load_tools_btn.clicked.connect(self.load_tools)
+        self.load_prompts_btn.clicked.connect(self.load_prompts)
+        self.load_resources_btn.clicked.connect(self.load_resources)
+        
+        resource_btn_layout.addWidget(self.load_tools_btn)
+        resource_btn_layout.addWidget(self.load_prompts_btn)
+        resource_btn_layout.addWidget(self.load_resources_btn)
+        left_layout.addLayout(resource_btn_layout)
         
         # 右侧：详细配置
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
         # 配置表单
-        form_group = QGroupBox("MCP工具配置")
+        form_group = QGroupBox("MCP服务器配置")
         form_layout = QFormLayout(form_group)
         
         self.name_edit = LineEdit()
-        self.name_edit.setPlaceholderText("工具名称")
+        self.name_edit.setPlaceholderText("服务器名称")
         form_layout.addRow("名称:", self.name_edit)
         
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(["server", "client", "middleware"])
-        form_layout.addRow("类型:", self.type_combo)
+        self.transport_combo = QComboBox()
+        self.transport_combo.addItems(["stdio", "sse", "streamablehttp", "python"])
+        self.transport_combo.currentTextChanged.connect(self.on_transport_changed)
+        form_layout.addRow("传输方式:", self.transport_combo)
         
+        # 动态控件容器
+        self.dynamic_container = QWidget()
+        self.dynamic_layout = QVBoxLayout(self.dynamic_container)
+        self.dynamic_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # stdio控件
+        self.stdio_group = QWidget()
+        stdio_layout = QFormLayout(self.stdio_group)
+        self.command_edit = LineEdit()
+        self.command_edit.setPlaceholderText("命令 (如: npx)")
+        stdio_layout.addRow("命令:", self.command_edit)
+        self.args_edit = LineEdit()
+        self.args_edit.setPlaceholderText("参数 (如: bing-cn-mcp)")
+        stdio_layout.addRow("参数:", self.args_edit)
+        self.env_edit = QTextEdit()
+        self.env_edit.setPlaceholderText('{"VAR": "value"}')
+        self.env_edit.setMaximumHeight(60)
+        stdio_layout.addRow("环境变量(JSON):", self.env_edit)
+        
+        # sse/streamablehttp控件
+        self.http_group = QWidget()
+        http_layout = QFormLayout(self.http_group)
         self.url_edit = LineEdit()
-        self.url_edit.setPlaceholderText("ws://localhost:3000/mcp 或 http://api.example.com")
-        form_layout.addRow("URL:", self.url_edit)
+        self.url_edit.setPlaceholderText("http://localhost:3000/mcp 或 https://api.example.com")
+        http_layout.addRow("URL:", self.url_edit)
+        self.headers_edit = QTextEdit()
+        self.headers_edit.setPlaceholderText('{"Authorization": "Bearer token"}')
+        self.headers_edit.setMaximumHeight(60)
+        http_layout.addRow("请求头(JSON):", self.headers_edit)
         
-        self.path_edit = LineEdit()
-        self.path_edit.setPlaceholderText("本地路径或执行命令")
-        form_layout.addRow("路径/命令:", self.path_edit)
+        # python控件
+        self.python_group = QWidget()
+        python_layout = QFormLayout(self.python_group)
+        self.module_edit = LineEdit()
+        self.module_edit.setPlaceholderText("模块名或文件路径")
+        python_layout.addRow("模块/文件:", self.module_edit)
+        self.python_args_edit = QTextEdit()
+        self.python_args_edit.setPlaceholderText('["arg1", "arg2"]')
+        self.python_args_edit.setMaximumHeight(60)
+        python_layout.addRow("参数(JSON):", self.python_args_edit)
+        
+        self.dynamic_layout.addWidget(self.stdio_group)
+        self.dynamic_layout.addWidget(self.http_group)
+        self.dynamic_layout.addWidget(self.python_group)
+        
+        form_layout.addRow(self.dynamic_container)
         
         self.enabled_check = CheckBox()
         self.enabled_check.setChecked(True)
         form_layout.addRow("启用:", self.enabled_check)
         
-        self.args_edit = QTextEdit()
-        self.args_edit.setPlaceholderText('{"arg1": "value1", "arg2": "value2"}')
-        self.args_edit.setMaximumHeight(80)
-        form_layout.addRow("参数(JSON):", self.args_edit)
-        
         self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText("工具描述...")
+        self.description_edit.setPlaceholderText("服务器描述...")
         self.description_edit.setMaximumHeight(60)
         form_layout.addRow("描述:", self.description_edit)
         
@@ -908,7 +967,7 @@ class MCPToolManager(QWidget):
         # 保存按钮
         save_btn = PrimaryToolButton(FIF.SAVE)
         save_btn.setText("保存配置")
-        save_btn.clicked.connect(self.save_current_tool)
+        save_btn.clicked.connect(self.save_current_server)
         right_layout.addWidget(save_btn)
         
         # 分割器
@@ -922,20 +981,72 @@ class MCPToolManager(QWidget):
         # 初始状态
         self.clear_form()
         self.update_buttons()
+        self.on_transport_changed("stdio")  # 默认显示stdio
+    
+    def on_transport_changed(self, transport):
+        """传输方式改变时更新界面"""
+        self.stdio_group.setVisible(transport == "stdio")
+        self.http_group.setVisible(transport in ["sse", "streamablehttp"])
+        self.python_group.setVisible(transport == "python")
     
     def load_mcp_config(self):
-        """从父组件的配置中加载MCP工具列表，兼容传统格式"""
+        """从父组件的配置中加载MCP服务器配置，兼容传统格式"""
         if hasattr(self.parent_widget, 'config_data'):
             mcp_config = self.parent_widget.config_data.get('mcp', {})
             
-            # 新格式：直接使用tools数组
-            if 'tools' in mcp_config:
-                self.mcp_tools = mcp_config.get('tools', [])
+            # 新格式：直接使用mcpServers
+            if 'mcpServers' in mcp_config:
+                self.mcp_servers = mcp_config.get('mcpServers', {})
+            elif 'servers' in mcp_config:
+                self.mcp_servers = mcp_config.get('servers', {})
+            # 兼容旧的 tools 列表格式（来自早期实现或测试）
+            elif 'tools' in mcp_config:
+                # 将tools列表转换为mcp_servers dict
+                tools = mcp_config.get('tools', [])
+                self.mcp_servers = {}
+                for t in tools:
+                    name = t.get('name') or f"tool_{len(self.mcp_servers)+1}"
+                    cfg = {}
+                    # 尝试映射旧字段到新格式
+                    cfg['enabled'] = t.get('enabled', True)
+                    cfg['description'] = t.get('description', '')
+                    # url/path/args
+                    if t.get('url'):
+                        cfg['transport'] = 'sse'
+                        cfg['url'] = t.get('url')
+                        cfg['headers'] = {}
+                    elif t.get('path'):
+                        # 如果看起来是python文件或 .py 后缀，归为 python，否则stdio
+                        path = t.get('path')
+                        if isinstance(path, str) and path.endswith('.py'):
+                            cfg['transport'] = 'python'
+                            cfg['module'] = path
+                            cfg['args'] = t.get('args', []) if isinstance(t.get('args', []), list) else []
+                        else:
+                            cfg['transport'] = 'stdio'
+                            cfg['command'] = path
+                            # 尝试把 args dict 转为 list if necessary
+                            args = t.get('args', {})
+                            if isinstance(args, dict):
+                                # keep as empty list for stdio compatibility
+                                cfg['args'] = []
+                            elif isinstance(args, list):
+                                cfg['args'] = args
+                            else:
+                                cfg['args'] = []
+                            cfg['env'] = {}
+                    else:
+                        # 作为stdio占位
+                        cfg['transport'] = 'stdio'
+                        cfg['command'] = ''
+                        cfg['args'] = []
+                        cfg['env'] = {}
+                    self.mcp_servers[name] = cfg
             else:
-                # 传统格式：从urls和paths转换
-                self.mcp_tools = []
+                # 传统格式转换
+                self.mcp_servers = {}
                 
-                # 处理URLs
+                # 处理URLs (sse/streamablehttp)
                 urls = mcp_config.get('urls', [])
                 if isinstance(urls, str):
                     urls = [url.strip() for url in urls.split(',') if url.strip()]
@@ -944,18 +1055,16 @@ class MCPToolManager(QWidget):
                 
                 for i, url in enumerate(urls):
                     if url.strip():
-                        tool = {
-                            'name': f'URL工具{i+1}',
-                            'type': 'server',
+                        server_name = f'url_server_{i+1}'
+                        self.mcp_servers[server_name] = {
+                            'transport': 'sse' if url.startswith('http') else 'streamablehttp',
                             'url': url.strip(),
-                            'path': '',
+                            'headers': {},
                             'enabled': True,
-                            'args': {},
-                            'description': f'从配置文件导入的URL: {url.strip()}'
+                            'description': f'从传统URL导入: {url.strip()}'
                         }
-                        self.mcp_tools.append(tool)
                 
-                # 处理Paths
+                # 处理Paths (stdio/python)
                 paths = mcp_config.get('paths', [])
                 if isinstance(paths, str):
                     paths = [path.strip() for path in paths.split(',') if path.strip()]
@@ -964,172 +1073,249 @@ class MCPToolManager(QWidget):
                 
                 for i, path in enumerate(paths):
                     if path.strip():
-                        tool = {
-                            'name': f'路径工具{i+1}',
-                            'type': 'server',
-                            'url': '',
-                            'path': path.strip(),
-                            'enabled': True,
-                            'args': {},
-                            'description': f'从配置文件导入的路径: {path.strip()}'
-                        }
-                        self.mcp_tools.append(tool)
+                        server_name = f'path_server_{i+1}'
+                        # 简单判断是命令还是Python文件
+                        if path.endswith('.py') or not os.path.exists(path):
+                            transport = 'python'
+                            config = {
+                                'transport': transport,
+                                'module': path.strip(),
+                                'args': [],
+                                'enabled': True,
+                                'description': f'从传统路径导入: {path.strip()}'
+                            }
+                        else:
+                            transport = 'stdio'
+                            config = {
+                                'transport': transport,
+                                'command': path.strip(),
+                                'args': [],
+                                'env': {},
+                                'enabled': True,
+                                'description': f'从传统路径导入: {path.strip()}'
+                            }
+                        self.mcp_servers[server_name] = config
                 
-                # 自动保存转换后的格式到配置中
-                if self.mcp_tools:
+                # 自动保存转换后的格式
+                if self.mcp_servers:
                     self.save_to_parent_config()
         
-        self.refresh_tool_list()
+        self.refresh_server_list()
+
     
-    def refresh_tool_list(self):
-        """刷新工具列表显示"""
-        self.tool_list.clear()
-        for i, tool in enumerate(self.mcp_tools):
-            item_text = f"{tool.get('name', f'工具{i+1}')} ({'✓' if tool.get('enabled', True) else '✗'})"
+    def refresh_server_list(self):
+        """刷新服务器列表显示"""
+        self.server_list.clear()
+        for name, config in self.mcp_servers.items():
+            enabled = config.get('enabled', True)
+            transport = config.get('transport', 'stdio')
+            item_text = f"{name} ({transport}) ({'✓' if enabled else '✗'})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, i)  # 存储索引
-            self.tool_list.addItem(item)
+            item.setData(Qt.UserRole, name)
+            self.server_list.addItem(item)
     
-    def on_tool_selected(self, item):
-        """工具选中事件"""
-        index = item.data(Qt.UserRole)
-        if 0 <= index < len(self.mcp_tools):
-            tool = self.mcp_tools[index]
-            self.load_tool_to_form(tool)
+    def on_server_selected(self, item):
+        """服务器选中事件"""
+        name = item.data(Qt.UserRole)
+        if name in self.mcp_servers:
+            server_config = self.mcp_servers[name]
+            self.load_server_to_form(name, server_config)
         self.update_buttons()
     
-    def load_tool_to_form(self, tool):
-        """将工具配置加载到表单"""
-        self.name_edit.setText(tool.get('name', ''))
+    def load_server_to_form(self, name, config):
+        """将服务器配置加载到表单"""
+        self.name_edit.setText(name)
         
-        tool_type = tool.get('type', 'server')
-        index = self.type_combo.findText(tool_type)
+        transport = config.get('transport', 'stdio')
+        index = self.transport_combo.findText(transport)
         if index >= 0:
-            self.type_combo.setCurrentIndex(index)
+            self.transport_combo.setCurrentIndex(index)
         
-        self.url_edit.setText(tool.get('url', ''))
-        self.path_edit.setText(tool.get('path', ''))
-        self.enabled_check.setChecked(tool.get('enabled', True))
+        # 根据传输方式加载不同字段
+        if transport == 'stdio':
+            self.command_edit.setText(config.get('command', ''))
+            args = config.get('args', [])
+            if isinstance(args, list):
+                self.args_edit.setText(' '.join(str(arg) for arg in args))
+            else:
+                self.args_edit.setText(str(args))
+            env = config.get('env', {})
+            self.env_edit.setPlainText(json.dumps(env, indent=2, ensure_ascii=False) if env else '')
+            
+        elif transport in ['sse', 'streamablehttp']:
+            self.url_edit.setText(config.get('url', ''))
+            headers = config.get('headers', {})
+            self.headers_edit.setPlainText(json.dumps(headers, indent=2, ensure_ascii=False) if headers else '')
+            
+        elif transport == 'python':
+            self.module_edit.setText(config.get('module', ''))
+            args = config.get('args', [])
+            self.python_args_edit.setPlainText(json.dumps(args, indent=2, ensure_ascii=False) if args else '')
         
-        args = tool.get('args', {})
-        if isinstance(args, dict):
-            self.args_edit.setPlainText(json.dumps(args, indent=2, ensure_ascii=False))
-        else:
-            self.args_edit.setPlainText(str(args))
-        
-        self.description_edit.setPlainText(tool.get('description', ''))
+        self.enabled_check.setChecked(config.get('enabled', True))
+        self.description_edit.setPlainText(config.get('description', ''))
     
     def clear_form(self):
         """清空表单"""
         self.name_edit.clear()
-        self.type_combo.setCurrentIndex(0)
-        self.url_edit.clear()
-        self.path_edit.clear()
-        self.enabled_check.setChecked(True)
+        self.transport_combo.setCurrentIndex(0)
+        self.command_edit.clear()
         self.args_edit.clear()
+        self.env_edit.clear()
+        self.url_edit.clear()
+        self.headers_edit.clear()
+        self.module_edit.clear()
+        self.python_args_edit.clear()
+        self.enabled_check.setChecked(True)
         self.description_edit.clear()
     
     def get_form_data(self):
         """从表单获取数据"""
-        try:
-            args_text = self.args_edit.toPlainText().strip()
-            args = json.loads(args_text) if args_text else {}
-        except json.JSONDecodeError:
-            args = {}
+        name = self.name_edit.text().strip()
+        transport = self.transport_combo.currentText()
         
-        return {
-            'name': self.name_edit.text().strip(),
-            'type': self.type_combo.currentText(),
-            'url': self.url_edit.text().strip(),
-            'path': self.path_edit.text().strip(),
+        config = {
+            'transport': transport,
             'enabled': self.enabled_check.isChecked(),
-            'args': args,
             'description': self.description_edit.toPlainText().strip()
         }
+        
+        try:
+            if transport == 'stdio':
+                args_text = self.args_edit.text().strip()
+                args = args_text.split() if args_text else []
+                env_text = self.env_edit.toPlainText().strip()
+                env = json.loads(env_text) if env_text else {}
+                config.update({
+                    'command': self.command_edit.text().strip(),
+                    'args': args,
+                    'env': env
+                })
+                
+            elif transport in ['sse', 'streamablehttp']:
+                headers_text = self.headers_edit.toPlainText().strip()
+                headers = json.loads(headers_text) if headers_text else {}
+                config.update({
+                    'url': self.url_edit.text().strip(),
+                    'headers': headers
+                })
+                
+            elif transport == 'python':
+                args_text = self.python_args_edit.toPlainText().strip()
+                args = json.loads(args_text) if args_text else []
+                config.update({
+                    'module': self.module_edit.text().strip(),
+                    'args': args
+                })
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON格式错误: {str(e)}")
+        
+        return name, config
     
-    def add_tool(self):
-        """添加新工具"""
+    def add_server(self):
+        """添加新服务器"""
         self.clear_form()
         self.name_edit.setFocus()
         self.update_buttons()
     
-    def edit_tool(self):
-        """编辑当前选中的工具"""
-        current_item = self.tool_list.currentItem()
+    def edit_server(self):
+        """编辑当前选中的服务器"""
+        current_item = self.server_list.currentItem()
         if current_item:
-            index = current_item.data(Qt.UserRole)
-            if 0 <= index < len(self.mcp_tools):
-                self.load_tool_to_form(self.mcp_tools[index])
+            name = current_item.data(Qt.UserRole)
+            if name in self.mcp_servers:
+                self.load_server_to_form(name, self.mcp_servers[name])
     
-    def delete_tool(self):
-        """删除当前选中的工具"""
-        current_item = self.tool_list.currentItem()
+    def delete_server(self):
+        """删除当前选中的服务器"""
+        current_item = self.server_list.currentItem()
         if not current_item:
             return
         
-        index = current_item.data(Qt.UserRole)
-        if 0 <= index < len(self.mcp_tools):
-            tool_name = self.mcp_tools[index].get('name', f'工具{index+1}')
+        name = current_item.data(Qt.UserRole)
+        if name in self.mcp_servers:
             reply = QMessageBox.question(
                 self, '确认删除', 
-                f'确定要删除工具 "{tool_name}" 吗？',
+                f'确定要删除服务器 "{name}" 吗？',
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
             
             if reply == QMessageBox.Yes:
-                del self.mcp_tools[index]
-                self.refresh_tool_list()
+                del self.mcp_servers[name]
+                self.refresh_server_list()
                 self.clear_form()
                 self.update_buttons()
                 self.save_to_parent_config()
     
-    def save_current_tool(self):
-        """保存当前表单中的工具配置"""
-        tool_data = self.get_form_data()
-        
-        if not tool_data['name']:
-            InfoBar.warning(
-                title='保存失败',
-                content="请输入工具名称",
+    def save_current_server(self):
+        """保存当前表单中的服务器配置"""
+        try:
+            name, config = self.get_form_data()
+            
+            if not name:
+                InfoBar.warning(
+                    title='保存失败',
+                    content="请输入服务器名称",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                return
+            
+            # 检查名称是否已存在（编辑模式下允许同名）
+            current_item = self.server_list.currentItem()
+            if current_item:
+                old_name = current_item.data(Qt.UserRole)
+                if old_name != name and name in self.mcp_servers:
+                    InfoBar.warning(
+                        title='保存失败',
+                        content=f"服务器名称 '{name}' 已存在",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                    return
+                # 如果名称改变，删除旧的
+                if old_name != name:
+                    del self.mcp_servers[old_name]
+            
+            self.mcp_servers[name] = config
+            self.refresh_server_list()
+            self.save_to_parent_config()
+            
+            InfoBar.success(
+                title='保存成功',
+                content=f"服务器 '{name}' 已保存",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=2000,
                 parent=self
             )
-            return
-        
-        current_item = self.tool_list.currentItem()
-        if current_item:
-            # 编辑现有工具
-            index = current_item.data(Qt.UserRole)
-            if 0 <= index < len(self.mcp_tools):
-                self.mcp_tools[index] = tool_data
-        else:
-            # 添加新工具
-            self.mcp_tools.append(tool_data)
-        
-        self.refresh_tool_list()
-        self.save_to_parent_config()
-        
-        InfoBar.success(
-            title='保存成功',
-            content=f"工具 '{tool_data['name']}' 已保存",
-            orient=Qt.Horizontal,
-            isClosable=True,
-            position=InfoBarPosition.TOP,
-            duration=2000,
-            parent=self
-        )
+            
+        except ValueError as e:
+            InfoBar.error(
+                title='保存失败',
+                content=str(e),
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
     
-    def test_tool(self):
-        """测试工具连接"""
-        current_item = self.tool_list.currentItem()
+    def test_server(self):
+        """测试服务器连接"""
+        current_item = self.server_list.currentItem()
         if not current_item:
             InfoBar.warning(
                 title='测试失败',
-                content="请先选择一个工具",
+                content="请先选择一个服务器",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -1138,20 +1324,328 @@ class MCPToolManager(QWidget):
             )
             return
         
-        index = current_item.data(Qt.UserRole)
-        if 0 <= index < len(self.mcp_tools):
-            tool = self.mcp_tools[index]
-            url = tool.get('url', '')
-            path = tool.get('path', '')
+        name = current_item.data(Qt.UserRole)
+        if name in self.mcp_servers:
+            config = self.mcp_servers[name]
+            transport = config.get('transport', 'stdio')
             
-            if url:
-                # 简单的URL测试（可以扩展为实际的MCP连接测试）
-                try:
+            try:
+                if transport == 'stdio':
+                    # 测试命令是否存在
+                    command = config.get('command', '')
+                    args = config.get('args', [])
+                    
+                    if command:
+                        try:
+                            if command == 'npx' and args:
+                                # 特殊处理npx命令，测试包是否存在
+                                package_name = args[0] if args else ''
+                                if package_name:
+                                    # 使用完整路径的npx命令
+                                    npx_path = r'C:\nvm4w\nodejs\npx.cmd'
+                                    result = subprocess.run([npx_path, '--package', package_name, '--yes', 'echo', 'test'], 
+                                                          capture_output=True, text=True, timeout=15, 
+                                                          env=self._get_conda_env())
+                                    if result.returncode == 0:
+                                        InfoBar.success(
+                                            title='测试成功',
+                                            content=f"npx包 '{package_name}' 可用",
+                                            orient=Qt.Horizontal,
+                                            isClosable=True,
+                                            position=InfoBarPosition.TOP,
+                                            duration=2000,
+                                            parent=self
+                                        )
+                                    else:
+                                        InfoBar.warning(
+                                            title='测试结果',
+                                            content=f"npx包 '{package_name}' 可能不存在或无法访问: {result.stderr[:100]}",
+                                            orient=Qt.Horizontal,
+                                            isClosable=True,
+                                            position=InfoBarPosition.TOP,
+                                            duration=3000,
+                                            parent=self
+                                        )
+                                else:
+                                    InfoBar.warning(
+                                        title='无法测试',
+                                        content="npx命令缺少包名参数",
+                                        orient=Qt.Horizontal,
+                                        isClosable=True,
+                                        position=InfoBarPosition.TOP,
+                                        duration=2000,
+                                        parent=self
+                                    )
+                            else:
+                                # 普通命令测试
+                                result = subprocess.run([command] + (['--help'] if '--help' not in str(args) else []), 
+                                                      capture_output=True, text=True, timeout=10,
+                                                      env=self._get_conda_env())
+                                if result.returncode == 0:
+                                    InfoBar.success(
+                                        title='测试成功',
+                                        content=f"命令 '{command}' 可执行",
+                                        orient=Qt.Horizontal,
+                                        isClosable=True,
+                                        position=InfoBarPosition.TOP,
+                                        duration=2000,
+                                        parent=self
+                                    )
+                                else:
+                                    InfoBar.warning(
+                                        title='测试结果',
+                                        content=f"命令返回错误: {result.stderr[:100]}",
+                                        orient=Qt.Horizontal,
+                                        isClosable=True,
+                                        position=InfoBarPosition.TOP,
+                                        duration=2000,
+                                        parent=self
+                                    )
+                        except subprocess.TimeoutExpired:
+                            InfoBar.warning(
+                                title='测试超时',
+                                content=f"命令 '{command}' 测试超时",
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=2000,
+                                parent=self
+                            )
+                        except FileNotFoundError:
+                            InfoBar.error(
+                                title='命令未找到',
+                                content=f"命令 '{command}' 未找到，请检查PATH环境变量",
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=3000,
+                                parent=self
+                            )
+                        except Exception as e:
+                            InfoBar.error(
+                                title='测试失败',
+                                content=f"测试命令时出错: {str(e)}",
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=3000,
+                                parent=self
+                            )
+                    else:
+                        InfoBar.warning(
+                            title='无法测试',
+                            content="未配置命令",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                        
+                elif transport in ['sse', 'streamablehttp']:
+                    # 测试HTTP连接
                     import requests
-                    response = requests.get(url, timeout=5)
-                    InfoBar.success(
-                        title='连接成功',
-                        content=f"URL {url} 响应状态: {response.status_code}",
+                    url = config.get('url', '')
+                    headers = config.get('headers', {})
+                    if url:
+                        response = requests.get(url, headers=headers, timeout=10)
+                        InfoBar.success(
+                            title='连接成功',
+                            content=f"URL {url} 响应状态: {response.status_code}",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=3000,
+                            parent=self
+                        )
+                    else:
+                        InfoBar.warning(
+                            title='无法测试',
+                            content="未配置URL",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                        
+                elif transport == 'python':
+                    # 测试Python模块
+                    module = config.get('module', '')
+                    if module:
+                        if module.endswith('.py'):
+                            if os.path.exists(module):
+                                InfoBar.success(
+                                    title='文件存在',
+                                    content=f"Python文件 {module} 存在",
+                                    orient=Qt.Horizontal,
+                                    isClosable=True,
+                                    position=InfoBarPosition.TOP,
+                                    duration=2000,
+                                    parent=self
+                                )
+                            else:
+                                InfoBar.error(
+                                    title='文件不存在',
+                                    content=f"Python文件 {module} 不存在",
+                                    orient=Qt.Horizontal,
+                                    isClosable=True,
+                                    position=InfoBarPosition.TOP,
+                                    duration=2000,
+                                    parent=self
+                                )
+                        else:
+                            # 测试模块导入
+                            try:
+                                __import__(module)
+                                InfoBar.success(
+                                    title='模块可用',
+                                    content=f"Python模块 {module} 可导入",
+                                    orient=Qt.Horizontal,
+                                    isClosable=True,
+                                    position=InfoBarPosition.TOP,
+                                    duration=2000,
+                                    parent=self
+                                )
+                            except ImportError:
+                                InfoBar.warning(
+                                    title='模块不可用',
+                                    content=f"无法导入Python模块 {module}",
+                                    orient=Qt.Horizontal,
+                                    isClosable=True,
+                                    position=InfoBarPosition.TOP,
+                                    duration=2000,
+                                    parent=self
+                                )
+                    else:
+                        InfoBar.warning(
+                            title='无法测试',
+                            content="未配置模块",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                        
+            except Exception as e:
+                InfoBar.error(
+                    title='测试失败',
+                    content=f"测试过程中出错: {str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+    
+    def update_buttons(self):
+        """更新按钮状态"""
+        has_selection = self.server_list.currentItem() is not None
+        self.edit_btn.setEnabled(has_selection)
+        self.delete_btn.setEnabled(has_selection)
+        self.test_btn.setEnabled(has_selection)
+        self.load_tools_btn.setEnabled(has_selection)
+        self.load_prompts_btn.setEnabled(has_selection)
+        self.load_resources_btn.setEnabled(has_selection)
+    
+    def import_json(self):
+        """从JSON字符串导入服务器配置"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("导入MCP服务器配置")
+        dialog.setModal(True)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 说明文本
+        info_label = QLabel("粘贴包含 mcpServers 的JSON配置：")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # JSON输入框
+        json_edit = QTextEdit()
+        json_edit.setPlaceholderText('''例如：
+{
+  "mcpServers": {
+    "bingcn": {
+      "command": "npx",
+      "args": ["bing-cn-mcp"]
+    },
+    "filesystem": {
+      "transport": "sse",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}''')
+        layout.addWidget(json_edit)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        import_btn = PushButton("导入")
+        cancel_btn = PushButton("取消")
+        
+        import_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        btn_layout.addWidget(import_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.resize(500, 400)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            json_text = json_edit.toPlainText().strip()
+            if json_text:
+                try:
+                    data = json.loads(json_text)
+                    
+                    # 支持多种格式
+                    servers = {}
+                    if 'mcpServers' in data:
+                        servers = data['mcpServers']
+                    elif 'servers' in data:
+                        servers = data['servers']
+                    elif isinstance(data, dict):
+                        # 直接是服务器配置
+                        servers = data
+                    
+                    # 验证和导入
+                    imported_count = 0
+                    for name, config in servers.items():
+                        if isinstance(config, dict):
+                            # 标准化配置
+                            normalized_config = self.normalize_server_config(config)
+                            if normalized_config:
+                                self.mcp_servers[name] = normalized_config
+                                imported_count += 1
+                    
+                    if imported_count > 0:
+                        self.refresh_server_list()
+                        self.save_to_parent_config()
+                        InfoBar.success(
+                            title='导入成功',
+                            content=f"成功导入 {imported_count} 个服务器配置",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                    else:
+                        InfoBar.warning(
+                            title='导入结果',
+                            content="未找到有效的服务器配置",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                        
+                except json.JSONDecodeError as e:
+                    InfoBar.error(
+                        title='导入失败',
+                        content=f"JSON格式错误: {str(e)}",
                         orient=Qt.Horizontal,
                         isClosable=True,
                         position=InfoBarPosition.TOP,
@@ -1160,79 +1654,351 @@ class MCPToolManager(QWidget):
                     )
                 except Exception as e:
                     InfoBar.error(
-                        title='连接失败',
-                        content=f"无法连接到 {url}: {str(e)}",
+                        title='导入失败',
+                        content=f"导入过程中出错: {str(e)}",
                         orient=Qt.Horizontal,
                         isClosable=True,
                         position=InfoBarPosition.TOP,
                         duration=3000,
                         parent=self
                     )
-            elif path:
-                # 路径或命令测试
-                if os.path.exists(path):
-                    InfoBar.success(
-                        title='路径有效',
-                        content=f"路径 {path} 存在",
-                        orient=Qt.Horizontal,
-                        isClosable=True,
-                        position=InfoBarPosition.TOP,
-                        duration=2000,
-                        parent=self
-                    )
-                else:
-                    InfoBar.warning(
-                        title='路径无效',
-                        content=f"路径 {path} 不存在",
-                        orient=Qt.Horizontal,
-                        isClosable=True,
-                        position=InfoBarPosition.TOP,
-                        duration=2000,
-                        parent=self
-                    )
-            else:
-                InfoBar.warning(
-                    title='无法测试',
-                    content="工具未配置URL或路径",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
     
-    def update_buttons(self):
-        """更新按钮状态"""
-        has_selection = self.tool_list.currentItem() is not None
-        self.edit_btn.setEnabled(has_selection)
-        self.delete_btn.setEnabled(has_selection)
-        self.test_btn.setEnabled(has_selection)
+    def normalize_server_config(self, config):
+        """标准化服务器配置"""
+        if not isinstance(config, dict):
+            return None
+        
+        # 检测传输方式
+        transport = config.get('transport', 'stdio')
+        
+        # 如果没有明确指定transport，尝试推断
+        if 'transport' not in config:
+            if 'command' in config or 'args' in config:
+                transport = 'stdio'
+            elif 'url' in config:
+                transport = 'sse'  # 默认HTTP传输
+            elif 'module' in config:
+                transport = 'python'
+        
+        normalized = {
+            'transport': transport,
+            'enabled': config.get('enabled', True),
+            'description': config.get('description', '')
+        }
+        
+        if transport == 'stdio':
+            normalized.update({
+                'command': config.get('command', ''),
+                'args': config.get('args', []),
+                'env': config.get('env', {})
+            })
+        elif transport in ['sse', 'streamablehttp']:
+            normalized.update({
+                'url': config.get('url', ''),
+                'headers': config.get('headers', {})
+            })
+        elif transport == 'python':
+            normalized.update({
+                'module': config.get('module', ''),
+                'args': config.get('args', [])
+            })
+        
+        return normalized
+    
+    def _get_conda_env(self):
+        """获取包含conda环境的PATH的环境变量"""
+        import os
+        server_env = os.environ.copy()
+        
+        # 确保包含conda环境的PATH（如果存在的话）
+        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV')
+        if conda_env_path:
+            conda_bin_path = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'Scripts' if os.name == 'nt' else 'bin')
+            current_path = server_env.get('PATH', '')
+            if conda_bin_path not in current_path:
+                server_env['PATH'] = conda_bin_path + os.pathsep + current_path
+        
+        # 强制重新排列PATH，确保Node.js路径在前面
+        nodejs_path = r'C:\nvm4w\nodejs'
+        if nodejs_path in current_path:
+            # 如果Node.js路径已在PATH中，将其移到前面
+            paths = current_path.split(os.pathsep)
+            paths.remove(nodejs_path)
+            paths.insert(0, nodejs_path)
+            server_env['PATH'] = os.pathsep.join(paths)
+        else:
+            # 如果不在PATH中，添加到前面
+            server_env['PATH'] = nodejs_path + os.pathsep + current_path
+        
+        return server_env
     
     def save_to_parent_config(self):
         """保存到父组件的配置中"""
         if hasattr(self.parent_widget, 'config_data'):
             if 'mcp' not in self.parent_widget.config_data:
                 self.parent_widget.config_data['mcp'] = {}
-            self.parent_widget.config_data['mcp']['tools'] = self.mcp_tools
+            self.parent_widget.config_data['mcp']['mcpServers'] = self.mcp_servers
     
+    def get_servers_config(self):
+        """获取服务器配置，供外部调用"""
+        return {
+            'mcpServers': self.mcp_servers
+        }
+
+    # 兼容旧接口：返回 tools/urls/paths 以满足旧代码调用 get_tools_config
     def get_tools_config(self):
-        """获取工具配置，供外部调用，同时保持向后兼容"""
-        # 生成URLs和Paths列表（向后兼容）
+        """兼容函数：返回旧的 tools/urls/paths 格式以及新的 mcpServers"""
+        tools_list = []
         urls = []
         paths = []
-        
-        for tool in self.mcp_tools:
-            if tool.get('enabled', True):
-                if tool.get('url'):
-                    urls.append(tool['url'])
-                if tool.get('path'):
-                    paths.append(tool['path'])
-        
+        for name, cfg in self.mcp_servers.items():
+            if not cfg.get('enabled', True):
+                continue
+            tool = {
+                'name': name,
+                'enabled': cfg.get('enabled', True),
+                'description': cfg.get('description', '')
+            }
+            transport = cfg.get('transport', 'stdio')
+            if transport in ['sse', 'streamablehttp']:
+                tool['type'] = 'server'
+                tool['url'] = cfg.get('url', '')
+                urls.append(cfg.get('url', ''))
+            elif transport == 'python':
+                tool['type'] = 'server'
+                tool['path'] = cfg.get('module', '')
+                paths.append(cfg.get('module', ''))
+                tool['args'] = cfg.get('args', [])
+            else:
+                tool['type'] = 'server'
+                tool['path'] = cfg.get('command', '')
+                tool['args'] = cfg.get('args', [])
+                paths.append(cfg.get('command', ''))
+
+            tools_list.append(tool)
+
         return {
-            'tools': self.mcp_tools,  # 新格式
-            'urls': urls,             # 传统格式兼容
-            'paths': paths            # 传统格式兼容
+            'tools': tools_list,
+            'urls': [u for u in urls if u],
+            'paths': [p for p in paths if p],
+            'mcpServers': self.mcp_servers
         }
+
+    def load_tools(self):
+        """加载并显示选中服务器的工具列表"""
+        current_item = self.server_list.currentItem()
+        if not current_item:
+            InfoBar.warning(
+                title='请选择服务器',
+                content="请先选择一个MCP服务器",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        name = current_item.data(Qt.UserRole)
+        if name in self.mcp_servers:
+            config = self.mcp_servers[name]
+            self._load_server_resources(name, config, 'tools')
+
+    def load_prompts(self):
+        """加载并显示选中服务器的提示列表"""
+        current_item = self.server_list.currentItem()
+        if not current_item:
+            InfoBar.warning(
+                title='请选择服务器',
+                content="请先选择一个MCP服务器",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        name = current_item.data(Qt.UserRole)
+        if name in self.mcp_servers:
+            config = self.mcp_servers[name]
+            self._load_server_resources(name, config, 'prompts')
+
+    def load_resources(self):
+        """加载并显示选中服务器的资源列表"""
+        current_item = self.server_list.currentItem()
+        if not current_item:
+            InfoBar.warning(
+                title='请选择服务器',
+                content="请先选择一个MCP服务器",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        name = current_item.data(Qt.UserRole)
+        if name in self.mcp_servers:
+            config = self.mcp_servers[name]
+            self._load_server_resources(name, config, 'resources')
+
+    def _load_server_resources(self, server_name, config, resource_type):
+        """加载服务器资源（工具/提示/资源）"""
+        # 创建异步任务来加载资源
+        import asyncio
+        from qasync import QEventLoop, asyncSlot
+        
+        async def load_async():
+            try:
+                exit_stack = AsyncExitStack()
+                session = None
+                
+                transport = config.get('transport', 'stdio')
+                
+                if transport == 'stdio':
+                    # 连接stdio服务器
+                    command = config.get('command', '')
+                    args = config.get('args', [])
+                    env = config.get('env', {})
+                    
+                    if not command:
+                        raise ValueError("未配置命令")
+                    
+                    server_env = self._get_conda_env()
+                    if env:
+                        server_env.update(env)
+                    
+                    server_params = StdioServerParameters(
+                        command=command,
+                        args=args,
+                        env=server_env
+                    )
+                    
+                    stdio_transport = await exit_stack.enter_async_context(stdio_client(server_params))
+                    stdio, write = stdio_transport
+                    session = await exit_stack.enter_async_context(ClientSession(stdio, write))
+                    
+                elif transport in ['sse', 'streamablehttp']:
+                    # 连接SSE服务器
+                    url = config.get('url', '')
+                    headers = config.get('headers', {})
+                    
+                    if not url:
+                        raise ValueError("未配置URL")
+                    
+                    read, write = await exit_stack.enter_async_context(sse_client(url, headers=headers))
+                    session = await exit_stack.enter_async_context(ClientSession(read, write))
+                    
+                elif transport == 'python':
+                    # 连接Python服务器
+                    module = config.get('module', '')
+                    args = config.get('args', [])
+                    
+                    if not module:
+                        raise ValueError("未配置模块")
+                    
+                    # 构建命令
+                    if module.endswith('.py'):
+                        if os.path.exists(module):
+                            command = sys.executable
+                            args = [module] + args
+                        else:
+                            raise ValueError(f"Python文件不存在: {module}")
+                    else:
+                        command = sys.executable
+                        args = ['-m', module] + args
+                    
+                    server_env = self._get_conda_env()
+                    server_params = StdioServerParameters(
+                        command=command,
+                        args=args,
+                        env=server_env
+                    )
+                    
+                    stdio_transport = await exit_stack.enter_async_context(stdio_client(server_params))
+                    stdio, write = stdio_transport
+                    session = await exit_stack.enter_async_context(ClientSession(stdio, write))
+                
+                if session:
+                    await session.initialize()
+                    
+                    # 根据资源类型调用相应的方法
+                    if resource_type == 'tools':
+                        response = await session.list_tools()
+                        resources = response.tools
+                        resource_name = "工具"
+                    elif resource_type == 'prompts':
+                        try:
+                            response = await session.list_prompts()
+                            resources = response.prompts
+                            resource_name = "提示"
+                        except AttributeError:
+                            # 如果服务器不支持list_prompts
+                            resources = []
+                            resource_name = "提示"
+                    elif resource_type == 'resources':
+                        try:
+                            response = await session.list_resources()
+                            resources = response.resources
+                            resource_name = "资源"
+                        except AttributeError:
+                            # 如果服务器不支持list_resources
+                            resources = []
+                            resource_name = "资源"
+                    
+                    # 显示结果
+                    if resources:
+                        resource_list = []
+                        for resource in resources:
+                            if hasattr(resource, 'name'):
+                                resource_list.append(f"• {resource.name}")
+                                if hasattr(resource, 'description') and resource.description:
+                                    resource_list.append(f"  描述: {resource.description}")
+                            else:
+                                resource_list.append(f"• {str(resource)}")
+                        
+                        result_text = f"{server_name} 服务器的{resource_name}列表:\n\n" + "\n".join(resource_list)
+                    else:
+                        result_text = f"{server_name} 服务器没有提供任何{resource_name}"
+                    
+                    # 在主线程中显示结果
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.information(self, f"{resource_name}列表", result_text)
+                    
+                await exit_stack.aclose()
+                
+            except Exception as e:
+                error_msg = f"加载{resource_type}失败: {str(e)}"
+                InfoBar.error(
+                    title='加载失败',
+                    content=error_msg,
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+        
+        # 运行异步任务
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果事件循环已经在运行，创建新任务
+                asyncio.create_task(load_async())
+            else:
+                loop.run_until_complete(load_async())
+        except Exception as e:
+            InfoBar.error(
+                title='异步任务失败',
+                content=f"创建异步任务失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
 
 class DoubaoASRClient:
@@ -5417,43 +6183,24 @@ class Widget(Interface):
         self.vBoxLayout.addStretch()
 
     def create_mcp_tab(self):
-        """创建MCP配置标签页 - 使用高级MCP工具管理器"""
-        # 创建MCP工具管理器
+        """创建MCP配置标签页 - 使用标准MCP服务器管理器"""
+        # 创建MCP服务器管理器
         self.mcp_manager = MCPToolManager(self)
         self.vBoxLayout.addWidget(self.mcp_manager)
         
-        # 传统的简单配置（保留兼容性）
-        simple_group = QGroupBox("传统配置（兼容）")
-        simple_form = QFormLayout(simple_group)
+        # 传统配置兼容性说明
+        compat_group = QGroupBox("兼容性说明")
+        compat_layout = QVBoxLayout(compat_group)
         
-        # 读取配置
-        mcp_config = self.config_data.get('mcp', {})
+        compat_text = QLabel(
+            "系统已自动将旧的 urls/paths 配置转换为标准的 mcpServers 格式。\n"
+            "新的配置保存在 config.json 的 mcp.mcpServers 下，支持 stdio、sse、streamablehttp 和 python 四种传输方式。"
+        )
+        compat_text.setWordWrap(True)
+        compat_text.setStyleSheet("color: #666; font-size: 12px;")
+        compat_layout.addWidget(compat_text)
         
-        # MCP URLs (多个URL用逗号分隔)
-        urls_edit = LineEdit()
-        urls_value = mcp_config.get('urls', '')
-        if isinstance(urls_value, list):
-            urls_value = ', '.join(urls_value)
-        urls_edit.setText(str(urls_value))
-        self.widgets['mcp.urls'] = {"widget": urls_edit, "type": "lineedit"}
-        simple_form.addRow("MCP URLs (逗号分隔):", urls_edit)
-        
-        # MCP Paths (多个路径用逗号分隔)
-        paths_edit = LineEdit()
-        paths_value = mcp_config.get('paths', '')
-        if isinstance(paths_value, list):
-            paths_value = ', '.join(paths_value)
-        paths_edit.setText(str(paths_value))
-        self.widgets['mcp.paths'] = {"widget": paths_edit, "type": "lineedit"}
-        simple_form.addRow("MCP Paths (逗号分隔):", paths_edit)
-        
-        # 全局开关
-        enabled_check = CheckBox()
-        enabled_check.setChecked(bool(mcp_config.get('enabled', True)))
-        self.widgets['mcp.enabled'] = {"widget": enabled_check, "type": "checkbox"}
-        simple_form.addRow("启用MCP:", enabled_check)
-        
-        self.vBoxLayout.addWidget(simple_group)
+        self.vBoxLayout.addWidget(compat_group)
         self.vBoxLayout.addStretch()
 
     def create_memory_tab(self):
