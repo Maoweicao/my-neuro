@@ -518,12 +518,49 @@ class AppManager:
         """音频数据回调（用于嘴型同步） - 回调函数"""
         try:
             if self.live2d_model:
-                self.live2d_model.wav_handler.Start(data)
-                
-                logger.debug(f"嘴型同步数据已设置")
+                # 检查是否有音频数据用于嘴型同步
+                pcm_data = data.get('pcm_data')
+                framerate = data.get('framerate', 44100)
+
+                if pcm_data is not None:
+                    # 计算音频RMS值用于嘴型同步
+                    import numpy as np
+                    rms = np.sqrt(np.mean(pcm_data**2))
+
+                    # 将RMS值转换为嘴部开合程度 (0.0-1.0)
+                    mouth_open = min(1.0, rms * 10.0)  # 放大RMS值并限制在0-1范围内
+
+                    # 更新Live2D模型的嘴部参数
+                    if hasattr(self.live2d_model, 'model') and self.live2d_model.model:
+                        try:
+                            # 使用Live2D SDK的标准参数
+                            self.live2d_model.model.SetParameterValue("ParamMouthOpenY", mouth_open)
+                            logger.debug(f"更新嘴型同步: RMS={rms:.4f}, mouth_open={mouth_open:.4f}")
+                        except Exception as e:
+                            logger.warning(f"设置嘴部参数失败: {e}")
+                    else:
+                        logger.debug("Live2D模型未加载，跳过嘴型同步")
+                else:
+                    logger.debug("音频数据中没有PCM数据")
+            else:
+                logger.debug("Live2D模型不存在")
         except Exception as e:
             logger.error(f"处理音频数据失败: {e}")
-    
+
+    async def _start_lip_sync_async(self, audio_path: str):
+        """异步启动嘴型同步（保留用于将来可能的音频文件同步）"""
+        try:
+            if self.live2d_model and hasattr(self.live2d_model, 'start_lip_sync'):
+                success = await asyncio.get_event_loop().run_in_executor(
+                    None, self.live2d_model.start_lip_sync, audio_path
+                )
+                if success:
+                    logger.debug(f"嘴型同步启动成功: {audio_path}")
+                else:
+                    logger.warning(f"嘴型同步启动失败: {audio_path}")
+        except Exception as e:
+            logger.error(f"异步启动嘴型同步失败: {e}")
+
     async def _on_text_update(self, text):
         """文本更新回调（用于字幕显示） - 回调函数"""
         try:

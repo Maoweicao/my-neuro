@@ -225,7 +225,7 @@ class ActionButtonsWindow(QWidget):
     def interrupt_current_operations(self):
         """打断当前AI输出和语音播放"""
         logger.info("用户点击打断按钮")
-        if self.main_window:
+        if self.main_window and hasattr(self.main_window, 'interrupt_current_operations'):
             self.main_window.interrupt_current_operations()
         elif self.event_bus:
             self.event_bus.publish_sync("interrupt_operations", {})
@@ -233,7 +233,7 @@ class ActionButtonsWindow(QWidget):
     def trigger_custom_action(self, action_id):
         """触发自定义动作"""
         logger.info(f"用户点击动作{action_id}按钮")
-        if self.main_window:
+        if self.main_window and hasattr(self.main_window, 'trigger_custom_action'):
             self.main_window.trigger_custom_action(action_id)
         elif self.event_bus:
             self.event_bus.publish_sync("custom_action", {"action_id": action_id})

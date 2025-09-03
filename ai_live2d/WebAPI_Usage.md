@@ -104,6 +104,68 @@ curl http://127.0.0.1:8888/api/status
 - 成功: 200 OK，包含LLM的回复
 - 错误: 4xx/5xx，包含错误信息
 
+### POST /api/dialogue
+
+发送台词进行AI角色表演转换。通过LLM将普通台词转换为适合AI角色表演的格式，添加动作描述和语气调整。
+
+**请求参数:**
+- `dialogue` (string, 必需): 要转换的台词内容
+- `api_key` (string, 可选): API密钥（如果配置了验证）
+
+**响应:**
+- 成功: 200 OK，包含转换后的台词
+- 错误: 4xx/5xx，包含错误信息
+
+#### 请求示例
+
+```bash
+curl -X POST http://127.0.0.1:8888/api/dialogue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dialogue": "你好，我是小明"
+  }'
+```
+
+#### 成功响应示例
+
+```json
+{
+  "original_dialogue": "你好，我是小明",
+  "converted_dialogue": "*微笑地挥手* 你好呀！我是小明，很高兴认识你！",
+  "status": "success",
+  "timestamp": 1703123456.789
+}
+```
+
+### POST /api/interrupt
+
+打断当前正在进行的AI输出和语音播放。
+
+**请求参数:**
+- `api_key` (string, 可选): API密钥（如果配置了验证）
+
+**响应:**
+- 成功: 200 OK，包含打断结果
+- 错误: 4xx/5xx，包含错误信息
+
+#### 请求示例
+
+```bash
+curl -X POST http://127.0.0.1:8888/api/interrupt \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+#### 成功响应示例
+
+```json
+{
+  "status": "success",
+  "message": "已打断当前AI输出和语音播放",
+  "timestamp": 1703123456.789
+}
+```
+
 ### GET /api/status
 
 检查服务状态。
@@ -233,3 +295,5 @@ sendMessage("你好")
 - 支持API密钥验证
 - 支持CORS跨域请求
 - 完善的错误处理和日志记录
+- v1.1.0: 新增台词转换API (/api/dialogue)，支持将普通台词转换为AI角色表演格式
+- 新增打断功能API (/api/interrupt)，支持打断当前AI输出和语音播放

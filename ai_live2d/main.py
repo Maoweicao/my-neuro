@@ -22,6 +22,10 @@ import logging
 import signal
 import sys
 import os
+import json
+import socket
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +51,13 @@ class PetService:
         self._running: bool = False
         self._shutdown_event = asyncio.Event()
         
+        # 进程间通信相关
+        self.interrupt_socket = None
+        self.interrupt_thread = None
+        self.interrupt_signal_file = Path("interrupt_signal.tmp")
+        self.interrupt_port = 8889  # 固定的中断通信端口
+        self.event_loop = None  # 保存事件循环引用
+        
     async def initialize(self) -> None:
         """初始化服务"""
         try:
@@ -56,6 +67,16 @@ class PetService:
                 log_file="pet_system.log"
             )
             self.logger.info(">>> 初始化AI桌宠系统... [ 进行中 ]")
+            
+            # 记录主进程PID
+            import os
+            main_pid = os.getpid()
+            try:
+                with open('main_pid.txt', 'w', encoding='utf-8') as f:
+                    f.write(str(main_pid))
+                self.logger.info(f">>> 主进程PID已记录: {main_pid}")
+            except Exception as e:
+                self.logger.warning(f">>> 记录主进程PID失败: {e}")
             
             # 检查配置文件
             if not self.config_path.exists():
@@ -67,6 +88,9 @@ class PetService:
             # 初始化应用管理器
             await self.app_manager.initialize()
             
+            # 启动中断监听器
+            self.start_interrupt_listener()
+            
         except Exception as e:
             if self.logger:
                 self.logger.error(f">>> 系统初始化失败: {e}")
@@ -76,6 +100,9 @@ class PetService:
         """启动服务"""
         try:
             self._running = True
+            
+            # 保存当前事件循环引用，用于线程间通信
+            self.event_loop = asyncio.get_running_loop()
             
             # 启动应用管理器
             assert self.app_manager is not None
@@ -108,6 +135,25 @@ class PetService:
                 if self.logger:
                     self.logger.info(">>> 应用管理器... [ 已关闭 ]")
             
+            # 停止中断监听器
+            self.stop_interrupt_listener()
+            
+            # 清理事件循环引用
+            self.event_loop = None
+            
+            # 清理PID文件
+            import os
+            pid_files = ['main_pid.txt', 'tts_pid.txt', 'asr_pid.txt', 'audio_pid.txt']
+            for pid_file in pid_files:
+                try:
+                    if os.path.exists(pid_file):
+                        os.remove(pid_file)
+                        if self.logger:
+                            self.logger.info(f">>> 清理PID文件: {pid_file}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 清理PID文件失败 {pid_file}: {e}")
+            
             if self.logger:
                 self.logger.info(">>> AI桌宠系统... [ 已关闭 ]")
                 
@@ -119,6 +165,317 @@ class PetService:
         """请求关闭服务"""
         if self._running:
             self._shutdown_event.set()
+
+    def start_interrupt_listener(self):
+        """启动中断监听器"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 启动中断监听器... [ 进行中 ]")
+            
+            # 启动socket监听线程
+            self.interrupt_thread = threading.Thread(
+                target=self._interrupt_listener_thread,
+                daemon=True
+            )
+            self.interrupt_thread.start()
+            
+            if self.logger:
+                self.logger.info(">>> 中断监听器... [ 已启动 ]")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 启动中断监听器失败: {e}")
+
+    def stop_interrupt_listener(self):
+        """停止中断监听器"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 停止中断监听器... [ 进行中 ]")
+            
+            # 关闭socket
+            if self.interrupt_socket:
+                self.interrupt_socket.close()
+                self.interrupt_socket = None
+            
+            # 等待线程结束
+            if self.interrupt_thread and self.interrupt_thread.is_alive():
+                self.interrupt_thread.join(timeout=2.0)
+            
+            if self.logger:
+                self.logger.info(">>> 中断监听器... [ 已停止 ]")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 停止中断监听器失败: {e}")
+
+    def _interrupt_listener_thread(self):
+        """中断监听器线程"""
+        try:
+            # 创建socket服务器
+            self.interrupt_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.interrupt_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.interrupt_socket.bind(('127.0.0.1', self.interrupt_port))
+            self.interrupt_socket.listen(1)
+            self.interrupt_socket.settimeout(1.0)  # 1秒超时，用于定期检查
+            
+            if self.logger:
+                self.logger.info(f">>> 中断监听器绑定到端口: {self.interrupt_port}")
+            
+            while self._running:
+                try:
+                    # 同时监听socket连接和文件信号
+                    self._check_interrupt_signal()
+                    
+                    # 尝试接受socket连接
+                    try:
+                        client_socket, addr = self.interrupt_socket.accept()
+                        self._handle_interrupt_connection(client_socket, addr)
+                    except socket.timeout:
+                        continue  # 超时，继续循环
+                        
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 中断监听器循环出错: {e}")
+                    time.sleep(0.1)  # 短暂延迟
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 中断监听器线程异常: {e}")
+        finally:
+            if self.interrupt_socket:
+                self.interrupt_socket.close()
+
+    def _check_interrupt_signal(self):
+        """检查中断信号文件"""
+        try:
+            if self.interrupt_signal_file.exists():
+                # 读取信号文件
+                with open(self.interrupt_signal_file, 'r', encoding='utf-8') as f:
+                    signal_data = json.load(f)
+                
+                if self.logger:
+                    self.logger.info(">>> 收到中断信号文件")
+                
+                # 处理中断信号
+                self._process_interrupt_signal(signal_data)
+                
+                # 删除信号文件
+                self.interrupt_signal_file.unlink()
+                
+        except FileNotFoundError:
+            pass  # 文件不存在，正常情况
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f">>> 处理中断信号文件出错: {e}")
+
+    def _handle_interrupt_connection(self, client_socket, addr):
+        """处理中断连接"""
+        try:
+            if self.logger:
+                self.logger.info(f">>> 收到中断连接: {addr}")
+            
+            # 接收数据
+            data = client_socket.recv(1024)
+            if data:
+                signal_data = json.loads(data.decode('utf-8'))
+                self._process_interrupt_signal(signal_data)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f">>> 处理中断连接出错: {e}")
+        finally:
+            client_socket.close()
+
+    def _process_interrupt_signal(self, signal_data):
+        """处理中断信号"""
+        try:
+            if self.logger:
+                self.logger.info(f">>> 处理中断信号: {signal_data}")
+            
+            signal_type = signal_data.get('type', 'interrupt')
+            
+            if signal_type == 'interrupt':
+                # 安全地在主事件循环中运行异步中断操作
+                if self.event_loop and self.event_loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._perform_interrupt(), 
+                        self.event_loop
+                    )
+                    # 可选：等待完成或设置回调
+                    # future.add_done_callback(lambda f: print("中断操作完成"))
+                else:
+                    if self.logger:
+                        self.logger.warning(">>> 事件循环不可用，无法执行异步中断操作")
+            elif signal_type == 'shutdown':
+                # 请求关闭服务
+                self.request_shutdown()
+            else:
+                if self.logger:
+                    self.logger.warning(f">>> 未知的信号类型: {signal_type}")
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理中断信号时出错: {e}")
+                import traceback
+                self.logger.error(f">>> 错误详情: {traceback.format_exc()}")
+
+    async def _perform_interrupt(self):
+        """执行中断操作"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 执行中断操作... [ 进行中 ]")
+            
+            # 中断LLM输出
+            if self.app_manager and hasattr(self.app_manager, 'llm_client') and self.app_manager.llm_client:
+                if hasattr(self.app_manager.llm_client, 'interrupt'):
+                    self.app_manager.llm_client.interrupt()
+                    if self.logger:
+                        self.logger.info(">>> LLM输出已中断")
+            
+            # 中断TTS播放
+            if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
+                if hasattr(self.app_manager.tts_client, 'stop'):
+                    await self.app_manager.tts_client.stop()
+                    if self.logger:
+                        self.logger.info(">>> TTS播放已中断")
+            
+            # 中断ASR
+            if self.app_manager and hasattr(self.app_manager, 'asr_client') and self.app_manager.asr_client:
+                if hasattr(self.app_manager.asr_client, 'stop'):
+                    await self.app_manager.asr_client.stop()
+                    if self.logger:
+                        self.logger.info(">>> ASR已中断")
+            
+            # 停止Live2D动作
+            if self.app_manager and hasattr(self.app_manager, 'live2d_model') and self.app_manager.live2d_model:
+                # 这里可以调用Live2D的停止方法
+                if self.logger:
+                    self.logger.info(">>> Live2D动作已停止")
+            
+            # 中断非Python音频相关进程
+            await self._interrupt_audio_processes()
+            
+            if self.logger:
+                self.logger.info(">>> 中断操作... [ 完成 ]")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 执行中断操作时出错: {e}")
+
+    async def _interrupt_audio_processes(self):
+        """中断非Python的音频相关进程"""
+        try:
+            import subprocess
+            import os
+            
+            # 查找并终止可能的非Python音频相关进程
+            terminated_processes = []
+            
+            # 在Windows上查找并终止相关进程
+            if os.name == 'nt':
+                # 只终止非Python的音频进程，避免误杀桌宠
+                audio_processes = [
+                    'ffplay.exe',      # FFmpeg播放器
+                    'sox.exe',         # SoX音频处理
+                    'vlc.exe',         # VLC媒体播放器
+                    'wmplayer.exe',    # Windows Media Player
+                    'node.exe',        # Node.js进程（可能在播放音频）
+                ]
+
+                # 首先尝试使用psutil进行更精确的进程管理
+                psutil_available = False
+                try:
+                    import psutil
+                    psutil_available = True
+                except ImportError:
+                    psutil_available = False
+
+                if psutil_available:
+                    if self.logger:
+                        self.logger.info(">>> 检查并终止非Python音频进程")
+                    # 使用psutil进行更精确的进程终止
+                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                        try:
+                            proc_name = proc.info['name'].lower()
+                            
+                            # 只终止非Python的音频相关进程
+                            if any(audio_proc in proc_name for audio_proc in ['ffplay', 'sox', 'vlc', 'wmplayer', 'node']):
+                                try:
+                                    proc.terminate()
+                                    proc.wait(timeout=3)
+                                    terminated_processes.append(proc_name)
+                                    if self.logger:
+                                        self.logger.info(f">>> 已终止进程: {proc_name}")
+                                except psutil.TimeoutExpired:
+                                    proc.kill()  # 强制终止
+                                    terminated_processes.append(f"{proc_name} - 强制终止")
+                                    if self.logger:
+                                        self.logger.info(f">>> 已强制终止进程: {proc_name}")
+                                except Exception as e:
+                                    if self.logger:
+                                        self.logger.warning(f">>> 终止进程 {proc_name} 时出错: {e}")
+
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                else:
+                    if self.logger:
+                        self.logger.info(">>> 使用taskkill终止非Python音频进程")
+                    # 回退到taskkill方法
+                    for proc_name in audio_processes:
+                        try:
+                            # 使用taskkill终止进程，处理编码问题
+                            result = subprocess.run(
+                                ['taskkill', '/f', '/im', proc_name],
+                                capture_output=True,  # 捕获输出以处理编码
+                                text=True,
+                                encoding='gbk',  # 使用GBK编码处理中文输出
+                                timeout=5  # 设置超时
+                            )
+                            if result.returncode == 0:
+                                terminated_processes.append(proc_name)
+                                if self.logger:
+                                    self.logger.info(f">>> 已终止进程: {proc_name}")
+                            elif result.returncode == 128:  # 进程未找到
+                                pass  # 静默跳过未找到的进程
+                            else:
+                                if self.logger:
+                                    self.logger.warning(f">>> 终止进程 {proc_name} 时返回码: {result.returncode}")
+                        except subprocess.TimeoutExpired:
+                            if self.logger:
+                                self.logger.warning(f">>> 终止进程 {proc_name} 超时")
+                        except UnicodeDecodeError as e:
+                            if self.logger:
+                                self.logger.warning(f">>> 编码问题: {e}，尝试使用系统默认编码")
+                            # 如果GBK编码失败，尝试使用系统默认编码
+                            try:
+                                result = subprocess.run(
+                                    ['taskkill', '/f', '/im', proc_name],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5
+                                )
+                                if result.returncode == 0:
+                                    terminated_processes.append(proc_name)
+                                    if self.logger:
+                                        self.logger.info(f">>> 已终止进程: {proc_name}")
+                            except Exception as e2:
+                                if self.logger:
+                                    self.logger.warning(f">>> 使用默认编码也失败: {e2}")
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.warning(f">>> 终止进程 {proc_name} 时出错: {e}")
+
+                if terminated_processes:
+                    if self.logger:
+                        self.logger.info(f">>> 成功终止 {len(terminated_processes)} 个非Python音频进程")
+                        self.logger.info(f">>> 终止的进程: {', '.join(terminated_processes)}")
+                else:
+                    if self.logger:
+                        self.logger.info(">>> 未找到正在运行的非Python音频进程")
+
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f">>> 中断音频进程时出错: {e}")
 
 class QtAsyncManager:
     """Qt和asyncio集成管理器"""

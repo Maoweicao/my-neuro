@@ -202,7 +202,8 @@ class MCPClient:
             server_env.update(env)
         
         # 确保包含conda环境的PATH（如果存在的话）
-        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV')
+        # 默认使用my-neuro-tts环境，如果没有设置CONDA_DEFAULT_ENV的话
+        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV', 'my-neuro-tts')
         if conda_env_path:
             conda_bin_path = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'Scripts' if os.name == 'nt' else 'bin')
             current_path = server_env.get('PATH', '')
@@ -267,8 +268,9 @@ class MCPClient:
             args = ['-m', module] + args
         
         # 设置环境变量，确保包含conda环境的PATH
+        # 默认使用my-neuro-tts环境，如果没有设置CONDA_DEFAULT_ENV的话
         server_env = os.environ.copy()
-        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV')
+        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV', 'my-neuro-tts')
         if conda_env_path:
             conda_bin_path = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'Scripts' if os.name == 'nt' else 'bin')
             current_path = server_env.get('PATH', '')

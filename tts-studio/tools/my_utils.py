@@ -16,12 +16,15 @@ def load_audio(file, sr):
             raise RuntimeError(
                 "You input a wrong audio path that does not exists, please fix it!"
             )
+        file = os.path.abspath(file)  # 确保使用绝对路径，避免 ffmpeg 找不到文件
         out, _ = (
             ffmpeg.input(file, threads=0)
             .output("-", format="f32le", acodec="pcm_f32le", ac=1, ar=sr)
             .run(cmd=["ffmpeg", "-nostdin"], capture_stdout=True, capture_stderr=True)
         )
     except Exception as e:
+        print(f"Error loading audio file: {file}")
+        print(f"Exception: {e}")
         traceback.print_exc()
         raise RuntimeError(i18n("音频加载失败"))
 

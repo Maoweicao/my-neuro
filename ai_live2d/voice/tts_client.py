@@ -909,29 +909,94 @@ class TTSClient:
 
     async def _convert_with_local(self, text):
         """使用本地TTS转换文本为语音"""
-        try:
-            if not self.session:
-                logger.error("本地TTS会话未初始化")
-                return None
-            
-            # 使用aiohttp发送异步请求
-            async with self.session.post(
-                self.tts_url,
-                headers={'Content-Type': 'application/json'},
-                json={'text': text, 'text_language': self.language}
-            ) as response:
-                    
-                if response.status == 200:
-                    return await response.read()
-                else:
-                    logger.error(f"本地TTS请求失败: {response.status}")
-                    try:
-                        error_info = await response.json()
-                        logger.error(f"服务器返回错误信息: {error_info}")
-                    except:
-                        pass
-                    return None
+        max_retries = 3
+        retry_delay = 1.0
         
-        except Exception as e:
-            logger.error(f"本地TTS转换错误: {e}")
-            return None
+        for attempt in range(max_retries):
+            try:
+                if not self.session:
+                    logger.error("本地TTS会话未初始化")
+                    return None
+                
+                logger.debug(f"本地TTS请求尝试 {attempt + 1}/{max_retries}: {text[:50]}...")
+                
+                # 使用aiohttp发送异步请求
+                async with self.session.post(
+                    self.tts_url,
+                    headers={'Content-Type': 'application/json'},
+                    json={'text': text, 'text_language': self.language}
+                ) as response:
+                        
+                    if response.status == 200:
+                        # 更健壮地处理响应，避免"Response payload is not completed"错误
+                        try:
+                            # 首先检查Content-Length头
+                            content_length = response.headers.get('Content-Length')
+                            if content_length:
+                                content_length = int(content_length)
+                                logger.debug(f"响应内容长度: {content_length} bytes")
+                            
+                            # 使用流式方式读取响应，但收集所有数据
+                            audio_data = bytearray()
+                            async for chunk in response.content.iter_chunked(8192):
+                                if chunk:
+                                    audio_data.extend(chunk)
+                            
+                            # 验证收到的数据长度
+                            if content_length and len(audio_data) != content_length:
+                                logger.warning(f"接收到的数据长度({len(audio_data)})与Content-Length({content_length})不匹配")
+                            
+                            if audio_data:
+                                logger.debug(f"成功接收本地TTS音频数据，大小: {len(audio_data)} bytes")
+                                return bytes(audio_data)
+                            else:
+                                logger.error("本地TTS响应为空")
+                                return None
+                                
+                        except asyncio.TimeoutError:
+                            logger.error("本地TTS请求超时")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            return None
+                        except aiohttp.ClientPayloadError as e:
+                            logger.error(f"本地TTS响应负载错误: {e}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            return None
+                        except Exception as e:
+                            logger.error(f"读取本地TTS响应时出错: {e}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            return None
+                    else:
+                        logger.error(f"本地TTS请求失败: {response.status}")
+                        try:
+                            error_info = await response.json()
+                            logger.error(f"服务器返回错误信息: {error_info}")
+                        except:
+                            pass
+                        
+                        # 对于服务器错误，重试
+                        if response.status >= 500 and attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        return None
+            
+            except aiohttp.ClientError as e:
+                logger.error(f"本地TTS网络连接错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                return None
+            except Exception as e:
+                logger.error(f"本地TTS转换错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                return None
+        
+        logger.error(f"本地TTS转换失败，已重试 {max_retries} 次")
+        return None

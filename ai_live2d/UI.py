@@ -111,6 +111,8 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self._handle_chat_request()
             elif self.path == '/api/interrupt':
                 self._handle_interrupt_request()
+            elif self.path == '/api/dialogue':
+                self._handle_dialogue_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -219,6 +221,77 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
             self._send_error_response(500, f"Interrupt error: {str(e)}")
+    
+    def _handle_dialogue_request(self):
+        """处理台词转换请求"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'dialogue' not in data:
+                self._send_error_response(400, "Missing 'dialogue' field")
+                return
+            
+            dialogue = data['dialogue'].strip()
+            if not dialogue:
+                self._send_error_response(400, "Empty dialogue")
+                return
+            
+            # 验证API密钥（如果配置了）
+            if hasattr(self.ui_widget, 'config_data'):
+                api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
+                if api_key and data.get('api_key') != api_key:
+                    self._send_error_response(401, "Invalid API key")
+                    return
+            
+            # 记录请求
+            if hasattr(self.ui_widget, 'log_user_input'):
+                self.ui_widget.log_user_input(f"[WebAPI Dialogue] {dialogue}")
+            
+            # 构建转换prompt
+            conversion_prompt = f"""请将以下台词转换为适合AI角色表演的格式。
+要求：
+1. 保持原台词的核心内容
+2. 添加适当的动作描述（如：*微笑地看着对方*）
+3. 调整语气使其更生动自然
+4. 可以添加表情或肢体语言描述
+5. 格式为：动作描述 + 台词
+
+原始台词：{dialogue}
+
+请直接输出转换后的台词，不要添加其他解释。"""
+            
+            # 调用LLM处理逻辑
+            try:
+                if hasattr(self.ui_widget, 'process_llm_request'):
+                    response_text = self.ui_widget.process_llm_request(conversion_prompt)
+                else:
+                    response_text = f"收到台词: {dialogue}"
+            except Exception as e:
+                response_text = f"处理错误: {str(e)}"
+            
+            # 记录响应
+            if hasattr(self.ui_widget, 'log_llm_response'):
+                self.ui_widget.log_llm_response(response_text)
+            
+            self._send_json_response({
+                "original_dialogue": dialogue,
+                "converted_dialogue": response_text,
+                "status": "success",
+                "timestamp": time.time()
+            })
+            
+        except json.JSONDecodeError:
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            self._send_error_response(500, f"Server error: {str(e)}")
     
     def _send_json_response(self, data):
         """发送JSON响应"""
@@ -1711,7 +1784,8 @@ class MCPToolManager(QWidget):
         server_env = os.environ.copy()
         
         # 确保包含conda环境的PATH（如果存在的话）
-        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV')
+        # 默认使用my-neuro-tts环境，如果没有设置CONDA_DEFAULT_ENV的话
+        conda_env_path = os.environ.get('CONDA_DEFAULT_ENV', 'my-neuro')
         if conda_env_path:
             conda_bin_path = os.path.join(os.environ.get('CONDA_PREFIX', ''), 'Scripts' if os.name == 'nt' else 'bin')
             current_path = server_env.get('PATH', '')
@@ -2484,6 +2558,32 @@ class BatWorker(QThread):
                     shell=True,
                     bufsize=0,
                     cwd=bat_dir
+                )
+            elif isinstance(self.bat_path, str) and self.bat_path.lower().endswith('.ps1'):
+                # 处理PowerShell脚本
+                script_dir = os.path.dirname(os.path.abspath(self.bat_path))
+                script_abs = os.path.abspath(self.bat_path)
+                # PowerShell 单引号内转义：将 ' 替换为 ''
+                script_ps = script_abs.replace("'", "''")
+                ps_cmd = (
+                    "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                    f"\"Set-Location -Path '{script_dir}'; "
+                    "Write-Host '=== 环境检查 ==='; "
+                    "Write-Host ('PWD: ' + (Get-Location).Path); "
+                    "Write-Host ('CONDA_DEFAULT_ENV: ' + ($env:CONDA_DEFAULT_ENV)); "
+                    "Write-Host ('VIRTUAL_ENV: ' + ($env:VIRTUAL_ENV)); "
+                    "Write-Host '=== 启动PowerShell脚本 ==='; "
+                    f"& '{script_ps}'\""
+                )
+                # 强制切换到 UTF-8 代码页后再执行，避免中文乱码
+                wrapped = f"chcp 65001 >NUL & {ps_cmd}"
+                self.process = subprocess.Popen(
+                    wrapped,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    shell=True,
+                    bufsize=0,
+                    cwd=script_dir
                 )
             else:
                 wrapped = f"chcp 65001 >NUL & {self.bat_path}"
@@ -3355,13 +3455,30 @@ class Widget(Interface):
             self.log_handler.setFormatter(formatter)
         
         # 创建并启动工作线程
-        self.bat_worker = BatWorker(r"start_project.bat")  # 替换为您的BAT路径
+        self.bat_worker = BatWorker(r"start_project.bat")  # 启动主脚本
         self.bat_worker.output_signal.connect(self.append_output)
         self.bat_worker.finished_signal.connect(self.on_bat_finished)
         self.bat_worker.start()
         
         # 更新UI
         self.append_output("BAT脚本已启动...")
+        
+        # 检查是否需要自动启动WebAPI
+        webapi_auto_start = self.config_data.get('webapi', {}).get('auto_start', False)
+        webapi_enabled = self.config_data.get('webapi', {}).get('enabled', False)
+        
+        if webapi_auto_start and webapi_enabled:
+            self.append_output("检测到WebAPI自动启动已启用，正在启动WebAPI服务...")
+            try:
+                self.start_webapi_server()
+                self.append_output("WebAPI服务已自动启动")
+            except Exception as e:
+                self.append_output(f"WebAPI自动启动失败: {str(e)}")
+        else:
+            if webapi_auto_start and not webapi_enabled:
+                self.append_output("WebAPI自动启动已启用，但WebAPI未启用，请在设置中启用WebAPI")
+            else:
+                self.append_output("WebAPI自动启动已禁用")
         
      
     
@@ -3370,6 +3487,45 @@ class Widget(Interface):
         if self.bat_worker and self.bat_worker.isRunning():
             self.bat_worker.stop()
             self.append_output("正在停止BAT脚本...")
+
+        # 检查是否需要自动停止WebAPI
+        webapi_auto_start = self.config_data.get('webapi', {}).get('auto_start', False)
+        if webapi_auto_start and hasattr(self, 'webapi_server') and self.webapi_server:
+            self.append_output("正在停止WebAPI服务...")
+            try:
+                self.stop_webapi_server()
+                self.append_output("WebAPI服务已停止")
+            except Exception as e:
+                self.append_output(f"WebAPI停止失败: {str(e)}")
+
+        # 停止TerminalRoom中的所有服务进程
+        try:
+            # 通过parent链访问Window实例
+            window = None
+            if self.parent() and self.parent().parent():
+                window = self.parent().parent()
+            
+            if window and hasattr(window, 'TerminalInterface') and window.TerminalInterface:
+                terminal_interface = window.TerminalInterface
+                for key in ['tts', 'asr', 'bert', 'rag']:
+                    proc = terminal_interface.processes.get(key)
+                    if proc and proc.poll() is None:
+                        self.append_output(f"正在停止{key.upper()}服务...")
+                        # 停止对应的reader线程
+                        reader = terminal_interface.readers.get(key)
+                        if reader and reader.isRunning():
+                            reader.stop()
+                        # 强制终止进程
+                        try:
+                            import subprocess
+                            subprocess.run(["taskkill", "/t", "/f", "/pid", str(proc.pid)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                                         creationflags=0x08000000)
+                            self.append_output(f"{key.upper()}服务已停止")
+                        except Exception as e:
+                            self.append_output(f"停止{key.upper()}服务失败: {str(e)}")
+        except Exception as e:
+            self.append_output(f"停止TerminalRoom进程时出错: {str(e)}")
 
         # 隐藏动作按钮悬浮窗口
         # 通过parent链访问Window实例
@@ -3403,6 +3559,45 @@ class Widget(Interface):
     def on_bat_finished(self):
         """BAT完成时的处理"""
         self.append_output("BAT脚本已停止")
+        
+        # 检查是否需要自动停止WebAPI
+        webapi_auto_start = self.config_data.get('webapi', {}).get('auto_start', False)
+        if webapi_auto_start and hasattr(self, 'webapi_server') and self.webapi_server:
+            self.append_output("正在停止WebAPI服务...")
+            try:
+                self.stop_webapi_server()
+                self.append_output("WebAPI服务已停止")
+            except Exception as e:
+                self.append_output(f"WebAPI停止失败: {str(e)}")
+        
+        # 停止TerminalRoom中的所有服务进程
+        try:
+            # 通过parent链访问Window实例
+            window = None
+            if self.parent() and self.parent().parent():
+                window = self.parent().parent()
+            
+            if window and hasattr(window, 'TerminalInterface') and window.TerminalInterface:
+                terminal_interface = window.TerminalInterface
+                for key in ['tts', 'asr', 'bert', 'rag']:
+                    proc = terminal_interface.processes.get(key)
+                    if proc and proc.poll() is None:
+                        self.append_output(f"正在停止{key.upper()}服务...")
+                        # 停止对应的reader线程
+                        reader = terminal_interface.readers.get(key)
+                        if reader and reader.isRunning():
+                            reader.stop()
+                        # 强制终止进程
+                        try:
+                            import subprocess
+                            subprocess.run(["taskkill", "/t", "/f", "/pid", str(proc.pid)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                                         creationflags=0x08000000)
+                            self.append_output(f"{key.upper()}服务已停止")
+                        except Exception as e:
+                            self.append_output(f"停止{key.upper()}服务失败: {str(e)}")
+        except Exception as e:
+            self.append_output(f"停止TerminalRoom进程时出错: {str(e)}")
         
         # BAT停止时隐藏动作按钮
         # 通过parent链访问Window实例
@@ -3605,60 +3800,67 @@ class Widget(Interface):
             return f"错误：处理LLM请求时发生异常 - {str(e)}"
     
     def interrupt_current_operations(self):
-        """打断当前AI输出和语音播放"""
+        """打断当前AI输出和语音播放 - 只发送中断信号，由main.py处理"""
         try:
             interrupted_something = False
-            
-            # 1. 尝试通过app_manager访问TTS客户端
+
+            # 1. 通过进程间通信发送中断信号给main.py
             try:
-                from core.app_manager import AppManager
-                # 尝试获取全局app_manager实例（如果存在）
-                if hasattr(AppManager, '_instance') and AppManager._instance:
-                    app_manager = AppManager._instance
-                    if hasattr(app_manager, 'tts_client') and app_manager.tts_client:
-                        asyncio.create_task(app_manager.tts_client.stop())
+                import socket
+                import json
+                import time
+                
+                # 尝试通过socket发送中断信号
+                socket_success = False
+                try:
+                    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    client_socket.settimeout(2.0)  # 2秒超时
+                    client_socket.connect(('127.0.0.1', 8889))  # main.py监听的端口
+                    
+                    signal_data = {
+                        "type": "interrupt",
+                        "timestamp": time.time(),
+                        "source": "ui_interrupt"
+                    }
+                    
+                    client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                    client_socket.close()
+                    
+                    print("✓ 已通过socket发送中断信号")
+                    socket_success = True
+                    interrupted_something = True
+                    
+                except (socket.timeout, socket.error) as e:
+                    print(f"⚠ Socket通信失败: {e}，将使用文件信号")
+                
+                # 如果socket失败，使用文件信号作为备用
+                if not socket_success:
+                    try:
+                        with open("interrupt_signal.tmp", 'w', encoding='utf-8') as f:
+                            signal_data = {
+                                "type": "interrupt", 
+                                "timestamp": time.time(),
+                                "source": "ui_interrupt",
+                                "force_stop": True
+                            }
+                            json.dump(signal_data, f)
+                        print("✓ 已创建中断信号文件")
                         interrupted_something = True
-                        print("已通过app_manager停止TTS播放")
+                    except Exception as e:
+                        print(f"⚠ 创建中断信号文件失败: {e}")
+                
+                # 等待一小段时间让main.py处理信号
+                time.sleep(0.1)
+                
             except Exception as e:
-                print(f"通过app_manager停止TTS时出错: {e}")
-            
-            # 2. 尝试直接访问voice模块的TTS客户端
-            try:
-                from voice.tts_client import TTSClient
-                # 这里可能需要根据实际情况调整访问方式
-                # 如果有全局TTS实例，可以在这里添加访问逻辑
-                pass
-            except Exception as e:
-                print(f"通过voice模块停止TTS时出错: {e}")
-            
-            # 3. 停止Live2D动作
-            try:
-                self.stop_all_live2d_motions()
-                interrupted_something = True
-                main_logger = logging.getLogger()
-                main_logger.info("已停止Live2D动作")
-            except Exception as e:
-                main_logger = logging.getLogger()
-                main_logger.error(f"停止Live2D动作时出错: {e}")
-            
-            # 4. 创建打断信号文件（用于与其他进程通信）
-            try:
-                with open("interrupt_signal.tmp", 'w', encoding='utf-8') as f:
-                    import json
-                    f.write(json.dumps({
-                        "action": "interrupt",
-                        "timestamp": time.time()
-                    }))
-                print("已创建打断信号文件")
-            except Exception as e:
-                print(f"创建打断信号文件时出错: {e}")
-            
-            # 5. 记录打断操作
+                print(f"⚠ 发送中断信号时出错: {e}")
+
+            # 2. 记录打断操作
             if hasattr(self, 'log_system_event'):
-                self.log_system_event("用户通过WebAPI打断当前操作")
-            
+                self.log_system_event("用户通过UI打断当前操作")
+
             return interrupted_something
-            
+
         except Exception as e:
             print(f"打断操作时出错: {e}")
             return False
@@ -6295,6 +6497,12 @@ class Widget(Interface):
         self.widgets['webapi.enabled'] = {"widget": webapi_enabled_check, "type": "checkbox"}
         webapi_form.addRow("启用WebAPI输入:", webapi_enabled_check)
         
+        # 自动启动WebAPI开关
+        webapi_auto_start_check = CheckBox()
+        webapi_auto_start_check.setChecked(bool(self.config_data.get('webapi', {}).get('auto_start', False)))
+        self.widgets['webapi.auto_start'] = {"widget": webapi_auto_start_check, "type": "checkbox"}
+        webapi_form.addRow("自动启动WebAPI:", webapi_auto_start_check)
+        
         # 端口设置
         webapi_port_spin = SpinBox()
         webapi_port_spin.setRange(1000, 65535)
@@ -7521,7 +7729,7 @@ class TerminalRoom(Interface):
         # bat 路径（项目根目录）
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         self.bats = {
-            'tts': os.path.join(base_dir, 'TTS_Terminal.bat'),  # 使用专门的终端TTS脚本
+            'tts': os.path.join(base_dir, 'TTS.bat'),  # 使用专门的终端TTS脚本
             'asr': os.path.join(base_dir, 'ASR.bat'),
             'bert': os.path.join(base_dir, 'bert.bat'),
             'rag': os.path.join(base_dir, 'RAG.bat'),
@@ -7608,10 +7816,16 @@ class TerminalRoom(Interface):
             bat_dir = os.path.dirname(bat_abs)
             
             self._append(key, f'{key.upper()}启动中…')
-            
-            # 使用简单的cmd命令启动bat文件，指定编码
+            # 其他服务使用默认方式
+            # 判断bat_abs的后缀是否带有ps1（忽略大小写）
+            if bat_abs.lower().endswith('.ps1'):
+                command = ["powershell", "-ExecutionPolicy", "Bypass", "-File", bat_abs]
+            else:
+                command = [bat_abs]
+
+            # 使用subprocess启动命令
             proc = subprocess.Popen(
-                [bat_abs],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=bat_dir,
@@ -7770,6 +7984,10 @@ class Window(FramelessWindow):
         self.systemTrayIcon = SystemTrayIcon(self)
         self.systemTrayIcon.show()
 
+        # 注册退出处理函数，确保脚本直接退出时也能关闭worker
+        import atexit
+        atexit.register(self._shutdown_all_workers)
+
     def initLayout(self):
         self.hBoxLayout.setSpacing(0)
         self.hBoxLayout.setContentsMargins(0, 0, 0, 0)
@@ -7888,6 +8106,10 @@ class Window(FramelessWindow):
         if w.exec():
             # 用户选择直接退出
             event.accept()
+            
+            # 关闭所有worker线程
+            self._shutdown_all_workers()
+            
             # 关闭动作按钮悬浮窗口
             if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
                 self.actionButtonsWindow.close()
@@ -7905,6 +8127,73 @@ class Window(FramelessWindow):
                     QSystemTrayIcon.Information,
                     3000
                 )
+
+    def _shutdown_all_workers(self):
+        """关闭所有后台worker线程"""
+        try:
+            # 1. 停止BAT worker (主界面)
+            if hasattr(self, 'MainInterface') and self.MainInterface and hasattr(self.MainInterface, 'bat_worker') and self.MainInterface.bat_worker:
+                if self.MainInterface.bat_worker.isRunning():
+                    self.MainInterface.bat_worker.stop()
+                    # 等待线程结束，最多等待5秒
+                    if not self.MainInterface.bat_worker.wait(5000):
+                        self.MainInterface.bat_worker.terminate()
+                        self.MainInterface.bat_worker.wait()
+            
+            # 2. 停止训练worker (声音克隆界面)
+            if hasattr(self, 'VoiceCloneInterface') and self.VoiceCloneInterface and hasattr(self.VoiceCloneInterface, 'train_worker') and self.VoiceCloneInterface.train_worker:
+                if self.VoiceCloneInterface.train_worker.isRunning():
+                    self.VoiceCloneInterface.train_worker.stop()
+                    # 等待线程结束，最多等待5秒
+                    if not self.VoiceCloneInterface.train_worker.wait(5000):
+                        self.VoiceCloneInterface.train_worker.terminate()
+                        self.VoiceCloneInterface.train_worker.wait()
+            
+            # 3. 停止WebAPI服务器
+            if hasattr(self, 'MainInterface') and self.MainInterface and hasattr(self.MainInterface, 'webapi_server') and self.MainInterface.webapi_server:
+                try:
+                    self.MainInterface.stop_webapi_server()
+                except:
+                    pass  # 忽略可能的错误，因为应用可能正在关闭
+            
+            # 4. 停止模型获取worker
+            if hasattr(self, 'MainInterface') and self.MainInterface and hasattr(self.MainInterface, '_model_fetchers'):
+                for fetcher in self.MainInterface._model_fetchers:
+                    if fetcher and fetcher.isRunning():
+                        fetcher.quit()
+                        fetcher.wait(2000)
+            
+            # 5. 清理MCP相关异步任务
+            if hasattr(self, 'MainInterface') and self.MainInterface and hasattr(self.MainInterface, 'mcp_manager'):
+                # 这里可以添加MCP相关的清理逻辑
+                pass
+            
+            # 6. 停止TerminalRoom中的所有服务进程
+            if hasattr(self, 'TerminalInterface') and self.TerminalInterface:
+                try:
+                    # 停止所有TerminalRoom中的进程
+                    for key in ['tts', 'asr', 'bert', 'rag']:
+                        proc = self.TerminalInterface.processes.get(key)
+                        if proc and proc.poll() is None:
+                            # 停止对应的reader线程
+                            reader = self.TerminalInterface.readers.get(key)
+                            if reader and reader.isRunning():
+                                reader.stop()
+                            # 强制终止进程
+                            try:
+                                import subprocess
+                                subprocess.run(["taskkill", "/t", "/f", "/pid", str(proc.pid)],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                                             creationflags=0x08000000)
+                            except Exception as e:
+                                print(f"停止TerminalRoom进程 {key} 时出错: {e}")
+                except Exception as e:
+                    print(f"停止TerminalRoom进程时出错: {e}")
+            
+            print("所有worker线程和进程已关闭")
+            
+        except Exception as e:
+            print(f"关闭worker线程时出错: {e}")
 
     def changeEvent(self, e):
         super().changeEvent(e)
@@ -7936,6 +8225,19 @@ class Window(FramelessWindow):
         # 关闭动作按钮悬浮窗口
         if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
             self.actionButtonsWindow.close()
+
+    def interrupt_current_operations(self):
+        """打断当前AI输出和语音播放"""
+        try:
+            # 调用MainInterface的interrupt_current_operations方法
+            if hasattr(self, 'MainInterface') and hasattr(self.MainInterface, 'interrupt_current_operations'):
+                return self.MainInterface.interrupt_current_operations()
+            else:
+                print("MainInterface或interrupt_current_operations方法不存在")
+                return False
+        except Exception as e:
+            print(f"Window类打断操作时出错: {e}")
+            return False
 
 
 if __name__ == '__main__':

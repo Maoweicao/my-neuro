@@ -1,1 +1,1 @@
-{"action": "trigger_motion", "motion_index": 8, "motion_group": "TapBody", "priority": 3, "timestamp": 1756390941.7857625}
+{"action": "stop_all_motions", "timestamp": 1756906109.1750977}

@@ -4,7 +4,7 @@
 cd %~dp0
 
 echo 正在激活conda环境...
-call conda activate my-neuro
+call conda activate my-neuro-tts
 if errorlevel 1 (
     echo 错误: 无法激活conda环境 my-neuro
     pause

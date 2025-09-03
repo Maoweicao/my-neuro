@@ -26,6 +26,9 @@ class LLMClient:
         # 回调函数
         self.on_llm_output_callback = None # LLM输出文本回调
         
+        # 中断控制
+        self.interrupt_flag = False  # 中断标志，用于停止流式输出
+        
         # 从配置中获取LLM相关配置
         self.api_key = config.get("llm", {}).get("api_key", "")
         self.api_url = config.get("llm", {}).get("api_url", "https://api.openai.com/v1")
@@ -139,6 +142,9 @@ class LLMClient:
             Exception: 请求失败时抛出异常
         """
         try:
+            # 重置中断标志
+            self.interrupt_flag = False
+            
             # 添加用户消息到上下文
             self.add_message("user", text, image_data)
             
@@ -296,6 +302,11 @@ class LLMClient:
         """处理流式响应"""
         has_tool_call = False
         async for line in response.content:
+            # 检查中断标志
+            if self.interrupt_flag:
+                logger.info("LLM输出被中断")
+                break
+                
             line = line.decode('utf-8').strip()
             if not line.startswith('data: '):
                 continue
@@ -410,6 +421,11 @@ class LLMClient:
             "max_messages": self.max_messages,
             "enable_limit": self.enable_limit
         }
+    
+    def interrupt(self):
+        """中断当前LLM输出"""
+        self.interrupt_flag = True
+        logger.info("LLM输出已被中断")
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
