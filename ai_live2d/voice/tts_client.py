@@ -64,6 +64,7 @@ class TTSClient:
         self.is_processing = False
         self.is_playing_audio = False  # 播放状态标志
         self.shutdown_event = asyncio.Event()
+        self.interrupt_flag = False  # 中断标志
         
         # 文本处理队列
         self.text_segment_queue = asyncio.Queue()
@@ -211,11 +212,27 @@ class TTSClient:
         self.on_text_update_callback = on_text_update
         logger.info("设置TTS回调函数... [ 成功 ]")
 
+    def interrupt(self):
+        """中断当前TTS合成和播放，但保持连接"""
+        self.interrupt_flag = True
+        logger.info("TTS合成和播放已被中断")
+
     async def _process_text_loop(self):
         """异步文本处理循环 - 负责将文本转换为音频"""
         try:
             while not self.shutdown_event.is_set():
                 try:
+                    # 检查中断标志
+                    if self.interrupt_flag:
+                        # 清空队列
+                        while not self.text_segment_queue.empty():
+                            try:
+                                self.text_segment_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
+                        self.interrupt_flag = False
+                        continue
+                    
                     # 等待队列中的文本
                     segment = await asyncio.wait_for(
                         self.text_segment_queue.get(),
@@ -256,6 +273,17 @@ class TTSClient:
         try:
             while not self.shutdown_event.is_set():
                 try:
+                    # 检查中断标志
+                    if self.interrupt_flag:
+                        # 清空音频队列
+                        while not self.audio_data_queue.empty():
+                            try:
+                                self.audio_data_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
+                        self.interrupt_flag = False
+                        continue
+                    
                     audio_package = await self.audio_data_queue.get()
                     await self._play_audio(audio_package)  # 直接调用播放函数
                 except Exception as e:

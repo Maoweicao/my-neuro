@@ -328,6 +328,7 @@ class ASRClient:
         self.is_recording = False         # 是否正在录音
         self.should_stop = False          # 是否应该停止
         self.is_running = False           # 客户端是否正在运行
+        self.interrupt_flag = False       # 中断标志
         
         # 音频处理相关
         self.websocket = None
@@ -488,6 +489,21 @@ class ASRClient:
         
         while not self.should_stop:
             try:
+                # 检查中断标志
+                if self.interrupt_flag:
+                    # 清空队列
+                    while not self.audio_data_queue.empty():
+                        try:
+                            self.audio_data_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                    # 重置批次
+                    batch = bytearray()
+                    batch_duration = 0
+                    last_process_time = time.perf_counter()
+                    self.interrupt_flag = False
+                    continue
+                
                 # 动态批处理 - 基于时间和大小
                 current_time = time.perf_counter()
                 time_elapsed = current_time - last_process_time
@@ -701,6 +717,11 @@ class ASRClient:
             logger.error(f"- 启动ASR客户端失败: {e}")
             await self.stop()
             raise e
+    
+    def interrupt(self):
+        """中断当前ASR识别，但保持连接"""
+        self.interrupt_flag = True
+        logger.info("ASR识别已被中断")
     
     async def stop(self):
         """停止ASR客户端"""
