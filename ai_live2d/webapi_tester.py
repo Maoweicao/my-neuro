@@ -370,6 +370,11 @@ class WebAPITester(QMainWindow):
         self.singing_motion_combo.addItems(["唱歌", "开始唱歌", "跳舞", "开心", "悲伤", "生气", "惊讶"])
         param_layout.addRow("Live2D动作:", self.singing_motion_combo)
 
+        # 字幕开关
+        self.singing_subtitle_check = QCheckBox()
+        self.singing_subtitle_check.setChecked(True)
+        param_layout.addRow("启用字幕:", self.singing_subtitle_check)
+
         layout.addWidget(param_group)
 
         # 测试区域
@@ -390,6 +395,25 @@ class WebAPITester(QMainWindow):
         file_layout.addWidget(select_file_btn)
 
         test_layout.addWidget(file_group)
+
+        # LRC歌词文件选择区域
+        lrc_group = QGroupBox("LRC歌词文件选择 (可选)")
+        lrc_layout = QHBoxLayout(lrc_group)
+
+        self.lrc_file_path = ""
+        self.lrc_file_label = QLabel("未选择LRC文件")
+        self.lrc_file_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: #f9f9f9;")
+        lrc_layout.addWidget(self.lrc_file_label)
+
+        select_lrc_btn = QPushButton("选择LRC文件")
+        select_lrc_btn.clicked.connect(self.select_lrc_file)
+        lrc_layout.addWidget(select_lrc_btn)
+
+        clear_lrc_btn = QPushButton("清除LRC")
+        clear_lrc_btn.clicked.connect(self.clear_lrc_file)
+        lrc_layout.addWidget(clear_lrc_btn)
+
+        test_layout.addWidget(lrc_group)
 
         # 或者生成音频按钮
         generate_audio_btn = QPushButton("生成测试音频")
@@ -737,6 +761,16 @@ class WebAPITester(QMainWindow):
                     audio_base64 = self.test_audio_base64
                     self.update_singing_result.emit("使用生成的测试音频 (WAV格式)")
 
+                # 检查LRC文件
+                lrc_content = None
+                if self.lrc_file_path:
+                    lrc_content = self.load_lrc_file_content(self.lrc_file_path)
+                    if lrc_content:
+                        self.update_singing_result.emit(f"LRC歌词文件: {os.path.basename(self.lrc_file_path)}")
+                        self.update_singing_result.emit(f"歌词内容长度: {len(lrc_content)} 字符")
+                    else:
+                        self.update_singing_result.emit("LRC文件读取失败")
+
                 data = {
                     "audio_base64": audio_base64,
                     "volume": self.singing_volume_spin.value(),
@@ -746,7 +780,19 @@ class WebAPITester(QMainWindow):
                 if self.api_key:
                     data["api_key"] = self.api_key
 
+                # 显示字幕设置状态
+                subtitle_enabled = self.singing_subtitle_check.isChecked()
+                self.update_singing_result.emit(f"字幕启用: {'是' if subtitle_enabled else '否'}")
+                if subtitle_enabled:
+                    if lrc_content:
+                        self.update_singing_result.emit("字幕模式: 显示LRC歌词")
+                    else:
+                        self.update_singing_result.emit("字幕模式: 显示 ♪ 唱歌中 ♫")
+                else:
+                    self.update_singing_result.emit("字幕模式: 禁用")
+
                 self.update_singing_result.emit("发送唱歌请求到服务器...")
+                response = requests.post(url, json=data, timeout=30)
                 response = requests.post(url, json=data, timeout=30)
 
                 if response.status_code == 200:
@@ -877,28 +923,52 @@ class WebAPITester(QMainWindow):
                 self.batch_result_text.append(f"  ✗ 台词 '{dialogue}' 异常: {str(e)}")
 
     def _batch_test_singing(self):
-        """批量测试唱歌API"""
+        """批量测试唱歌API（包含字幕测试）"""
         try:
             # 生成测试音频
             audio_base64 = AudioGenerator.create_test_audio_base64(duration=1.0)
 
             url = f"http://{self.host}:{self.port}/api/sing"
-            data = {
+
+            # 测试1: 无字幕模式
+            self.batch_result_text.append("  测试1: 无字幕唱歌")
+            data_no_subtitle = {
                 "audio_base64": audio_base64,
                 "volume": 0.5,
                 "loop": False,
                 "singing_motion": "唱歌"
             }
             if self.api_key:
-                data["api_key"] = self.api_key
+                data_no_subtitle["api_key"] = self.api_key
 
-            response = requests.post(url, json=data, timeout=10)
+            response = requests.post(url, json=data_no_subtitle, timeout=10)
             if response.status_code == 200:
-                self.batch_result_text.append("  ✓ 唱歌请求成功")
+                self.batch_result_text.append("    ✓ 无字幕唱歌请求成功")
             else:
-                self.batch_result_text.append("  ✗ 唱歌请求失败")
+                self.batch_result_text.append("    ✗ 无字幕唱歌请求失败")
+
+            # 等待一秒，避免请求过于频繁
+            time.sleep(1)
+
+            # 测试2: 有字幕模式（但没有LRC文件，会显示♪♫）
+            self.batch_result_text.append("  测试2: 有字幕唱歌（无LRC文件）")
+            data_with_subtitle = {
+                "audio_base64": audio_base64,
+                "volume": 0.5,
+                "loop": False,
+                "singing_motion": "唱歌"
+            }
+            if self.api_key:
+                data_with_subtitle["api_key"] = self.api_key
+
+            response = requests.post(url, json=data_with_subtitle, timeout=10)
+            if response.status_code == 200:
+                self.batch_result_text.append("    ✓ 有字幕唱歌请求成功（将显示 ♪ 唱歌中 ♫）")
+            else:
+                self.batch_result_text.append("    ✗ 有字幕唱歌请求失败")
+
         except Exception as e:
-            self.batch_result_text.append(f"  ✗ 唱歌请求异常: {str(e)}")
+            self.batch_result_text.append(f"  ✗ 唱歌批量测试异常: {str(e)}")
 
     def _update_chat_result_text(self, text):
         """更新聊天结果文本"""
@@ -923,6 +993,32 @@ class WebAPITester(QMainWindow):
     def _update_batch_progress(self, value):
         """更新批量测试进度"""
         self.batch_progress.setValue(value)
+
+    def select_lrc_file(self):
+        """选择LRC歌词文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择LRC歌词文件", "", "LRC文件 (*.lrc);;所有文件 (*)"
+        )
+        if file_path:
+            self.lrc_file_path = file_path
+            self.lrc_file_label.setText(os.path.basename(file_path))
+            self.update_singing_result.emit(f"已选择LRC文件: {os.path.basename(file_path)}")
+
+    def clear_lrc_file(self):
+        """清除LRC文件选择"""
+        self.lrc_file_path = ""
+        self.lrc_file_label.setText("未选择LRC文件")
+        self.update_singing_result.emit("已清除LRC文件选择")
+
+    def load_lrc_file_content(self, file_path):
+        """加载LRC文件内容"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                return content
+        except Exception as e:
+            self.update_singing_result.emit(f"读取LRC文件失败: {str(e)}")
+            return None
 
 def main():
     """主函数"""

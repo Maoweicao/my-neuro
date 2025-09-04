@@ -379,6 +379,35 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             if hasattr(self.ui_widget, 'webapi_logger'):
                 self.ui_widget.webapi_logger.log_system_event(f"台词转换请求处理完成，总耗时: {total_duration:.2f}ms")
             
+            # 检查字幕是否启用，如果启用则显示台词
+            if hasattr(self.ui_widget, 'config_data'):
+                subtitle_enabled = self.ui_widget.config_data.get('setting', {}).get('subtitle_enabled', False)
+                if subtitle_enabled and response_text:
+                    try:
+                        import socket
+                        import json
+                        
+                        # 通过socket发送字幕显示请求给main.py
+                        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        client_socket.settimeout(1.0)  # 1秒超时
+                        client_socket.connect(('127.0.0.1', 8889))
+                        
+                        signal_data = {
+                            "type": "show_subtitle",
+                            "text": response_text,
+                            "source": "dialogue",
+                            "timestamp": time.time()
+                        }
+                        
+                        client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                        client_socket.close()
+                        
+                        if hasattr(self.ui_widget, 'webapi_logger'):
+                            self.ui_widget.webapi_logger.log_system_event("✓ 已发送台词字幕显示请求")
+                    except Exception as e:
+                        if hasattr(self.ui_widget, 'webapi_logger'):
+                            self.ui_widget.webapi_logger.log_system_event(f"⚠ 发送台词字幕显示请求失败: {e}")
+            
             self._send_json_response({
                 "original_dialogue": dialogue,
                 "converted_dialogue": response_text,
@@ -495,6 +524,8 @@ class WebAPIHandler(BaseHTTPRequestHandler):
     def _process_singing_request(self, audio_base64, volume, loop, singing_motion):
         """处理唱歌请求的具体逻辑"""
         try:
+            import base64
+            
             # 记录开始解码音频
             if hasattr(self.ui_widget, 'webapi_logger'):
                 self.ui_widget.webapi_logger.log_system_event("开始解码base64音频数据")
@@ -514,9 +545,46 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             if hasattr(self.ui_widget, 'webapi_logger'):
                 self.ui_widget.webapi_logger.log_system_event("通过socket发送音频播放请求给main.py")
             
+            # 检查字幕是否启用，如果启用则显示唱歌字幕
+            if hasattr(self.ui_widget, 'config_data'):
+                subtitle_enabled = self.ui_widget.config_data.get('setting', {}).get('subtitle_enabled', False)
+                if subtitle_enabled:
+                    try:
+                        import socket
+                        import json
+                        
+                        # 通过socket发送唱歌字幕显示请求给main.py
+                        subtitle_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        subtitle_socket.settimeout(1.0)  # 1秒超时
+                        subtitle_socket.connect(('127.0.0.1', 8889))
+                        
+                        # 检查是否有lrc歌词文件
+                        lrc_text = self._get_lrc_lyrics(audio_base64)
+                        if lrc_text:
+                            subtitle_text = lrc_text
+                        else:
+                            subtitle_text = "♪ 唱歌中 ♫"
+                        
+                        signal_data = {
+                            "type": "show_subtitle",
+                            "text": subtitle_text,
+                            "source": "singing",
+                            "timestamp": time.time()
+                        }
+                        
+                        subtitle_socket.send(json.dumps(signal_data).encode('utf-8'))
+                        subtitle_socket.close()
+                        
+                        if hasattr(self.ui_widget, 'webapi_logger'):
+                            self.ui_widget.webapi_logger.log_system_event("✓ 已发送唱歌字幕显示请求")
+                    except Exception as e:
+                        if hasattr(self.ui_widget, 'webapi_logger'):
+                            self.ui_widget.webapi_logger.log_system_event(f"⚠ 发送唱歌字幕显示请求失败: {e}")
+            
             try:
                 import socket
                 import json
+                import base64
                 
                 # 尝试通过socket发送音频播放请求
                 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -524,7 +592,6 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 client_socket.connect(('127.0.0.1', 8889))  # main.py监听的端口
                 
                 # 将音频数据编码为base64
-                import base64
                 audio_data_b64 = base64.b64encode(audio_data).decode('utf-8')
                 
                 signal_data = {
@@ -569,137 +636,122 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             return False
     
     
+    def _get_lrc_lyrics(self, audio_base64):
+        """获取LRC歌词文件内容
+        
+        Args:
+            audio_base64: 音频数据的base64编码（用于生成文件名）
+            
+        Returns:
+            str: 歌词内容，如果没有找到lrc文件则返回空字符串
+        """
+        try:
+            import os
+            import hashlib
+            
+            # 生成音频文件的哈希值作为文件名基础
+            audio_hash = hashlib.md5(audio_base64.encode()).hexdigest()[:8]
+            
+            # 可能的lrc文件路径
+            possible_lrc_paths = [
+                f"lyrics/{audio_hash}.lrc",
+                f"lyrics/audio_{audio_hash}.lrc",
+                f"lrc/{audio_hash}.lrc",
+                f"lrc/audio_{audio_hash}.lrc",
+                f"{audio_hash}.lrc",
+                f"audio_{audio_hash}.lrc"
+            ]
+            
+            for lrc_path in possible_lrc_paths:
+                if os.path.exists(lrc_path):
+                    try:
+                        with open(lrc_path, 'r', encoding='utf-8') as f:
+                            lyrics_content = f.read().strip()
+                            if lyrics_content:
+                                if hasattr(self.ui_widget, 'webapi_logger'):
+                                    self.ui_widget.webapi_logger.log_system_event(f"找到LRC歌词文件: {lrc_path}")
+                                return lyrics_content
+                    except Exception as e:
+                        if hasattr(self.ui_widget, 'webapi_logger'):
+                            self.ui_widget.webapi_logger.log_system_event(f"读取LRC文件失败 {lrc_path}: {e}")
+                        continue
+            
+            # 如果没有找到lrc文件，返回空字符串
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("未找到对应的LRC歌词文件")
+            return ""
+            
+        except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"获取LRC歌词失败: {e}")
+            return ""
+    
+    
     # 音频格式转换方法已迁移到main.py中的PetService类
     
     # 音频播放方法已迁移到main.py中的PetService类
     
     def _play_audio_fallback(self, audio_data, volume, loop, singing_motion):
-        """音频播放的回退方法"""
+        """音频播放的回退方法 - 使用专用线程避免阻塞UI"""
         try:
-            # 保存为临时文件并使用系统播放器
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                temp_file.write(audio_data)
-                temp_path = temp_file.name
+            # 创建音频播放线程
+            self.audio_thread = AudioPlaybackThread(audio_data, volume, loop, singing_motion, self.ui_widget)
             
-            # 触发Live2D动作
-            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                # 根据动作名称获取motion index
-                motion_map = {
-                    '唱歌': 5,
-                    '开始唱歌': 5,
-                    '停止唱歌': 7,
-                    '跳舞': 6,
-                    '开心': 1,
-                    '悲伤': 2,
-                    '生气': 3,
-                    '惊讶': 4
-                }
-                singing_motion_index = motion_map.get(singing_motion, 5)  # 默认唱歌动作
-                self.ui_widget.trigger_live2d_motion(singing_motion_index)
+            # 连接信号
+            self.audio_thread.finished.connect(self._on_audio_finished)
+            self.audio_thread.error.connect(self._on_audio_error)
+            self.audio_thread.trigger_motion.connect(self._on_trigger_motion)
             
-            # 在后台线程中播放音频
-            def play_audio_background():
-                try:
-                    if sys.platform == 'win32':
-                        import winsound
-                        import time
-                        
-                        # 获取音频时长（估算）
-                        try:
-                            with wave.open(temp_path, 'rb') as wav_file:
-                                frames = wav_file.getnframes()
-                                rate = wav_file.getframerate()
-                                duration = frames / float(rate) if rate > 0 else 0
-                        except:
-                            duration = 0
-                        
-                        if loop:
-                            # 循环播放 - 使用定时器方式避免阻塞
-                            def play_loop():
-                                try:
-                                    winsound.PlaySound(temp_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                                    # 等待播放完成后再重新播放
-                                    if duration > 0:
-                                        time.sleep(duration)
-                                        # 检查是否还有循环播放的请求
-                                        if hasattr(self, '_stop_singing') and not self._stop_singing:
-                                            play_loop()
-                                        else:
-                                            # 停止Live2D动作
-                                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                                                self.ui_widget.trigger_live2d_motion(7)
-                                except Exception as e:
-                                    print(f"循环播放异常: {e}")
-                            
-                            import threading
-                            loop_thread = threading.Thread(target=play_loop)
-                            loop_thread.daemon = True
-                            loop_thread.start()
-                        else:
-                            # 单次播放
-                            winsound.PlaySound(temp_path, winsound.SND_FILENAME)
-                            
-                            # 等待播放完成或超时
-                            if duration > 0:
-                                timeout = min(duration + 1.0, 30.0)  # 最长等待30秒
-                                time.sleep(min(duration, timeout))
-                            
-                            # 停止Live2D动作
-                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                                self.ui_widget.trigger_live2d_motion(7)
-                    else:
-                        # Linux/Mac
-                        import subprocess
-                        if loop:
-                            # 循环播放
-                            def play_loop_unix():
-                                while not getattr(self, '_stop_singing', True):
-                                    try:
-                                        cmd = ['aplay', temp_path]
-                                        subprocess.run(cmd, timeout=10)
-                                        time.sleep(0.1)  # 短暂延迟
-                                    except subprocess.TimeoutExpired:
-                                        continue
-                                    except Exception as e:
-                                        print(f"Unix循环播放异常: {e}")
-                                        break
-                                # 停止Live2D动作
-                                if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                                    self.ui_widget.trigger_live2d_motion(7)
-                            
-                            import threading
-                            loop_thread = threading.Thread(target=play_loop_unix)
-                            loop_thread.daemon = True
-                            loop_thread.start()
-                        else:
-                            # 单次播放
-                            cmd = ['aplay', temp_path]
-                            subprocess.run(cmd, timeout=30)  # 30秒超时
-                            
-                            # 停止Live2D动作
-                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                                self.ui_widget.trigger_live2d_motion(7)
-                                
-                except Exception as e:
-                    print(f"系统播放异常: {e}")
-                    # 确保Live2D动作停止
-                    if hasattr(self.ui_widget, 'trigger_live2d_motion'):
-                        self.ui_widget.trigger_live2d_motion(7)
-                finally:
-                    # 清理临时文件
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
+            # 启动线程
+            self.audio_thread.start()
             
-            import threading
-            play_thread = threading.Thread(target=play_audio_background)
-            play_thread.daemon = True
-            play_thread.start()
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("开始音频播放回退")
                 
         except Exception as e:
-            print(f"回退播放失败: {e}")
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"音频播放回退启动失败: {e}")
+            print(f"音频播放回退启动失败: {e}")
+    
+    def _on_trigger_motion(self, motion_index):
+        """处理Live2D动作触发信号"""
+        try:
+            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                self.ui_widget.trigger_live2d_motion(motion_index)
+        except Exception as e:
+            print(f"触发Live2D动作异常: {e}")
+    
+    def _on_audio_finished(self):
+        """音频播放完成回调"""
+        if hasattr(self.ui_widget, 'webapi_logger'):
+            self.ui_widget.webapi_logger.log_system_event("音频播放完成")
+        
+        # 清理线程引用
+        if hasattr(self, 'audio_thread'):
+            self.audio_thread = None
+    
+    def _on_audio_error(self, error_msg):
+        """音频播放错误回调"""
+        if hasattr(self.ui_widget, 'webapi_logger'):
+            self.ui_widget.webapi_logger.log_system_event(f"音频播放错误: {error_msg}")
+        print(f"音频播放错误: {error_msg}")
+        
+        # 清理线程引用
+        if hasattr(self, 'audio_thread'):
+            self.audio_thread = None
+    
+    def stop_audio_playback(self):
+        """停止当前音频播放"""
+        if hasattr(self, 'audio_thread') and self.audio_thread is not None:
+            try:
+                self.audio_thread.stop()
+                self.audio_thread.wait(2000)  # 等待最多2秒
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event("音频播放已停止")
+            except Exception as e:
+                print(f"停止音频播放异常: {e}")
+            finally:
+                self.audio_thread = None
             # 确保Live2D动作停止
             if hasattr(self.ui_widget, 'trigger_live2d_motion'):
                 self.ui_widget.trigger_live2d_motion(7)
@@ -3109,6 +3161,146 @@ class LocalTTSClient:
             if self.logger:
                 self.logger.log_error("本地TTS失败", str(e))
             return None
+
+
+class AudioPlaybackThread(QThread):
+    """音频播放后台线程，避免阻塞UI"""
+    
+    finished = pyqtSignal()  # 播放完成信号
+    error = pyqtSignal(str)  # 错误信号
+    trigger_motion = pyqtSignal(int)  # 触发Live2D动作信号
+    
+    def __init__(self, audio_data, volume, loop, singing_motion, ui_widget):
+        super().__init__()
+        self.audio_data = audio_data
+        self.volume = volume
+        self.loop = loop
+        self.singing_motion = singing_motion
+        self.ui_widget = ui_widget
+        self.temp_path = None
+        self.is_running = True
+        
+    def run(self):
+        """在后台线程中执行音频播放"""
+        try:
+            # 保存音频数据到临时文件
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_file.write(self.audio_data)
+                self.temp_path = temp_file.name
+            
+            # 触发Live2D动作 - 通过信号发送到主线程
+            motion_map = {
+                '唱歌': 5,
+                '开始唱歌': 5,
+                '停止唱歌': 7,
+                '跳舞': 6,
+                '开心': 1,
+                '悲伤': 2,
+                '生气': 3,
+                '惊讶': 4
+            }
+            singing_motion_index = motion_map.get(self.singing_motion, 5)
+            self.trigger_motion.emit(singing_motion_index)
+            
+            # 执行音频播放
+            self._play_audio()
+            
+            # 停止Live2D动作 - 通过信号发送到主线程
+            self.trigger_motion.emit(7)
+                
+        except Exception as e:
+            self.error.emit(f"音频播放异常: {str(e)}")
+        finally:
+            # 清理临时文件
+            if self.temp_path and os.path.exists(self.temp_path):
+                try:
+                    os.unlink(self.temp_path)
+                except:
+                    pass
+            self.finished.emit()
+    
+    def _play_audio(self):
+        """执行音频播放"""
+        if sys.platform == 'win32':
+            self._play_windows()
+        else:
+            self._play_unix()
+    
+    def _play_windows(self):
+        """Windows平台音频播放"""
+        import winsound
+        import time
+        
+        try:
+            # 获取音频时长
+            duration = 0
+            try:
+                with wave.open(self.temp_path, 'rb') as wav_file:
+                    frames = wav_file.getnframes()
+                    rate = wav_file.getframerate()
+                    duration = frames / float(rate) if rate > 0 else 0
+            except:
+                duration = 0
+            
+            if self.loop:
+                # 循环播放
+                while self.is_running:
+                    try:
+                        winsound.PlaySound(self.temp_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                        if duration > 0:
+                            time.sleep(min(duration, 30.0))  # 最长等待30秒
+                        else:
+                            time.sleep(1.0)  # 默认等待1秒
+                    except Exception as e:
+                        print(f"Windows循环播放异常: {e}")
+                        break
+            else:
+                # 单次播放
+                winsound.PlaySound(self.temp_path, winsound.SND_FILENAME)
+                # 等待播放完成
+                if duration > 0:
+                    time.sleep(min(duration + 0.5, 30.0))  # 额外0.5秒缓冲，最长30秒
+                else:
+                    time.sleep(2.0)  # 默认等待2秒
+                    
+        except Exception as e:
+            print(f"Windows音频播放异常: {e}")
+    
+    def _play_unix(self):
+        """Unix/Linux/Mac平台音频播放"""
+        import subprocess
+        import time
+        
+        try:
+            if self.loop:
+                # 循环播放
+                while self.is_running:
+                    try:
+                        cmd = ['aplay', self.temp_path]
+                        result = subprocess.run(cmd, timeout=30, capture_output=True)
+                        if result.returncode != 0:
+                            print(f"aplay命令执行失败: {result.stderr.decode()}")
+                            break
+                        time.sleep(0.1)  # 短暂延迟
+                    except subprocess.TimeoutExpired:
+                        continue
+                    except Exception as e:
+                        print(f"Unix循环播放异常: {e}")
+                        break
+            else:
+                # 单次播放
+                cmd = ['aplay', self.temp_path]
+                result = subprocess.run(cmd, timeout=60, capture_output=True)  # 60秒超时
+                if result.returncode != 0:
+                    print(f"aplay命令执行失败: {result.stderr.decode()}")
+                    
+        except Exception as e:
+            print(f"Unix音频播放异常: {e}")
+    
+    def stop(self):
+        """停止播放"""
+        self.is_running = False
 
 
 class BatWorker(QThread):
@@ -7619,23 +7811,8 @@ class Widget(Interface):
                 except Exception as e:
                     print(f"通过全局模块控制Live2D动作失败: {e}")
             
-            # 方法3：通过WebAPI发送请求
-            if not success:
-                try:
-                    import requests
-                    api_url = "http://127.0.0.1:8888/api/live2d/motion"
-                    response = requests.post(api_url, json={
-                        "motion_index": motion_index,
-                        "motion_group": "TapBody",
-                        "priority": 3
-                    }, timeout=2)
-                    if response.status_code == 200:
-                        success = True
-                        print(f"通过WebAPI控制Live2D动作成功")
-                    else:
-                        print(f"WebAPI响应错误: {response.status_code}")
-                except Exception as e:
-                    print(f"通过WebAPI控制Live2D动作失败: {e}")
+            # 方法3：通过WebAPI发送请求（已移除，避免404错误）
+            # WebAPI Live2D控制功能已移除，使用文件写入方式作为备选
             
             # 方法4：通过文件写入方式向Live2D程序发送动作指令（备选）
             if not success:
@@ -7934,21 +8111,8 @@ class Widget(Interface):
                 except Exception as e:
                     print(f"通过全局模块控制Live2D表情失败: {e}")
             
-            # 方法3：通过WebAPI发送请求
-            if not success:
-                try:
-                    import requests
-                    api_url = "http://127.0.0.1:8888/api/live2d/expression"
-                    response = requests.post(api_url, json={
-                        "expression_name": expression_name
-                    }, timeout=2)
-                    if response.status_code == 200:
-                        success = True
-                        print(f"通过WebAPI控制Live2D表情成功")
-                    else:
-                        print(f"WebAPI响应错误: {response.status_code}")
-                except Exception as e:
-                    print(f"通过WebAPI控制Live2D表情失败: {e}")
+            # 方法3：通过WebAPI发送请求（已移除，避免404错误）
+            # WebAPI Live2D控制功能已移除，使用文件写入方式作为备选
             
             # 方法4：通过文件写入方式向Live2D程序发送表情指令（备选）
             if not success:
@@ -8840,6 +9004,13 @@ class Window(FramelessWindow):
                                 print(f"停止TerminalRoom进程 {key} 时出错: {e}")
                 except Exception as e:
                     print(f"停止TerminalRoom进程时出错: {e}")
+            
+            # 7. 停止音频播放
+            if hasattr(self, 'MainInterface') and self.MainInterface:
+                try:
+                    self.MainInterface.stop_audio_playback()
+                except Exception as e:
+                    print(f"停止音频播放时出错: {e}")
             
             print("所有worker线程和进程已关闭")
             

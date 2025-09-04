@@ -364,6 +364,17 @@ class PetService:
                 self.hide_action_buttons()
                 if self.logger:
                     self.logger.info(">>> 收到隐藏动作按钮请求")
+            elif signal_type == 'show_subtitle':
+                # 处理显示字幕请求
+                subtitle_text = signal_data.get('text', '')
+                source = signal_data.get('source', 'unknown')
+                if subtitle_text:
+                    self.show_subtitle(subtitle_text, source)
+                    if self.logger:
+                        self.logger.info(f">>> 收到字幕显示请求: {source} - {subtitle_text[:30]}...")
+                else:
+                    if self.logger:
+                        self.logger.warning(">>> 字幕显示请求缺少文本内容")
             else:
                 if self.logger:
                     self.logger.warning(f">>> 未知的信号类型: {signal_type}")
@@ -981,6 +992,84 @@ class PetService:
         """隐藏动作按钮窗口"""
         if self.action_buttons_window:
             self.action_buttons_window.hide()
+
+    def show_subtitle(self, text, source="unknown"):
+        """显示字幕
+        
+        Args:
+            text: 要显示的字幕文本
+            source: 字幕来源 (dialogue, singing, etc.)
+        """
+        try:
+            if self.logger:
+                self.logger.info(f">>> 显示字幕: {source} - {text[:50]}...")
+            
+            # 检查字幕管理器是否存在
+            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                # 根据来源决定是否流式显示
+                stream = source == "dialogue"  # 台词使用流式显示，唱歌使用完整显示
+                
+                self.app_manager.subtitle_manager.add_text(text, stream=stream)
+                
+                if self.logger:
+                    self.logger.info(f">>> 字幕已发送到管理器: stream={stream}")
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 字幕管理器不可用，无法显示字幕")
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 显示字幕失败: {e}")
+
+    def stop_audio_playback(self):
+        """停止音频播放"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 停止音频播放... [ 进行中 ]")
+            
+            # 设置停止标志
+            self._stop_singing = True
+            
+            # 停止当前的音频流
+            if self.current_audio_stream:
+                try:
+                    self.current_audio_stream.stop()
+                    self.current_audio_stream.close()
+                    self.current_audio_stream = None
+                    if self.logger:
+                        self.logger.info(">>> 当前音频流已停止")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 停止音频流时出错: {e}")
+            
+            # 等待音频线程结束
+            if self.audio_thread and self.audio_thread.is_alive():
+                self.audio_thread.join(timeout=2.0)
+                if self.logger:
+                    self.logger.info(">>> 音频播放线程已停止")
+            
+            # 清理音频线程引用
+            self.audio_thread = None
+            
+            if self.logger:
+                self.logger.info(">>> 音频播放... [ 已停止 ]")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 停止音频播放失败: {e}")
+
+    def reset_action_buttons(self):
+        """重置动作按钮状态"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 重置动作按钮状态")
+            
+            # 这里可以添加重置动作按钮状态的逻辑
+            # 例如：取消所有按钮的高亮状态，恢复默认状态等
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 重置动作按钮失败: {e}")
 
 
 class QtAsyncManager:
