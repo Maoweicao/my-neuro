@@ -11,6 +11,8 @@ import requests
 import time
 import random
 import threading
+import io
+import wave
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
@@ -61,7 +63,7 @@ from qfluentwidgets import FluentIcon as FIF, Action, SystemTrayMenu, LineEdit, 
 from qframelesswindow import FramelessWindow, TitleBar
 
 # 导入自定义界面模块
-from interface.action_buttons import ActionButtonsWindow
+from interface.action_buttons import ActionButtonsWindow  # 已迁移到main.py
 
 
 class QTextBrowserHandler(logging.Handler, QObject):
@@ -102,10 +104,19 @@ class WebAPIHandler(BaseHTTPRequestHandler):
     
     def __init__(self, *args, ui_widget=None, **kwargs):
         self.ui_widget = ui_widget
+        self._stop_singing = False  # 停止唱歌标志
         super().__init__(*args, **kwargs)
     
     def do_POST(self):
         """处理POST请求"""
+        import time
+        start_time = time.time()
+        client_ip = self.client_address[0] if hasattr(self, 'client_address') else 'unknown'
+        
+        # 记录请求开始
+        if hasattr(self.ui_widget, 'webapi_logger'):
+            self.ui_widget.webapi_logger.log_request_start('POST', self.path, client_ip)
+        
         try:
             if self.path == '/api/chat':
                 self._handle_chat_request()
@@ -113,10 +124,20 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self._handle_interrupt_request()
             elif self.path == '/api/dialogue':
                 self._handle_dialogue_request()
+            elif self.path == '/api/sing':
+                self._handle_singing_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
+            # 记录错误
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error(self.path, "POST_ERROR", str(e))
             self._send_error_response(500, f"Internal Server Error: {str(e)}")
+        finally:
+            # 记录请求结束
+            duration = (time.time() - start_time) * 1000  # 转换为毫秒
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_request_end('POST', self.path, 200, duration)
     
     def do_GET(self):
         """处理GET请求"""
@@ -148,17 +169,25 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 return
             
             # 验证API密钥（如果配置了）
+            has_api_key = False
             if hasattr(self.ui_widget, 'config_data'):
                 api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
                 if api_key and data.get('api_key') != api_key:
                     self._send_error_response(401, "Invalid API key")
                     return
+                has_api_key = bool(data.get('api_key'))
+            
+            # 记录聊天请求
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_chat_request(len(message), has_api_key)
             
             # 记录请求
             if hasattr(self.ui_widget, 'log_user_input'):
                 self.ui_widget.log_user_input(f"[WebAPI] {message}")
             
             # 调用LLM处理逻辑
+            import time
+            chat_start_time = time.time()
             try:
                 if hasattr(self.ui_widget, 'process_llm_request'):
                     response_text = self.ui_widget.process_llm_request(message)
@@ -166,6 +195,12 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                     response_text = f"收到您的消息: {message}"
             except Exception as e:
                 response_text = f"处理错误: {str(e)}"
+            
+            chat_duration = (time.time() - chat_start_time) * 1000
+            
+            # 记录聊天响应
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_chat_response(len(response_text), chat_duration)
             
             # 记录响应
             if hasattr(self.ui_widget, 'log_llm_response'):
@@ -178,8 +213,12 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             })
             
         except json.JSONDecodeError:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/chat', "JSON_DECODE_ERROR", "Invalid JSON")
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/chat', "CHAT_PROCESSING_ERROR", str(e))
             self._send_error_response(500, f"Server error: {str(e)}")
     
     def _handle_interrupt_request(self):
@@ -188,45 +227,77 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             # 验证API密钥（如果配置了）
             content_length = int(self.headers.get('Content-Length', 0))
             api_key = ""
+            has_api_key = False
             if content_length > 0:
                 post_data = self.rfile.read(content_length)
                 data = json.loads(post_data.decode('utf-8'))
                 api_key = data.get('api_key', '')
+                has_api_key = bool(api_key)
             
             if hasattr(self.ui_widget, 'config_data'):
                 expected_api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
                 if expected_api_key and api_key != expected_api_key:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_error('/api/interrupt', "INVALID_API_KEY", "Invalid API key")
                     self._send_error_response(401, "Invalid API key")
                     return
+            
+            # 记录中断请求
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_interrupt_request(has_api_key)
+                self.ui_widget.webapi_logger.log_system_event("收到中断请求")
             
             # 执行打断操作
             if hasattr(self.ui_widget, 'interrupt_current_operations'):
                 success = self.ui_widget.interrupt_current_operations()
+                
+                # 同时停止唱歌
+                self._stop_singing = True
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event("设置停止唱歌标志")
+                
                 if success:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_interrupt_response(True)
+                        self.ui_widget.webapi_logger.log_system_event("中断操作成功")
                     self._send_json_response({
                         "status": "success",
-                        "message": "已打断当前AI输出和语音播放",
+                        "message": "已打断当前AI输出、语音播放和唱歌",
                         "timestamp": time.time()
                     })
                 else:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_interrupt_response(False)
+                        self.ui_widget.webapi_logger.log_system_event("没有正在进行的操作需要打断")
                     self._send_json_response({
                         "status": "warning", 
                         "message": "没有正在进行的操作需要打断",
                         "timestamp": time.time()
                     })
             else:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/interrupt', "NOT_IMPLEMENTED", "Interrupt functionality not implemented")
                 self._send_error_response(501, "Interrupt functionality not implemented")
                 
         except json.JSONDecodeError:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/interrupt', "JSON_DECODE_ERROR", "Invalid JSON")
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/interrupt', "GENERAL_ERROR", str(e))
             self._send_error_response(500, f"Interrupt error: {str(e)}")
     
     def _handle_dialogue_request(self):
         """处理台词转换请求"""
+        import time
+        dialogue_start_time = time.time()
+        
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             if content_length == 0:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/dialogue', "EMPTY_REQUEST", "Empty request body")
                 self._send_error_response(400, "Empty request body")
                 return
             
@@ -236,20 +307,33 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             
             # 验证必需字段
             if 'dialogue' not in data:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/dialogue', "MISSING_FIELD", "Missing 'dialogue' field")
                 self._send_error_response(400, "Missing 'dialogue' field")
                 return
             
             dialogue = data['dialogue'].strip()
             if not dialogue:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/dialogue', "EMPTY_DIALOGUE", "Empty dialogue")
                 self._send_error_response(400, "Empty dialogue")
                 return
             
             # 验证API密钥（如果配置了）
+            has_api_key = False
             if hasattr(self.ui_widget, 'config_data'):
                 api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
                 if api_key and data.get('api_key') != api_key:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_error('/api/dialogue', "INVALID_API_KEY", "Invalid API key")
                     self._send_error_response(401, "Invalid API key")
                     return
+                has_api_key = bool(data.get('api_key'))
+            
+            # 记录台词转换请求
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_dialogue_request(len(dialogue), has_api_key)
+                self.ui_widget.webapi_logger.log_system_event(f"开始处理台词转换: '{dialogue[:50]}...'")
             
             # 记录请求
             if hasattr(self.ui_widget, 'log_user_input'):
@@ -269,6 +353,7 @@ class WebAPIHandler(BaseHTTPRequestHandler):
 请直接输出转换后的台词，不要添加其他解释。"""
             
             # 调用LLM处理逻辑
+            dialogue_processing_start = time.time()
             try:
                 if hasattr(self.ui_widget, 'process_llm_request'):
                     response_text = self.ui_widget.process_llm_request(conversion_prompt)
@@ -277,9 +362,22 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 response_text = f"处理错误: {str(e)}"
             
+            dialogue_processing_duration = (time.time() - dialogue_processing_start) * 1000
+            
+            # 记录台词转换响应
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_dialogue_response(
+                    len(dialogue), len(response_text), dialogue_processing_duration
+                )
+                self.ui_widget.webapi_logger.log_system_event(f"台词转换完成: '{response_text[:50]}...'")
+            
             # 记录响应
             if hasattr(self.ui_widget, 'log_llm_response'):
                 self.ui_widget.log_llm_response(response_text)
+            
+            total_duration = (time.time() - dialogue_start_time) * 1000
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"台词转换请求处理完成，总耗时: {total_duration:.2f}ms")
             
             self._send_json_response({
                 "original_dialogue": dialogue,
@@ -289,9 +387,325 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             })
             
         except json.JSONDecodeError:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/dialogue', "JSON_DECODE_ERROR", "Invalid JSON")
             self._send_error_response(400, "Invalid JSON")
         except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/dialogue', "GENERAL_ERROR", str(e))
             self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _handle_singing_request(self):
+        """处理唱歌请求"""
+        import time
+        singing_start_time = time.time()
+        
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "EMPTY_REQUEST", "Empty request body")
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 记录请求开始
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("开始处理唱歌请求")
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'audio_base64' not in data:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "MISSING_FIELD", "Missing 'audio_base64' field")
+                self._send_error_response(400, "Missing 'audio_base64' field")
+                return
+            
+            audio_base64 = data['audio_base64'].strip()
+            if not audio_base64:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "EMPTY_AUDIO", "Empty audio_base64")
+                self._send_error_response(400, "Empty audio_base64")
+                return
+            
+            # 验证API密钥（如果配置了）
+            has_api_key = False
+            if hasattr(self.ui_widget, 'config_data'):
+                api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
+                if api_key and data.get('api_key') != api_key:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_error('/api/sing', "INVALID_API_KEY", "Invalid API key")
+                    self._send_error_response(401, "Invalid API key")
+                    return
+                has_api_key = bool(data.get('api_key'))
+            
+            # 解析参数
+            volume = float(data.get('volume', 1.0))
+            loop = bool(data.get('loop', False))
+            singing_motion = data.get('singing_motion', '唱歌')
+            
+            # 记录唱歌请求开始
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_singing_request_start(
+                    len(audio_base64), volume, loop, singing_motion
+                )
+                self.ui_widget.webapi_logger.log_system_event(f"唱歌参数: 音量={volume}, 循环={loop}, 动作={singing_motion}")
+            
+            # 记录请求
+            if hasattr(self.ui_widget, 'log_user_input'):
+                self.ui_widget.log_user_input(f"[WebAPI Singing] Audio length: {len(audio_base64)} chars, Volume: {volume}, Loop: {loop}")
+            
+            # 启动唱歌处理
+            try:
+                success = self._process_singing_request(audio_base64, volume, loop, singing_motion)
+                if success:
+                    singing_duration = (time.time() - singing_start_time) * 1000
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_singing_request_complete(singing_duration)
+                        self.ui_widget.webapi_logger.log_system_event("唱歌请求处理成功")
+                    
+                    self._send_json_response({
+                        "status": "success",
+                        "message": "唱歌请求已开始处理",
+                        "volume": volume,
+                        "loop": loop,
+                        "singing_motion": singing_motion,
+                        "timestamp": time.time()
+                    })
+                else:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_error('/api/sing', "PROCESSING_FAILED", "Failed to process singing request")
+                    self._send_error_response(500, "Failed to process singing request")
+            except Exception as e:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "PROCESSING_EXCEPTION", str(e))
+                self._send_error_response(500, f"Singing processing error: {str(e)}")
+                
+        except json.JSONDecodeError:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/sing', "JSON_DECODE_ERROR", "Invalid JSON")
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/sing', "GENERAL_ERROR", str(e))
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _process_singing_request(self, audio_base64, volume, loop, singing_motion):
+        """处理唱歌请求的具体逻辑"""
+        try:
+            # 记录开始解码音频
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("开始解码base64音频数据")
+            
+            # 重置停止标志
+            self._stop_singing = False
+            
+            # 解码base64音频数据
+            audio_data = base64.b64decode(audio_base64)
+            
+            # 记录解码成功
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_singing_audio_decode(True, len(audio_data)/44100 if len(audio_data) > 0 else 0)
+                self.ui_widget.webapi_logger.log_system_event(f"音频解码成功，大小: {len(audio_data)} bytes")
+            
+            # 通过socket发送音频播放请求给main.py（音频格式转换由main.py处理）
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("通过socket发送音频播放请求给main.py")
+            
+            try:
+                import socket
+                import json
+                
+                # 尝试通过socket发送音频播放请求
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.settimeout(2.0)  # 2秒超时
+                client_socket.connect(('127.0.0.1', 8889))  # main.py监听的端口
+                
+                # 将音频数据编码为base64
+                import base64
+                audio_data_b64 = base64.b64encode(audio_data).decode('utf-8')
+                
+                signal_data = {
+                    "type": "play_audio",
+                    "audio_data": audio_data_b64,
+                    "volume": volume,
+                    "loop": loop,
+                    "singing_motion": singing_motion,
+                    "timestamp": time.time(),
+                    "source": "ui_singing"
+                }
+                
+                client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                client_socket.close()
+                
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event("✓ 已通过socket发送音频播放请求")
+                    
+            except (socket.timeout, socket.error) as e:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "SOCKET_SEND_ERROR", str(e))
+                    self.ui_widget.webapi_logger.log_system_event("⚠ Socket通信失败，回退到本地播放")
+                
+                # 回退到本地播放（如果main.py不可用）
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event("回退：创建后台线程处理唱歌")
+                import threading
+                singing_thread = threading.Thread(
+                    target=self._play_audio_fallback,
+                    args=(audio_data, volume, loop, singing_motion)
+                )
+                singing_thread.daemon = True
+                singing_thread.start()
+            
+            return True
+        except Exception as e:
+            # 记录解码失败
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_singing_audio_decode(False)
+                self.ui_widget.webapi_logger.log_error('/api/sing', "AUDIO_DECODE_ERROR", str(e))
+            print(f"处理唱歌请求失败: {e}")
+            return False
+    
+    
+    # 音频格式转换方法已迁移到main.py中的PetService类
+    
+    # 音频播放方法已迁移到main.py中的PetService类
+    
+    def _play_audio_fallback(self, audio_data, volume, loop, singing_motion):
+        """音频播放的回退方法"""
+        try:
+            # 保存为临时文件并使用系统播放器
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_file.write(audio_data)
+                temp_path = temp_file.name
+            
+            # 触发Live2D动作
+            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                # 根据动作名称获取motion index
+                motion_map = {
+                    '唱歌': 5,
+                    '开始唱歌': 5,
+                    '停止唱歌': 7,
+                    '跳舞': 6,
+                    '开心': 1,
+                    '悲伤': 2,
+                    '生气': 3,
+                    '惊讶': 4
+                }
+                singing_motion_index = motion_map.get(singing_motion, 5)  # 默认唱歌动作
+                self.ui_widget.trigger_live2d_motion(singing_motion_index)
+            
+            # 在后台线程中播放音频
+            def play_audio_background():
+                try:
+                    if sys.platform == 'win32':
+                        import winsound
+                        import time
+                        
+                        # 获取音频时长（估算）
+                        try:
+                            with wave.open(temp_path, 'rb') as wav_file:
+                                frames = wav_file.getnframes()
+                                rate = wav_file.getframerate()
+                                duration = frames / float(rate) if rate > 0 else 0
+                        except:
+                            duration = 0
+                        
+                        if loop:
+                            # 循环播放 - 使用定时器方式避免阻塞
+                            def play_loop():
+                                try:
+                                    winsound.PlaySound(temp_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                                    # 等待播放完成后再重新播放
+                                    if duration > 0:
+                                        time.sleep(duration)
+                                        # 检查是否还有循环播放的请求
+                                        if hasattr(self, '_stop_singing') and not self._stop_singing:
+                                            play_loop()
+                                        else:
+                                            # 停止Live2D动作
+                                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                                                self.ui_widget.trigger_live2d_motion(7)
+                                except Exception as e:
+                                    print(f"循环播放异常: {e}")
+                            
+                            import threading
+                            loop_thread = threading.Thread(target=play_loop)
+                            loop_thread.daemon = True
+                            loop_thread.start()
+                        else:
+                            # 单次播放
+                            winsound.PlaySound(temp_path, winsound.SND_FILENAME)
+                            
+                            # 等待播放完成或超时
+                            if duration > 0:
+                                timeout = min(duration + 1.0, 30.0)  # 最长等待30秒
+                                time.sleep(min(duration, timeout))
+                            
+                            # 停止Live2D动作
+                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                                self.ui_widget.trigger_live2d_motion(7)
+                    else:
+                        # Linux/Mac
+                        import subprocess
+                        if loop:
+                            # 循环播放
+                            def play_loop_unix():
+                                while not getattr(self, '_stop_singing', True):
+                                    try:
+                                        cmd = ['aplay', temp_path]
+                                        subprocess.run(cmd, timeout=10)
+                                        time.sleep(0.1)  # 短暂延迟
+                                    except subprocess.TimeoutExpired:
+                                        continue
+                                    except Exception as e:
+                                        print(f"Unix循环播放异常: {e}")
+                                        break
+                                # 停止Live2D动作
+                                if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                                    self.ui_widget.trigger_live2d_motion(7)
+                            
+                            import threading
+                            loop_thread = threading.Thread(target=play_loop_unix)
+                            loop_thread.daemon = True
+                            loop_thread.start()
+                        else:
+                            # 单次播放
+                            cmd = ['aplay', temp_path]
+                            subprocess.run(cmd, timeout=30)  # 30秒超时
+                            
+                            # 停止Live2D动作
+                            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                                self.ui_widget.trigger_live2d_motion(7)
+                                
+                except Exception as e:
+                    print(f"系统播放异常: {e}")
+                    # 确保Live2D动作停止
+                    if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                        self.ui_widget.trigger_live2d_motion(7)
+                finally:
+                    # 清理临时文件
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+            
+            import threading
+            play_thread = threading.Thread(target=play_audio_background)
+            play_thread.daemon = True
+            play_thread.start()
+                
+        except Exception as e:
+            print(f"回退播放失败: {e}")
+            # 确保Live2D动作停止
+            if hasattr(self.ui_widget, 'trigger_live2d_motion'):
+                self.ui_widget.trigger_live2d_motion(7)
+    
+    
+    # 动作索引获取方法已迁移到main.py中的PetService类
     
     def _send_json_response(self, data):
         """发送JSON响应"""
@@ -354,16 +768,26 @@ class WebAPIServer(QThread):
             self.is_running = True
             self.status_changed.emit(True, f"WebAPI服务已启动 - {self.host}:{self.port}")
             
+            # 记录服务器启动
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"WebAPI服务器启动成功: {self.host}:{self.port}")
+            
             # 启动服务器
             self.server.serve_forever()
             
         except OSError as e:
             if "Address already in use" in str(e):
                 self.status_changed.emit(False, f"端口 {self.port} 已被占用")
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('WebAPIServer', "PORT_IN_USE", f"端口 {self.port} 已被占用")
             else:
                 self.status_changed.emit(False, f"启动失败: {str(e)}")
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('WebAPIServer', "STARTUP_ERROR", str(e))
         except Exception as e:
             self.status_changed.emit(False, f"服务器错误: {str(e)}")
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('WebAPIServer', "SERVER_ERROR", str(e))
         finally:
             self.is_running = False
     
@@ -373,8 +797,14 @@ class WebAPIServer(QThread):
             self.server.shutdown()
             self.server.server_close()
             self.server = None
+        
         self.is_running = False
         self.status_changed.emit(False, "WebAPI服务已停止")
+        
+        # 记录服务器停止
+        if hasattr(self.ui_widget, 'webapi_logger'):
+            self.ui_widget.webapi_logger.log_system_event("WebAPI服务器已停止")
+        
         self.quit()
         self.wait()
 
@@ -898,6 +1328,171 @@ class TTSInteractionLogger:
                 self.logger.removeHandler(handler)
             self.logger = None
         
+        self.setup_logger()
+
+
+class WebAPIInteractionLogger:
+    """WebAPI交互日志记录器"""
+
+    def __init__(self, log_path="logs/webapi_interactions.log", enabled=True):
+        self.log_path = log_path
+        self.enabled = enabled
+        self.logger = None
+        self.setup_logger()
+
+    def setup_logger(self):
+        """设置日志记录器"""
+        if not self.enabled:
+            return
+
+        # 确保日志目录存在
+        log_dir = os.path.dirname(self.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+
+        # 创建专用的WebAPI交互日志记录器
+        self.logger = logging.getLogger('webapi_interactions')
+        self.logger.setLevel(logging.INFO)
+
+        # 避免重复添加处理器
+        if not self.logger.handlers:
+            # 文件处理器，支持日志轮转
+            file_handler = RotatingFileHandler(
+                self.log_path,
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+
+            # 设置日志格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+
+    def log_request_start(self, method, path, client_ip):
+        """记录请求开始"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"REQUEST_START: {method} {path} from {client_ip}")
+
+    def log_request_end(self, method, path, status_code, duration):
+        """记录请求结束"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"REQUEST_END: {method} {path} -> {status_code} ({duration:.2f}ms)")
+
+    def log_chat_request(self, message_length, has_api_key):
+        """记录聊天请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"CHAT_REQUEST: MessageLength={message_length}, HasApiKey={has_api_key}")
+
+    def log_chat_response(self, response_length, duration):
+        """记录聊天响应"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"CHAT_RESPONSE: ResponseLength={response_length}, Duration={duration:.2f}ms")
+
+    def log_singing_request_start(self, audio_size, volume, loop, motion):
+        """记录唱歌请求开始"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SINGING_REQUEST_START: AudioSize={audio_size}bytes, Volume={volume}, Loop={loop}, Motion={motion}")
+
+    def log_singing_audio_decode(self, success, audio_length=None):
+        """记录音频解码"""
+        if not self.enabled or not self.logger:
+            return
+        status = "SUCCESS" if success else "FAILED"
+        length_info = f", AudioLength={audio_length}s" if audio_length else ""
+        self.logger.info(f"SINGING_AUDIO_DECODE: {status}{length_info}")
+
+    def log_singing_motion_trigger(self, motion_index):
+        """记录Live2D动作触发"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SINGING_MOTION_TRIGGER: MotionIndex={motion_index}")
+
+    def log_singing_audio_playback_start(self, loop_mode):
+        """记录音频播放开始"""
+        if not self.enabled or not self.logger:
+            return
+        mode = "LOOP" if loop_mode else "SINGLE"
+        self.logger.info(f"SINGING_AUDIO_PLAYBACK_START: Mode={mode}")
+
+    def log_singing_audio_playback_end(self):
+        """记录音频播放结束"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info("SINGING_AUDIO_PLAYBACK_END")
+
+    def log_singing_motion_stop(self, motion_index):
+        """记录Live2D动作停止"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SINGING_MOTION_STOP: MotionIndex={motion_index}")
+
+    def log_singing_request_complete(self, duration):
+        """记录唱歌请求完成"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SINGING_REQUEST_COMPLETE: TotalDuration={duration:.2f}ms")
+
+    def log_interrupt_request(self, has_api_key):
+        """记录中断请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"INTERRUPT_REQUEST: HasApiKey={has_api_key}")
+
+    def log_interrupt_response(self, success):
+        """记录中断响应"""
+        if not self.enabled or not self.logger:
+            return
+        status = "SUCCESS" if success else "NO_ACTIVE_OPERATIONS"
+        self.logger.info(f"INTERRUPT_RESPONSE: Status={status}")
+
+    def log_dialogue_request(self, dialogue_length, has_api_key):
+        """记录台词转换请求"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"DIALOGUE_REQUEST: DialogueLength={dialogue_length}, HasApiKey={has_api_key}")
+
+    def log_dialogue_response(self, original_length, converted_length, duration):
+        """记录台词转换响应"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"DIALOGUE_RESPONSE: OriginalLength={original_length}, ConvertedLength={converted_length}, Duration={duration:.2f}ms")
+
+    def log_error(self, endpoint, error_type, error_message):
+        """记录错误"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.error(f"WEBAPI_ERROR: Endpoint={endpoint}, Type={error_type}, Message={error_message}")
+
+    def log_system_event(self, event):
+        """记录系统事件"""
+        if not self.enabled or not self.logger:
+            return
+        self.logger.info(f"SYSTEM: {event}")
+
+    def update_config(self, log_path=None, enabled=None):
+        """更新日志配置"""
+        if log_path is not None:
+            self.log_path = log_path
+        if enabled is not None:
+            self.enabled = enabled
+
+        # 重新设置日志记录器
+        if self.logger:
+            # 清除现有处理器
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+            self.logger = None
+
         self.setup_logger()
 
 
@@ -2945,6 +3540,17 @@ class Widget(Interface):
         self.webapi_server = None
         self.webapi_server_thread = None
 
+        # 检查是否需要自动启动WebAPI
+        webapi_auto_start = self.config_data.get('webapi', {}).get('auto_start', False)
+        webapi_enabled = self.config_data.get('webapi', {}).get('enabled', False)
+        
+        if webapi_auto_start and webapi_enabled:
+            try:
+                self.start_webapi_server()
+                print("WebAPI服务已自动启动")
+            except Exception as e:
+                print(f"WebAPI自动启动失败: {str(e)}")
+
         # 初始化LLM交互日志记录器
         self.init_llm_logger()
 
@@ -2992,6 +3598,20 @@ class Widget(Interface):
         
         if log_enabled:
             self.tts_logger.log_system_event("TTS交互日志系统已启动")
+        
+        # 初始化WebAPI交互日志记录器
+        self.init_webapi_logger()
+    
+    def init_webapi_logger(self):
+        """初始化WebAPI交互日志记录器"""
+        webapi_config = self.config_data.get('webapi', {})
+        log_enabled = webapi_config.get('log_enabled', True)
+        log_path = webapi_config.get('log_path', 'logs/webapi_interactions.log')
+        
+        self.webapi_logger = WebAPIInteractionLogger(log_path, log_enabled)
+        
+        if log_enabled:
+            self.webapi_logger.log_system_event("WebAPI交互日志系统已启动")
     
     def init_live2d_connection(self):
         """初始化Live2D模型连接"""
@@ -3432,19 +4052,31 @@ class Widget(Interface):
         action_buttons_enabled = self.config_data.get('setting', {}).get('action_buttons_enabled', False)
         self.append_output(f"动作按钮启用状态: {action_buttons_enabled}")
         if action_buttons_enabled:
-            # 通过parent链访问Window实例的actionButtonsWindow
-            # Widget -> QStackedWidget -> Window
-            window = None
-            if self.parent() and self.parent().parent():
-                window = self.parent().parent()
-            
-            if window and hasattr(window, 'actionButtonsWindow'):
-                window.actionButtonsWindow.show()
-                self.append_output("动作按钮悬浮窗口已显示")
-            else:
-                self.append_output("无法访问动作按钮窗口")
+            # 通过socket发送信号给main.py显示动作按钮
+            try:
+                import socket
+                import json
+                import time
+                
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.settimeout(2.0)
+                client_socket.connect(('127.0.0.1', 8889))
+                
+                signal_data = {
+                    "type": "show_action_buttons",
+                    "timestamp": time.time(),
+                    "source": "ui_bat_start"
+                }
+                
+                client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                client_socket.close()
+                
+                self.append_output("✓ 已发送显示动作按钮信号给main.py")
+                
+            except (socket.timeout, socket.error) as e:
+                self.append_output(f"⚠ 发送显示动作按钮信号失败: {e}")
         else:
-            self.append_output("动作按钮已禁用，不显示悬浮窗口")
+            self.append_output("动作按钮已禁用")
 
         # 确保日志处理器已设置
         if not self.log_handler:
@@ -3528,14 +4160,29 @@ class Widget(Interface):
             self.append_output(f"停止TerminalRoom进程时出错: {str(e)}")
 
         # 隐藏动作按钮悬浮窗口
-        # 通过parent链访问Window实例
-        window = None
-        if self.parent() and self.parent().parent():
-            window = self.parent().parent()
-        
-        if window and hasattr(window, 'actionButtonsWindow'):
-            window.actionButtonsWindow.hide()
-            self.append_output("动作按钮悬浮窗口已隐藏")
+        # 通过socket发送信号给main.py隐藏动作按钮
+        try:
+            import socket
+            import json
+            import time
+            
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.settimeout(2.0)
+            client_socket.connect(('127.0.0.1', 8889))
+            
+            signal_data = {
+                "type": "hide_action_buttons",
+                "timestamp": time.time(),
+                "source": "ui_bat_stop"
+            }
+            
+            client_socket.send(json.dumps(signal_data).encode('utf-8'))
+            client_socket.close()
+            
+            self.append_output("✓ 已发送隐藏动作按钮信号给main.py")
+            
+        except (socket.timeout, socket.error) as e:
+            self.append_output(f"⚠ 发送隐藏动作按钮信号失败: {e}")
 
     def append_output(self, text):
         # 根据日志级别添加HTML样式
@@ -3600,14 +4247,8 @@ class Widget(Interface):
             self.append_output(f"停止TerminalRoom进程时出错: {str(e)}")
         
         # BAT停止时隐藏动作按钮
-        # 通过parent链访问Window实例
-        window = None
-        if self.parent() and self.parent().parent():
-            window = self.parent().parent()
-        
-        if window and hasattr(window, 'actionButtonsWindow'):
-            window.actionButtonsWindow.hide()
-            self.append_output("动作按钮悬浮窗口已隐藏")
+        # 动作按钮已迁移到main.py，由main.py管理
+        self.append_output("动作按钮悬浮窗口由main.py管理")
 
     # WebAPI服务器相关方法
     def start_webapi_server(self):
@@ -6571,22 +7212,31 @@ class Widget(Interface):
             # 更新配置
             self.config_data.setdefault('setting', {})['action_buttons_enabled'] = enabled
 
-            # 控制悬浮窗口的显示/隐藏
-            # 只有在BAT正在运行时才响应开关，否则保持隐藏
-            if hasattr(self, 'bat_worker') and self.bat_worker and self.bat_worker.isRunning():
-                # 通过parent链访问Window实例
-                window = None
-                if self.parent() and self.parent().parent():
-                    window = self.parent().parent()
+            # 通过socket发送信号给main.py来控制动作按钮显示
+            try:
+                import socket
+                import json
+                import time
                 
-                if window and hasattr(window, 'actionButtonsWindow'):
-                    if enabled:
-                        window.actionButtonsWindow.show()
-                    else:
-                        window.actionButtonsWindow.hide()
-            else:
-                # BAT未运行时，开关变化不影响显示状态（保持隐藏）
-                pass
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.settimeout(2.0)
+                client_socket.connect(('127.0.0.1', 8889))
+                
+                signal_data = {
+                    "type": "show_action_buttons" if enabled else "hide_action_buttons",
+                    "timestamp": time.time(),
+                    "source": "ui_action_buttons_toggle"
+                }
+                
+                client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                client_socket.close()
+                
+                if self.logger:
+                    self.logger.info(f"已发送动作按钮{'显示' if enabled else '隐藏'}信号给main.py")
+                    
+            except (socket.timeout, socket.error) as e:
+                if self.logger:
+                    self.logger.warning(f"发送动作按钮控制信号失败: {e}")
 
             # 显示状态提示
             status_text = "已启用" if enabled else "已禁用"
@@ -7062,49 +7712,53 @@ class Widget(Interface):
             )
     
     def trigger_custom_action(self, action_num):
-        """触发自定义动作"""
+        """触发自定义动作 - 通过socket发送请求给main.py"""
         try:
-            # 从配置中获取绑定的动作
-            action_config = self.config_data.get('action_buttons', {})
-            action_key = f'action_{action_num}'
+            import socket
+            import json
+            import time
             
-            if action_key in action_config:
-                motion_name = action_config[action_key]
-                if motion_name:
-                    # 查找对应的动作索引
-                    motion_index = self.find_motion_index_by_name(motion_name)
-                    if motion_index is not None:
-                        self.trigger_live2d_motion(motion_index)
-                        
-                        InfoBar.success(
-                            title=f'动作{action_num}',
-                            content=f"播放动作: {motion_name}",
-                            orient=Qt.Horizontal,
-                            isClosable=True,
-                            position=InfoBarPosition.TOP,
-                            duration=2000,
-                            parent=self
-                        )
-                        return
-            
-            # 如果没有找到绑定动作，使用默认动作
-            default_motion = action_num  # 使用动作编号作为默认索引
-            self.trigger_live2d_motion(default_motion)
-            
-            InfoBar.info(
-                title=f'动作{action_num}',
-                content=f"播放默认动作 (索引: {default_motion})",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
+            # 通过socket发送自定义动作请求给main.py
+            try:
+                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client_socket.settimeout(2.0)  # 2秒超时
+                client_socket.connect(('127.0.0.1', 8889))  # main.py监听的端口
+                
+                signal_data = {
+                    "type": "custom_action",
+                    "action_num": action_num,
+                    "timestamp": time.time(),
+                    "source": "ui_action"
+                }
+                
+                client_socket.send(json.dumps(signal_data).encode('utf-8'))
+                client_socket.close()
+                
+                InfoBar.success(
+                    title=f'动作{action_num}',
+                    content="已发送动作请求",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                
+            except (socket.timeout, socket.error) as e:
+                InfoBar.warning(
+                    title=f'动作{action_num}失败',
+                    content=f"无法连接到主服务: {str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
             
         except Exception as e:
             InfoBar.error(
                 title=f'动作{action_num}失败',
-                content=f"无法播放动作: {str(e)}",
+                content=f"发送动作请求失败: {str(e)}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -7968,8 +8622,7 @@ class Window(FramelessWindow):
         self.VoiceCloneInterface = Widget('VoiceClone', 10, parent=self)
         self.TerminalInterface = TerminalRoom(self)
 
-        # 创建动作按钮悬浮窗口
-        self.actionButtonsWindow = ActionButtonsWindow(self.MainInterface.config_data, None, self)
+        # 动作按钮悬浮窗口已迁移到main.py中的PetService类
 
 
         # initialize layout
@@ -8049,8 +8702,7 @@ class Window(FramelessWindow):
         self.setQss()
 
         # 初始化动作按钮悬浮窗口状态
-        # 默认隐藏，只有在启动BAT时才显示
-        self.actionButtonsWindow.hide()
+        # 动作按钮已迁移到main.py，默认隐藏
 
     def addSubInterface(self, interface, icon, text: str, position=NavigationItemPosition.TOP):
         """ add sub interface """
@@ -8111,8 +8763,7 @@ class Window(FramelessWindow):
             self._shutdown_all_workers()
             
             # 关闭动作按钮悬浮窗口
-            if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
-                self.actionButtonsWindow.close()
+            # 动作按钮已迁移到main.py，由main.py负责关闭
             # 隐藏系统托盘
             if self.systemTrayIcon:
                 self.systemTrayIcon.hide()
@@ -8202,29 +8853,19 @@ class Window(FramelessWindow):
             if self.isMinimized():
                 self.hide()
                 # 同时隐藏动作按钮悬浮窗口
-                if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
-                    self.actionButtonsWindow.hide()
+                # 动作按钮已迁移到main.py，由main.py管理
                 if self.systemTrayIcon:
                     self.systemTrayIcon.showMessage('提示', '程序已最小化到托盘', QSystemTrayIcon.Information, 2000)
 
     def showEvent(self, event):
         """窗口显示事件"""
         super().showEvent(event)
-        # 主窗口显示时，根据设置和BAT运行状态显示或隐藏动作按钮悬浮窗口
-        if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
-            action_buttons_enabled = self.MainInterface.config_data.get('setting', {}).get('action_buttons_enabled', False)
-            bat_running = hasattr(self, 'bat_worker') and self.bat_worker and self.bat_worker.isRunning()
-            
-            if action_buttons_enabled and bat_running:
-                self.actionButtonsWindow.show()
-            else:
-                self.actionButtonsWindow.hide()
+        # 主窗口显示时，动作按钮由main.py管理
+        # 动作按钮已迁移到main.py，根据设置和BAT运行状态由main.py控制显示
 
     def close_bat_msg(self):
-        """重写关闭方法，关闭动作按钮悬浮窗口"""
-        # 关闭动作按钮悬浮窗口
-        if hasattr(self, 'actionButtonsWindow') and self.actionButtonsWindow:
-            self.actionButtonsWindow.close()
+        """重写关闭方法，动作按钮由main.py管理"""
+        # 动作按钮悬浮窗口已迁移到main.py，由main.py负责关闭
 
     def interrupt_current_operations(self):
         """打断当前AI输出和语音播放"""
