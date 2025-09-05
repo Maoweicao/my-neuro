@@ -115,6 +115,7 @@ class ModuleConnector:
             return tts_client
         else:
             logger.warning("TTS客户端... [ 已停用 ]")
+            return None
 
     async def _init_live2d_module(self) -> 'Live2DModel|None':
         """

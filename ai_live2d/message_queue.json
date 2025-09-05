@@ -1,3 +1,13 @@
 {
-  "messages": []
+  "messages": [
+    {
+      "type": "hide_subtitle",
+      "data": {
+        "source": "UI_close_button"
+      },
+      "priority": 1,
+      "timestamp": 1757062106.6664762,
+      "id": "hide_subtitle_1757062106666"
+    }
+  ]
 }

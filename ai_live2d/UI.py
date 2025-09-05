@@ -7108,6 +7108,171 @@ class Widget(Interface):
         
         self.vBoxLayout.addWidget(basic_group)
         
+        # 显示设置组
+        display_group = QGroupBox("显示设置")
+        display_form = QFormLayout(display_group)
+        
+        # 显示器选择
+        self.subtitle_monitor_combo = QComboBox()
+        self.refresh_monitor_list()
+        
+        # 获取当前选择的显示器
+        current_monitor = subtitle_config.get('display_monitor', 0)
+        for i in range(self.subtitle_monitor_combo.count()):
+            if self.subtitle_monitor_combo.itemData(i) == current_monitor:
+                self.subtitle_monitor_combo.setCurrentIndex(i)
+                break
+        
+        display_form.addRow("显示器选择:", self.subtitle_monitor_combo)
+        self.widgets["subtitle.display_monitor"] = {"widget": self.subtitle_monitor_combo, "type": "combobox"}
+        
+        # 连接显示器选择变化事件
+        self.subtitle_monitor_combo.currentIndexChanged.connect(self.on_monitor_selection_changed)
+        
+        # 添加刷新按钮
+        refresh_monitor_btn = PushButton("刷新显示器列表")
+        refresh_monitor_btn.clicked.connect(self.refresh_monitor_list)
+        display_form.addRow("", refresh_monitor_btn)
+        
+        # 位置设置模式选择
+        position_mode_group = QGroupBox("位置设置模式")
+        position_mode_layout = QVBoxLayout(position_mode_group)
+        
+        # 预设位置模式
+        preset_widget = QWidget()
+        preset_layout = QFormLayout(preset_widget)
+        
+        # 快捷位置选择（原下拉框改为快捷计算）
+        position_combo = QComboBox()
+        positions = [
+            ("屏幕中央", "center"),
+            ("屏幕上方", "top"),
+            ("屏幕下方", "bottom"),
+            ("屏幕左侧", "left"),
+            ("屏幕右侧", "right"),
+            ("左上角", "top_left"),
+            ("右上角", "top_right"),
+            ("左下角", "bottom_left"),
+            ("右下角", "bottom_right"),
+            ("左上中", "top_left_center"),
+            ("右上中", "top_right_center"),
+            ("左下中", "bottom_left_center"),
+            ("右下中", "bottom_right_center"),
+            ("左中", "left_center"),
+            ("右中", "right_center"),
+            ("上中", "top_center"),
+            ("下中", "bottom_center")
+        ]
+        
+        current_position = subtitle_config.get('display_position', 'bottom')
+        for i, (display_name, value) in enumerate(positions):
+            position_combo.addItem(display_name, value)
+            if value == current_position:
+                position_combo.setCurrentIndex(i)
+        
+        preset_layout.addRow("快捷位置:", position_combo)
+        self.widgets["subtitle.display_position"] = {"widget": position_combo, "type": "combobox"}
+        
+        # 连接位置选择变化事件
+        position_combo.currentIndexChanged.connect(self._on_subtitle_position_changed)
+        
+        # 计算位置按钮
+        calc_position_btn = PushButton("计算并应用位置")
+        calc_position_btn.clicked.connect(self._calculate_position_coordinates)
+        preset_layout.addRow("", calc_position_btn)
+        
+        position_mode_layout.addWidget(preset_widget)
+        
+        # 精确坐标设置
+        coords_widget = QWidget()
+        coords_layout = QFormLayout(coords_widget)
+        
+        # X坐标（相对于选择的显示器）
+        x_coord_widget = SpinBox()
+        x_coord_widget.setRange(0, 5000)
+        x_coord_widget.setValue(subtitle_config.get('position_x', 0))
+        coords_layout.addRow("X坐标:", x_coord_widget)
+        self.widgets["subtitle.position_x"] = {"widget": x_coord_widget, "type": "spinbox"}
+        
+        # Y坐标（相对于选择的显示器）
+        y_coord_widget = SpinBox()
+        y_coord_widget.setRange(0, 3000)
+        y_coord_widget.setValue(subtitle_config.get('position_y', 0))
+        coords_layout.addRow("Y坐标:", y_coord_widget)
+        self.widgets["subtitle.position_y"] = {"widget": y_coord_widget, "type": "spinbox"}
+        
+        # 连接坐标变化事件
+        x_coord_widget.valueChanged.connect(self._on_subtitle_coordinates_changed)
+        y_coord_widget.valueChanged.connect(self._on_subtitle_coordinates_changed)
+        
+        position_mode_layout.addWidget(coords_widget)
+        
+        # 偏移微调
+        offset_widget = QWidget()
+        offset_layout = QFormLayout(offset_widget)
+        
+        # X偏移（微调）
+        x_offset_widget = SpinBox()
+        x_offset_widget.setRange(-1000, 1000)
+        x_offset_widget.setValue(subtitle_config.get('display_offset_x', 0))
+        offset_layout.addRow("X偏移微调:", x_offset_widget)
+        self.widgets["subtitle.display_offset_x"] = {"widget": x_offset_widget, "type": "spinbox"}
+        
+        # Y偏移（微调）
+        y_offset_widget = SpinBox()
+        y_offset_widget.setRange(-1000, 1000)
+        y_offset_widget.setValue(subtitle_config.get('display_offset_y', 0))
+        offset_layout.addRow("Y偏移微调:", y_offset_widget)
+        self.widgets["subtitle.display_offset_y"] = {"widget": y_offset_widget, "type": "spinbox"}
+        
+        # 连接偏移变化事件
+        x_offset_widget.valueChanged.connect(self._on_subtitle_offset_changed)
+        y_offset_widget.valueChanged.connect(self._on_subtitle_offset_changed)
+        
+        position_mode_layout.addWidget(offset_widget)
+        
+        display_form.addRow(position_mode_group)
+        
+        # 当前位置信息显示
+        self.position_info_label = QLabel("当前设置信息将在这里显示")
+        self.position_info_label.setStyleSheet("color: gray; font-size: 12px;")
+        display_form.addRow("位置信息:", self.position_info_label)
+        
+        # 更新位置信息显示
+        self._update_position_info()
+        
+        self.vBoxLayout.addWidget(display_group)
+        
+        # 测试按钮组
+        test_group = QGroupBox("字幕测试")
+        test_layout = QHBoxLayout(test_group)
+        
+        # 预览字幕按钮（独立测试）
+        preview_subtitle_btn = PushButton("预览字幕")
+        preview_subtitle_btn.setIcon(FIF.VIEW)
+        preview_subtitle_btn.clicked.connect(self._preview_subtitle_display)
+        test_layout.addWidget(preview_subtitle_btn)
+        
+        # 测试字幕按钮（主程序测试）
+        test_subtitle_btn = PushButton("测试字幕")
+        test_subtitle_btn.setIcon(FIF.PLAY)
+        test_subtitle_btn.clicked.connect(self._test_subtitle_display)
+        test_layout.addWidget(test_subtitle_btn)
+        
+        # 关闭字幕按钮
+        close_subtitle_btn = PushButton("关闭所有字幕")
+        close_subtitle_btn.setIcon(FIF.CLOSE)
+        close_subtitle_btn.clicked.connect(self._close_current_subtitle)
+        test_layout.addWidget(close_subtitle_btn)
+        
+        # 测试说明
+        test_info_label = QLabel("预览：直接在UI界面测试 | 测试：发送到主程序测试")
+        test_info_label.setStyleSheet("color: gray; font-size: 12px;")
+        test_layout.addWidget(test_info_label)
+        
+        test_layout.addStretch()
+        self.vBoxLayout.addWidget(test_group)
+        
         # 字幕颜色设置组
         subtitle_color_group = QGroupBox("字幕颜色设置")
         subtitle_color_form = QFormLayout(subtitle_color_group)
@@ -8558,17 +8723,654 @@ class Widget(Interface):
             self.audio_device_combo.currentTextChanged.connect(self.on_audio_device_changed)
             
             # 更新设备信息显示
-            self.update_audio_device_info()
-            
-        except ImportError:
-            self.audio_device_combo.addItem("sounddevice模块未安装", -1)
-            self.current_audio_device_label.setText("sounddevice模块未安装")
-            self.audio_device_info.setText("请安装sounddevice模块: pip install sounddevice")
         except Exception as e:
-            self.audio_device_combo.addItem(f"获取设备失败: {str(e)}", -1)
-            self.current_audio_device_label.setText("获取设备失败")
-            self.audio_device_info.setText(f"错误详情: {str(e)}")
-
+            if hasattr(self, 'logger'):
+                self.logger.error(f"刷新音频设备失败: {e}")
+            print(f"刷新音频设备失败: {e}")
+    
+    def refresh_monitor_list(self):
+        """刷新显示器列表"""
+        try:
+            from PyQt5.QtWidgets import QDesktopWidget
+            from PyQt5.QtGui import QGuiApplication
+            
+            # 清空下拉框
+            if hasattr(self, 'subtitle_monitor_combo'):
+                self.subtitle_monitor_combo.clear()
+                
+                # 获取所有屏幕
+                desktop = QDesktopWidget()
+                screen_count = desktop.screenCount()
+                
+                # 获取更详细的屏幕信息
+                app = QGuiApplication.instance()
+                if app:
+                    screens = app.screens()
+                    
+                    for i, screen in enumerate(screens):
+                        # 获取屏幕几何信息
+                        geometry = screen.geometry()
+                        # 获取屏幕名称
+                        screen_name = screen.name() if hasattr(screen, 'name') else f"显示器 {i+1}"
+                        # 获取屏幕分辨率
+                        width = geometry.width()
+                        height = geometry.height()
+                        # 检查是否是主屏幕
+                        is_primary = screen == app.primaryScreen()
+                        primary_text = " (主屏幕)" if is_primary else ""
+                        
+                        # 创建显示文本
+                        display_text = f"{screen_name}: {width}x{height}{primary_text}"
+                        self.subtitle_monitor_combo.addItem(display_text, i)
+                else:
+                    # 如果获取不到详细信息，使用基础方法
+                    for i in range(screen_count):
+                        geometry = desktop.screenGeometry(i)
+                        width = geometry.width()
+                        height = geometry.height()
+                        is_primary = i == desktop.primaryScreen()
+                        primary_text = " (主屏幕)" if is_primary else ""
+                        
+                        display_text = f"显示器 {i+1}: {width}x{height}{primary_text}"
+                        self.subtitle_monitor_combo.addItem(display_text, i)
+                
+                print(f"检测到 {screen_count} 个显示器")
+                
+                # 设置当前选择的显示器
+                saved_monitor = self.config_data.get('subtitle', {}).get('display_monitor', 0)
+                for i in range(self.subtitle_monitor_combo.count()):
+                    if self.subtitle_monitor_combo.itemData(i) == saved_monitor:
+                        self.subtitle_monitor_combo.setCurrentIndex(i)
+                        break
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"刷新显示器列表失败: {e}")
+            print(f"刷新显示器列表失败: {e}")
+            
+            # 添加默认选项
+            if hasattr(self, 'subtitle_monitor_combo'):
+                self.subtitle_monitor_combo.clear()
+                self.subtitle_monitor_combo.addItem("主显示器", 0)
+                
+    def on_monitor_selection_changed(self):
+        """显示器选择变化时的处理"""
+        try:
+            if hasattr(self, 'subtitle_monitor_combo'):
+                selected_monitor = self.subtitle_monitor_combo.currentData()
+                if selected_monitor is not None:
+                    # 更新配置
+                    self.config_data.setdefault('subtitle', {})['display_monitor'] = selected_monitor
+                    print(f"显示器选择已更改为: {selected_monitor}")
+                    
+                    # 更新位置信息显示
+                    self._update_position_info()
+                    
+                    # 通知main.py更新字幕显示设置
+                    self._send_subtitle_display_update()
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"显示器选择变化处理失败: {e}")
+            print(f"显示器选择变化处理失败: {e}")
+    
+    def _send_subtitle_display_update(self):
+        """发送字幕显示设置更新消息到main.py"""
+        try:
+            subtitle_config = self.config_data.get('subtitle', {})
+            
+            # 准备消息数据
+            update_data = {
+                'monitor_index': subtitle_config.get('display_monitor', 0),
+                'position': subtitle_config.get('display_position', 'center'),
+                'position_x': subtitle_config.get('position_x', 0),
+                'position_y': subtitle_config.get('position_y', 0),
+                'offset_x': subtitle_config.get('display_offset_x', 0),
+                'offset_y': subtitle_config.get('display_offset_y', 0)
+            }
+            
+            # 直接使用消息队列发送消息
+            try:
+                from utils.message_queue import send_message
+                success = send_message('update_subtitle_display', update_data, priority=1)
+                if success:
+                    print("字幕显示设置更新消息已发送")
+                else:
+                    print("字幕显示设置更新消息发送失败")
+            except Exception as msg_error:
+                print(f"消息队列发送失败: {msg_error}")
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"发送字幕显示设置更新失败: {e}")
+            print(f"发送字幕显示设置更新失败: {e}")
+    
+    def _on_subtitle_position_changed(self):
+        """字幕位置选择变化时的处理"""
+        try:
+            if hasattr(self, 'widgets') and 'subtitle.display_position' in self.widgets:
+                position_combo = self.widgets['subtitle.display_position']['widget']
+                selected_position = position_combo.currentData()
+                if selected_position is not None:
+                    # 更新配置
+                    self.config_data.setdefault('subtitle', {})['display_position'] = selected_position
+                    print(f"字幕显示位置已更改为: {selected_position}")
+                    
+                    # 更新位置信息显示
+                    self._update_position_info()
+                    
+                    # 通知main.py更新字幕显示设置
+                    self._send_subtitle_display_update()
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"字幕位置变化处理失败: {e}")
+            print(f"字幕位置变化处理失败: {e}")
+    
+    def _on_subtitle_offset_changed(self):
+        """字幕偏移量变化时的处理"""
+        try:
+            if hasattr(self, 'widgets'):
+                # 获取X和Y偏移值
+                x_offset = 0
+                y_offset = 0
+                
+                if 'subtitle.display_offset_x' in self.widgets:
+                    x_offset = self.widgets['subtitle.display_offset_x']['widget'].value()
+                    self.config_data.setdefault('subtitle', {})['display_offset_x'] = x_offset
+                
+                if 'subtitle.display_offset_y' in self.widgets:
+                    y_offset = self.widgets['subtitle.display_offset_y']['widget'].value()
+                    self.config_data.setdefault('subtitle', {})['display_offset_y'] = y_offset
+                
+                print(f"字幕偏移量已更改为: X={x_offset}, Y={y_offset}")
+                
+                # 更新位置信息显示
+                self._update_position_info()
+                
+                # 通知main.py更新字幕显示设置
+                self._send_subtitle_display_update()
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"字幕偏移量变化处理失败: {e}")
+            print(f"字幕偏移量变化处理失败: {e}")
+    
+    def _on_subtitle_coordinates_changed(self):
+        """字幕坐标变化时的处理"""
+        try:
+            if hasattr(self, 'widgets'):
+                # 获取X和Y坐标值
+                x_coord = 0
+                y_coord = 0
+                
+                if 'subtitle.position_x' in self.widgets:
+                    x_coord = self.widgets['subtitle.position_x']['widget'].value()
+                    self.config_data.setdefault('subtitle', {})['position_x'] = x_coord
+                
+                if 'subtitle.position_y' in self.widgets:
+                    y_coord = self.widgets['subtitle.position_y']['widget'].value()
+                    self.config_data.setdefault('subtitle', {})['position_y'] = y_coord
+                
+                print(f"字幕坐标已更改为: X={x_coord}, Y={y_coord}")
+                
+                # 更新位置信息显示
+                self._update_position_info()
+                
+                # 通知main.py更新字幕显示设置
+                self._send_subtitle_display_update()
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"字幕坐标变化处理失败: {e}")
+            print(f"字幕坐标变化处理失败: {e}")
+    
+    def _calculate_position_coordinates(self):
+        """根据选择的显示器和预设位置计算具体坐标"""
+        try:
+            app = QApplication.instance()
+            desktop = app.desktop()
+            
+            # 获取当前选择的显示器
+            monitor_index = 0
+            if hasattr(self, 'widgets') and 'subtitle.display_monitor' in self.widgets:
+                monitor_combo = self.widgets['subtitle.display_monitor']['widget']
+                monitor_index = monitor_combo.currentData()
+                if monitor_index is None:
+                    monitor_index = 0
+            
+            # 获取选择的位置
+            position = 'center'
+            if hasattr(self, 'widgets') and 'subtitle.display_position' in self.widgets:
+                position_combo = self.widgets['subtitle.display_position']['widget']
+                position = position_combo.currentData()
+                if position is None:
+                    position = 'center'
+            
+            # 获取显示器几何信息
+            if monitor_index < desktop.screenCount():
+                screen_rect = desktop.screenGeometry(monitor_index)
+            else:
+                screen_rect = desktop.primaryScreen().geometry()
+            
+            # 假设字幕窗口的大小（可以调整）
+            subtitle_width = 600
+            subtitle_height = 100
+            
+            # 根据位置计算坐标
+            x, y = 0, 0
+            
+            if position == 'center':
+                x = screen_rect.x() + (screen_rect.width() - subtitle_width) // 2
+                y = screen_rect.y() + (screen_rect.height() - subtitle_height) // 2
+            elif position == 'top':
+                x = screen_rect.x() + (screen_rect.width() - subtitle_width) // 2
+                y = screen_rect.y() + 50
+            elif position == 'bottom':
+                x = screen_rect.x() + (screen_rect.width() - subtitle_width) // 2
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            elif position == 'left':
+                x = screen_rect.x() + 50
+                y = screen_rect.y() + (screen_rect.height() - subtitle_height) // 2
+            elif position == 'right':
+                x = screen_rect.x() + screen_rect.width() - subtitle_width - 50
+                y = screen_rect.y() + (screen_rect.height() - subtitle_height) // 2
+            elif position == 'top_left':
+                x = screen_rect.x() + 50
+                y = screen_rect.y() + 50
+            elif position == 'top_right':
+                x = screen_rect.x() + screen_rect.width() - subtitle_width - 50
+                y = screen_rect.y() + 50
+            elif position == 'bottom_left':
+                x = screen_rect.x() + 50
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            elif position == 'bottom_right':
+                x = screen_rect.x() + screen_rect.width() - subtitle_width - 50
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            # 新增的中心位置选项
+            elif position == 'top_left_center':
+                x = screen_rect.x() + screen_rect.width() // 4 - subtitle_width // 2
+                y = screen_rect.y() + 50
+            elif position == 'top_right_center':
+                x = screen_rect.x() + screen_rect.width() * 3 // 4 - subtitle_width // 2
+                y = screen_rect.y() + 50
+            elif position == 'bottom_left_center':
+                x = screen_rect.x() + screen_rect.width() // 4 - subtitle_width // 2
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            elif position == 'bottom_right_center':
+                x = screen_rect.x() + screen_rect.width() * 3 // 4 - subtitle_width // 2
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            elif position == 'left_center':
+                x = screen_rect.x() + 50
+                y = screen_rect.y() + (screen_rect.height() - subtitle_height) // 2
+            elif position == 'right_center':
+                x = screen_rect.x() + screen_rect.width() - subtitle_width - 50
+                y = screen_rect.y() + (screen_rect.height() - subtitle_height) // 2
+            elif position == 'top_center':
+                x = screen_rect.x() + (screen_rect.width() - subtitle_width) // 2
+                y = screen_rect.y() + 50
+            elif position == 'bottom_center':
+                x = screen_rect.x() + (screen_rect.width() - subtitle_width) // 2
+                y = screen_rect.y() + screen_rect.height() - subtitle_height - 50
+            
+            # 更新坐标输入框
+            if hasattr(self, 'widgets'):
+                if 'subtitle.position_x' in self.widgets:
+                    self.widgets['subtitle.position_x']['widget'].setValue(x)
+                    self.config_data.setdefault('subtitle', {})['position_x'] = x
+                
+                if 'subtitle.position_y' in self.widgets:
+                    self.widgets['subtitle.position_y']['widget'].setValue(y)
+                    self.config_data.setdefault('subtitle', {})['position_y'] = y
+            
+            # 更新位置信息显示
+            self._update_position_info()
+            
+            print(f"根据显示器{monitor_index}和位置{position}计算坐标: X={x}, Y={y}")
+            
+            # 通知main.py更新字幕显示设置
+            self._send_subtitle_display_update()
+            
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"计算位置坐标失败: {e}")
+            print(f"计算位置坐标失败: {e}")
+    
+    def _update_position_info(self):
+        """更新位置信息显示"""
+        try:
+            if not hasattr(self, 'position_info_label'):
+                return
+            
+            # 获取当前配置
+            subtitle_config = self.config_data.get('subtitle', {})
+            
+            monitor_index = subtitle_config.get('display_monitor', 0)
+            position_x = subtitle_config.get('position_x', 0)
+            position_y = subtitle_config.get('position_y', 0)
+            offset_x = subtitle_config.get('display_offset_x', 0)
+            offset_y = subtitle_config.get('display_offset_y', 0)
+            
+            # 获取显示器信息
+            app = QApplication.instance()
+            desktop = app.desktop()
+            
+            monitor_info = f"显示器{monitor_index}"
+            if monitor_index < desktop.screenCount():
+                screen_rect = desktop.screenGeometry(monitor_index)
+                monitor_info += f" ({screen_rect.width()}x{screen_rect.height()})"
+            
+            # 计算最终位置
+            final_x = position_x + offset_x
+            final_y = position_y + offset_y
+            
+            info_text = f"{monitor_info} | 基础坐标: ({position_x}, {position_y}) | 偏移: ({offset_x}, {offset_y}) | 最终位置: ({final_x}, {final_y})"
+            
+            self.position_info_label.setText(info_text)
+            
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"更新位置信息失败: {e}")
+            print(f"更新位置信息失败: {e}")
+    
+    def _preview_subtitle_display(self):
+        """预览字幕显示（独立UI测试）"""
+        try:
+            from PyQt5.QtWidgets import QLabel, QWidget, QVBoxLayout
+            from PyQt5.QtCore import Qt, QTimer
+            from PyQt5.QtGui import QFont
+            import sys
+            
+            # 获取当前配置
+            subtitle_config = self.config_data.get('subtitle', {})
+            
+            # 创建测试窗口
+            test_window = QWidget()
+            test_window.setWindowTitle("字幕预览测试")
+            test_window.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+            
+            # 设置窗口属性
+            test_window.setAttribute(Qt.WA_TranslucentBackground)
+            
+            # 获取位置信息
+            monitor_index = subtitle_config.get('display_monitor', 0)
+            position_x = subtitle_config.get('position_x', 960)
+            position_y = subtitle_config.get('position_y', 540)
+            offset_x = subtitle_config.get('display_offset_x', 0)
+            offset_y = subtitle_config.get('display_offset_y', 0)
+            
+            # 计算最终位置
+            final_x = position_x + offset_x
+            final_y = position_y + offset_y
+            
+            # 设置窗口位置
+            test_window.move(final_x, final_y)
+            
+            # 创建字幕标签
+            subtitle_label = QLabel("这是字幕预览测试 - 预览当前设置效果")
+            
+            # 设置字体
+            font = QFont(subtitle_config.get('font_family', 'Microsoft YaHei'))
+            font.setPointSize(subtitle_config.get('font_size', 24))
+            subtitle_label.setFont(font)
+            
+            # 设置样式
+            text_r = subtitle_config.get('text_color_r', 255)
+            text_g = subtitle_config.get('text_color_g', 255) 
+            text_b = subtitle_config.get('text_color_b', 255)
+            text_a = subtitle_config.get('text_color_a', 255)
+            
+            bg_r = subtitle_config.get('bg_color_r', 255)
+            bg_g = subtitle_config.get('bg_color_g', 0)
+            bg_b = subtitle_config.get('bg_color_b', 0)
+            bg_a = subtitle_config.get('bg_color_a', 120)
+            
+            outline_r = subtitle_config.get('outline_color_r', 0)
+            outline_g = subtitle_config.get('outline_color_g', 0)
+            outline_b = subtitle_config.get('outline_color_b', 0)
+            outline_size = subtitle_config.get('outline_size', 2)
+            padding = subtitle_config.get('background_padding', 5)
+            
+            style = f"""
+                QLabel {{
+                    color: rgba({text_r}, {text_g}, {text_b}, {text_a});
+                    background-color: rgba({bg_r}, {bg_g}, {bg_b}, {bg_a});
+                    border: {outline_size}px solid rgba({outline_r}, {outline_g}, {outline_b}, 255);
+                    padding: {padding}px;
+                    border-radius: 5px;
+                }}
+            """
+            
+            subtitle_label.setStyleSheet(style)
+            subtitle_label.setAlignment(Qt.AlignCenter)
+            
+            # 设置布局
+            layout = QVBoxLayout(test_window)
+            layout.addWidget(subtitle_label)
+            layout.setContentsMargins(0, 0, 0, 0)
+            
+            # 显示窗口
+            test_window.show()
+            
+            # 创建定时器自动关闭窗口
+            timer = QTimer()
+            timer.timeout.connect(test_window.close)
+            timer.setSingleShot(True)
+            timer.start(3000)  # 3秒后自动关闭
+            
+            # 保存窗口引用避免被垃圾回收
+            self._test_window = test_window
+            
+            if hasattr(self, 'logger'):
+                self.logger.info("字幕预览测试启动成功")
+            print("字幕预览测试启动成功")
+            
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"预览字幕显示失败: {e}")
+            print(f"预览字幕显示失败: {e}")
+            InfoBar.error(
+                title="错误",
+                content=f"字幕预览失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def _test_subtitle_display(self):
+        """测试字幕显示（主程序进程间通信）"""
+        try:
+            # 获取当前配置
+            subtitle_config = self.config_data.get('subtitle', {})
+            
+            # 准备测试数据
+            test_message = {
+                "type": "show_subtitle",
+                "content": "这是字幕测试消息 - 测试主程序字幕显示",
+                "duration": 3,
+                "config": {
+                    "enabled": True,
+                    "display_monitor": subtitle_config.get('display_monitor', 0),
+                    "position_x": subtitle_config.get('position_x', 960),
+                    "position_y": subtitle_config.get('position_y', 540),
+                    "display_offset_x": subtitle_config.get('display_offset_x', 0),
+                    "display_offset_y": subtitle_config.get('display_offset_y', 0),
+                    "font_size": subtitle_config.get('font_size', 24),
+                    "font_family": subtitle_config.get('font_family', 'Arial'),
+                    "text_color_r": subtitle_config.get('text_color_r', 255),
+                    "text_color_g": subtitle_config.get('text_color_g', 255),
+                    "text_color_b": subtitle_config.get('text_color_b', 255),
+                    "text_color_a": subtitle_config.get('text_color_a', 255),
+                    "outline_color_r": subtitle_config.get('outline_color_r', 0),
+                    "outline_color_g": subtitle_config.get('outline_color_g', 0),
+                    "outline_color_b": subtitle_config.get('outline_color_b', 0),
+                    "outline_color_a": subtitle_config.get('outline_color_a', 200),
+                    "bg_color_r": subtitle_config.get('bg_color_r', 255),
+                    "bg_color_g": subtitle_config.get('bg_color_g', 0),
+                    "bg_color_b": subtitle_config.get('bg_color_b', 0),
+                    "bg_color_a": subtitle_config.get('bg_color_a', 120),
+                    "outline_size": subtitle_config.get('outline_size', 2),
+                    "background_padding": subtitle_config.get('background_padding', 5)
+                }
+            }
+            
+            # 使用消息队列发送测试请求
+            try:
+                from utils.message_queue import send_message
+                send_message(test_message)
+                
+                if hasattr(self, 'logger'):
+                    self.logger.info("字幕测试消息已发送到主程序")
+                print("字幕测试消息已发送到主程序")
+                
+                InfoBar.success(
+                    title="成功",
+                    content="字幕测试消息已发送，请查看主程序显示效果",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                
+            except Exception as e:
+                # 如果消息队列失败，尝试HTTP API
+                import requests
+                try:
+                    response = requests.post(
+                        'http://localhost:12345/subtitle',
+                        json=test_message,
+                        timeout=5
+                    )
+                    
+                    if response.status_code == 200:
+                        if hasattr(self, 'logger'):
+                            self.logger.info("字幕测试请求通过HTTP API发送成功")
+                        print("字幕测试请求通过HTTP API发送成功")
+                        
+                        InfoBar.success(
+                            title="成功",
+                            content="字幕测试请求已发送",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=3000,
+                            parent=self
+                        )
+                    else:
+                        raise Exception(f"HTTP请求失败: {response.status_code}")
+                        
+                except requests.exceptions.ConnectionError:
+                    # 如果主程序未运行，显示提示
+                    InfoBar.warning(
+                        title="提示",
+                        content="主程序未运行，无法测试字幕。请先启动主程序或使用预览按钮。",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                except Exception as e2:
+                    raise Exception(f"消息队列和HTTP API均失败: {e}, {e2}")
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"测试字幕显示失败: {e}")
+            print(f"测试字幕显示失败: {e}")
+            InfoBar.error(
+                title="错误",
+                content=f"字幕测试失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
+    def _close_current_subtitle(self):
+        """关闭当前字幕（包括预览字幕和主程序字幕）"""
+        try:
+            # 1. 首先关闭预览字幕窗口
+            if hasattr(self, '_test_window') and self._test_window:
+                try:
+                    self._test_window.close()
+                    self._test_window = None
+                    print("预览字幕窗口已关闭")
+                except Exception as e:
+                    print(f"关闭预览字幕窗口时出错: {e}")
+            
+            # 2. 发送消息关闭主程序字幕
+            try:
+                from utils.message_queue import send_message
+                send_message("hide_subtitle", {"source": "UI_close_button"})
+                
+                if hasattr(self, 'logger'):
+                    self.logger.info("字幕关闭消息已发送")
+                print("主程序字幕关闭消息已发送")
+                
+                InfoBar.success(
+                    title="成功",
+                    content="预览字幕和主程序字幕关闭消息已发送",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                
+            except Exception as e:
+                # 如果消息队列失败，尝试HTTP API
+                import requests
+                try:
+                    response = requests.post(
+                        'http://localhost:12345/clear_subtitle',
+                        json={"action": "clear"},
+                        timeout=5
+                    )
+                    
+                    if response.status_code == 200:
+                        if hasattr(self, 'logger'):
+                            self.logger.info("主程序字幕关闭请求通过HTTP API发送成功")
+                        print("主程序字幕关闭请求通过HTTP API发送成功")
+                        
+                        InfoBar.success(
+                            title="成功",
+                            content="预览字幕已关闭，主程序字幕已关闭",
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=2000,
+                            parent=self
+                        )
+                    else:
+                        raise Exception(f"HTTP请求失败: {response.status_code}")
+                        
+                except requests.exceptions.ConnectionError:
+                    InfoBar.warning(
+                        title="提示",
+                        content="预览字幕已关闭，主程序未运行无法关闭主程序字幕",
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                except Exception as e2:
+                    raise Exception(f"消息队列和HTTP API均失败: {e}, {e2}")
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"关闭字幕失败: {e}")
+            print(f"关闭字幕失败: {e}")
+            InfoBar.error(
+                title="错误",
+                content=f"关闭字幕失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
     def on_audio_device_changed(self):
         """音频设备选择变化时的处理"""
         self.update_audio_device_info()

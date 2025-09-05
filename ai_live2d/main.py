@@ -212,6 +212,8 @@ class PetService:
             self.message_queue.register_handler('show_action_buttons', self._handle_show_action_buttons_message)
             self.message_queue.register_handler('hide_action_buttons', self._handle_hide_action_buttons_message)
             self.message_queue.register_handler('show_subtitle', self._handle_show_subtitle_message)
+            self.message_queue.register_handler('hide_subtitle', self._handle_hide_subtitle_message)
+            self.message_queue.register_handler('update_subtitle_display', self._handle_update_subtitle_display_message)
             
             # 启动监听器
             self.message_queue.start_listener()
@@ -341,6 +343,48 @@ class PetService:
         except Exception as e:
             if self.logger:
                 self.logger.error(f">>> 处理字幕显示消息时出错: {e}")
+
+    def _handle_hide_subtitle_message(self, data):
+        """处理隐藏字幕消息"""
+        try:
+            source = data.get('source', 'unknown')
+            if self.subtitle_manager:
+                self.subtitle_manager.clear_text()
+                if self.logger:
+                    self.logger.info(f">>> 收到字幕隐藏请求: {source}")
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 字幕管理器未初始化")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理字幕隐藏消息时出错: {e}")
+
+    def _handle_update_subtitle_display_message(self, data):
+        """处理更新字幕显示设置消息"""
+        try:
+            monitor_index = data.get('monitor_index')
+            position = data.get('position')
+            position_x = data.get('position_x')
+            position_y = data.get('position_y')
+            offset_x = data.get('offset_x')
+            offset_y = data.get('offset_y')
+            
+            if self.logger:
+                self.logger.info(f">>> 收到字幕显示设置更新请求: monitor={monitor_index}, position={position}, coords=({position_x}, {position_y}), offset=({offset_x}, {offset_y})")
+            
+            # 调用字幕显示设置更新方法
+            self.update_subtitle_display_settings(
+                monitor_index=monitor_index,
+                position=position,
+                position_x=position_x,
+                position_y=position_y,
+                offset_x=offset_x,
+                offset_y=offset_y
+            )
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理字幕显示设置更新消息时出错: {e}")
 
     async def _perform_interrupt(self):
         """执行中断操作"""
@@ -1652,6 +1696,62 @@ class PetService:
         except Exception as e:
             if self.logger:
                 self.logger.error(f">>> 显示字幕失败: {e}")
+
+    def update_subtitle_display_settings(self, monitor_index=None, position=None, position_x=None, position_y=None, offset_x=None, offset_y=None):
+        """更新字幕显示设置
+        
+        Args:
+            monitor_index: 目标显示器索引
+            position: 显示位置
+            position_x: X坐标
+            position_y: Y坐标
+            offset_x: X轴偏移量
+            offset_y: Y轴偏移量
+        """
+        try:
+            if self.logger:
+                self.logger.info(f">>> 更新字幕显示设置: monitor={monitor_index}, position={position}, coords=({position_x}, {position_y}), offset=({offset_x}, {offset_y})")
+            
+            # 检查字幕管理器是否存在
+            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                # 调用字幕管理器的更新方法
+                self.app_manager.subtitle_manager.update_display_settings(
+                    monitor_index=monitor_index,
+                    position=position,
+                    position_x=position_x,
+                    position_y=position_y,
+                    offset_x=offset_x,
+                    offset_y=offset_y
+                )
+                
+                if self.logger:
+                    self.logger.info(">>> 字幕显示设置已更新")
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 字幕管理器不可用，无法更新显示设置")
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 更新字幕显示设置失败: {e}")
+    
+    def get_subtitle_monitor_info(self):
+        """获取字幕管理器的显示器信息
+        
+        Returns:
+            list: 显示器信息列表
+        """
+        try:
+            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                return self.app_manager.subtitle_manager.get_monitor_info()
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 字幕管理器不可用，无法获取显示器信息")
+                return []
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 获取显示器信息失败: {e}")
+            return []
 
     def stop_audio_playback(self):
         """停止音频播放"""
