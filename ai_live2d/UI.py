@@ -23,6 +23,9 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from contextlib import AsyncExitStack
 
+# 消息队列导入
+from utils.message_queue import send_message
+
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
 from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject
@@ -126,6 +129,8 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self._handle_dialogue_request()
             elif self.path == '/api/sing':
                 self._handle_singing_request()
+            elif self.path == '/api/lyrics':
+                self._handle_lyrics_request()
             else:
                 self._send_error_response(404, "Not Found")
         except Exception as e:
@@ -249,12 +254,25 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             
             # 执行打断操作
             if hasattr(self.ui_widget, 'interrupt_current_operations'):
-                success = self.ui_widget.interrupt_current_operations()
+                # 通过消息队列发送中断请求
+                interrupt_data = {
+                    "action": "interrupt_all",
+                    "timestamp": time.time(),
+                    "source": "webapi"
+                }
+                
+                # 发送中断消息到main.py
+                interrupt_sent = self._send_message_queue_data('interrupt', interrupt_data, priority=1)
+                
+                # 同时执行本地中断操作
+                local_success = self.ui_widget.interrupt_current_operations()
                 
                 # 同时停止唱歌
                 self._stop_singing = True
                 if hasattr(self.ui_widget, 'webapi_logger'):
                     self.ui_widget.webapi_logger.log_system_event("设置停止唱歌标志")
+                
+                success = interrupt_sent or local_success
                 
                 if success:
                     if hasattr(self.ui_widget, 'webapi_logger'):
@@ -383,30 +401,19 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             if hasattr(self.ui_widget, 'config_data'):
                 subtitle_enabled = self.ui_widget.config_data.get('setting', {}).get('subtitle_enabled', False)
                 if subtitle_enabled and response_text:
-                    try:
-                        import socket
-                        import json
-                        
-                        # 通过socket发送字幕显示请求给main.py
-                        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        client_socket.settimeout(1.0)  # 1秒超时
-                        client_socket.connect(('127.0.0.1', 8889))
-                        
-                        signal_data = {
-                            "type": "show_subtitle",
-                            "text": response_text,
-                            "source": "dialogue",
-                            "timestamp": time.time()
-                        }
-                        
-                        client_socket.send(json.dumps(signal_data).encode('utf-8'))
-                        client_socket.close()
-                        
+                    subtitle_data = {
+                        "text": response_text,
+                        "source": "dialogue",
+                        "timestamp": time.time()
+                    }
+                    
+                    # 使用消息队列发送函数
+                    if self._send_message_queue_data('show_subtitle', subtitle_data, priority=1):
                         if hasattr(self.ui_widget, 'webapi_logger'):
                             self.ui_widget.webapi_logger.log_system_event("✓ 已发送台词字幕显示请求")
-                    except Exception as e:
+                    else:
                         if hasattr(self.ui_widget, 'webapi_logger'):
-                            self.ui_widget.webapi_logger.log_system_event(f"⚠ 发送台词字幕显示请求失败: {e}")
+                            self.ui_widget.webapi_logger.log_system_event("⚠ 发送台词字幕显示请求失败")
             
             self._send_json_response({
                 "original_dialogue": dialogue,
@@ -521,6 +528,34 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self.ui_widget.webapi_logger.log_error('/api/sing', "GENERAL_ERROR", str(e))
             self._send_error_response(500, f"Server error: {str(e)}")
     
+    def _send_message_queue_data(self, message_type, data, priority=1):
+        """通过消息队列发送数据到main.py
+        
+        Args:
+            message_type: 消息类型 (interrupt, play_audio, show_subtitle等)
+            data: 要发送的数据字典
+            priority: 优先级 (1=高, 2=中, 3=低)
+            
+        Returns:
+            bool: 发送是否成功
+        """
+        try:
+            success = send_message(message_type, data, priority)
+            
+            if success:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"✓ 消息队列发送成功: {message_type}")
+            else:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"⚠ 消息队列发送失败: {message_type}")
+            
+            return success
+            
+        except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"⚠ 消息队列发送异常: {str(e)}")
+            return False
+
     def _process_singing_request(self, audio_base64, volume, loop, singing_motion):
         """处理唱歌请求的具体逻辑"""
         try:
@@ -541,79 +576,61 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self.ui_widget.webapi_logger.log_singing_audio_decode(True, len(audio_data)/44100 if len(audio_data) > 0 else 0)
                 self.ui_widget.webapi_logger.log_system_event(f"音频解码成功，大小: {len(audio_data)} bytes")
             
-            # 通过socket发送音频播放请求给main.py（音频格式转换由main.py处理）
+            # 通过消息队列发送音频播放请求给main.py（音频格式转换由main.py处理）
             if hasattr(self.ui_widget, 'webapi_logger'):
-                self.ui_widget.webapi_logger.log_system_event("通过socket发送音频播放请求给main.py")
+                self.ui_widget.webapi_logger.log_system_event("通过消息队列发送音频播放请求给main.py")
             
-            # 检查字幕是否启用，如果启用则显示唱歌字幕
+            # 检查字幕是否启用，如果启用则获取LRC歌词
+            lrc_content = ""
             if hasattr(self.ui_widget, 'config_data'):
                 subtitle_enabled = self.ui_widget.config_data.get('setting', {}).get('subtitle_enabled', False)
                 if subtitle_enabled:
-                    try:
-                        import socket
-                        import json
-                        
-                        # 通过socket发送唱歌字幕显示请求给main.py
-                        subtitle_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        subtitle_socket.settimeout(1.0)  # 1秒超时
-                        subtitle_socket.connect(('127.0.0.1', 8889))
-                        
-                        # 检查是否有lrc歌词文件
-                        lrc_text = self._get_lrc_lyrics(audio_base64)
-                        if lrc_text:
-                            subtitle_text = lrc_text
-                        else:
-                            subtitle_text = "♪ 唱歌中 ♫"
-                        
-                        signal_data = {
-                            "type": "show_subtitle",
+                    # 获取LRC歌词文件内容
+                    lrc_content = self._get_lrc_lyrics(audio_base64)
+                    
+                    # 如果没有LRC歌词，显示默认字幕
+                    if not lrc_content:
+                        subtitle_text = "♪ 唱歌中 ♫"
+                        subtitle_data = {
                             "text": subtitle_text,
                             "source": "singing",
                             "timestamp": time.time()
                         }
                         
-                        subtitle_socket.send(json.dumps(signal_data).encode('utf-8'))
-                        subtitle_socket.close()
-                        
-                        if hasattr(self.ui_widget, 'webapi_logger'):
-                            self.ui_widget.webapi_logger.log_system_event("✓ 已发送唱歌字幕显示请求")
-                    except Exception as e:
-                        if hasattr(self.ui_widget, 'webapi_logger'):
-                            self.ui_widget.webapi_logger.log_system_event(f"⚠ 发送唱歌字幕显示请求失败: {e}")
+                        # 使用消息队列发送函数
+                        if self._send_message_queue_data('show_subtitle', subtitle_data, priority=1):
+                            if hasattr(self.ui_widget, 'webapi_logger'):
+                                self.ui_widget.webapi_logger.log_system_event("✓ 已发送唱歌字幕显示请求")
+                        else:
+                            if hasattr(self.ui_widget, 'webapi_logger'):
+                                self.ui_widget.webapi_logger.log_system_event("⚠ 发送唱歌字幕显示请求失败")
             
-            try:
-                import socket
-                import json
-                import base64
-                
-                # 尝试通过socket发送音频播放请求
-                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client_socket.settimeout(2.0)  # 2秒超时
-                client_socket.connect(('127.0.0.1', 8889))  # main.py监听的端口
-                
-                # 将音频数据编码为base64
-                audio_data_b64 = base64.b64encode(audio_data).decode('utf-8')
-                
-                signal_data = {
-                    "type": "play_audio",
-                    "audio_data": audio_data_b64,
-                    "volume": volume,
-                    "loop": loop,
-                    "singing_motion": singing_motion,
-                    "timestamp": time.time(),
-                    "source": "ui_singing"
-                }
-                
-                client_socket.send(json.dumps(signal_data).encode('utf-8'))
-                client_socket.close()
-                
+            # 通过消息队列发送音频播放请求给main.py
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("通过消息队列发送音频播放请求给main.py")
+            
+            # 将音频数据编码为base64
+            audio_data_b64 = base64.b64encode(audio_data).decode('utf-8')
+            
+            play_audio_data = {
+                "audio_data": audio_data_b64,
+                "volume": volume,
+                "loop": loop,
+                "singing_motion": singing_motion,
+                "lrc_content": lrc_content,  # 添加LRC歌词内容
+                "timestamp": time.time(),
+                "source": "ui_singing"
+            }
+            
+            # 使用消息队列发送函数
+            if self._send_message_queue_data('play_audio', play_audio_data, priority=1):
                 if hasattr(self.ui_widget, 'webapi_logger'):
-                    self.ui_widget.webapi_logger.log_system_event("✓ 已通过socket发送音频播放请求")
-                    
-            except (socket.timeout, socket.error) as e:
+                    self.ui_widget.webapi_logger.log_system_event("✓ 已通过消息队列发送音频播放请求")
+            else:
+                # 消息队列发送失败，回退到本地播放
                 if hasattr(self.ui_widget, 'webapi_logger'):
-                    self.ui_widget.webapi_logger.log_error('/api/sing', "SOCKET_SEND_ERROR", str(e))
-                    self.ui_widget.webapi_logger.log_system_event("⚠ Socket通信失败，回退到本地播放")
+                    self.ui_widget.webapi_logger.log_error('/api/sing', "MESSAGE_QUEUE_ERROR", "消息队列发送失败")
+                    self.ui_widget.webapi_logger.log_system_event("⚠ 消息队列通信失败，回退到本地播放")
                 
                 # 回退到本地播放（如果main.py不可用）
                 if hasattr(self.ui_widget, 'webapi_logger'):
@@ -652,8 +669,18 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             # 生成音频文件的哈希值作为文件名基础
             audio_hash = hashlib.md5(audio_base64.encode()).hexdigest()[:8]
             
-            # 可能的lrc文件路径
+            # 获取当前工作目录作为基础路径
+            base_dir = os.getcwd()
+            
+            # 可能的lrc文件路径（使用绝对路径）
             possible_lrc_paths = [
+                os.path.join(base_dir, "lyrics", f"{audio_hash}.lrc"),
+                os.path.join(base_dir, "lyrics", f"audio_{audio_hash}.lrc"),
+                os.path.join(base_dir, "lrc", f"{audio_hash}.lrc"),
+                os.path.join(base_dir, "lrc", f"audio_{audio_hash}.lrc"),
+                os.path.join(base_dir, f"{audio_hash}.lrc"),
+                os.path.join(base_dir, f"audio_{audio_hash}.lrc"),
+                # 也检查相对路径，以防万一
                 f"lyrics/{audio_hash}.lrc",
                 f"lyrics/audio_{audio_hash}.lrc",
                 f"lrc/{audio_hash}.lrc",
@@ -662,28 +689,62 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 f"audio_{audio_hash}.lrc"
             ]
             
+            # 记录搜索过程
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event(f"搜索LRC歌词文件，音频哈希: {audio_hash}")
+            
             for lrc_path in possible_lrc_paths:
-                if os.path.exists(lrc_path):
-                    try:
-                        with open(lrc_path, 'r', encoding='utf-8') as f:
-                            lyrics_content = f.read().strip()
+                try:
+                    # 标准化路径
+                    normalized_path = os.path.normpath(lrc_path)
+                    
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_system_event(f"检查路径: {normalized_path}")
+                    
+                    if os.path.exists(normalized_path) and os.path.isfile(normalized_path):
+                        try:
+                            # 尝试使用UTF-8编码读取
+                            with open(normalized_path, 'r', encoding='utf-8') as f:
+                                lyrics_content = f.read().strip()
+                                
                             if lyrics_content:
                                 if hasattr(self.ui_widget, 'webapi_logger'):
-                                    self.ui_widget.webapi_logger.log_system_event(f"找到LRC歌词文件: {lrc_path}")
+                                    self.ui_widget.webapi_logger.log_system_event(f"✓ 找到LRC歌词文件: {normalized_path}")
                                 return lyrics_content
-                    except Exception as e:
-                        if hasattr(self.ui_widget, 'webapi_logger'):
-                            self.ui_widget.webapi_logger.log_system_event(f"读取LRC文件失败 {lrc_path}: {e}")
-                        continue
+                                
+                        except UnicodeDecodeError:
+                            # 如果UTF-8失败，尝试GBK编码
+                            try:
+                                with open(normalized_path, 'r', encoding='gbk') as f:
+                                    lyrics_content = f.read().strip()
+                                    
+                                if lyrics_content:
+                                    if hasattr(self.ui_widget, 'webapi_logger'):
+                                        self.ui_widget.webapi_logger.log_system_event(f"✓ 找到LRC歌词文件(GBK编码): {normalized_path}")
+                                    return lyrics_content
+                            except Exception as gbk_e:
+                                if hasattr(self.ui_widget, 'webapi_logger'):
+                                    self.ui_widget.webapi_logger.log_system_event(f"⚠ 读取LRC文件失败(GBK编码) {normalized_path}: {gbk_e}")
+                                    
+                        except Exception as e:
+                            if hasattr(self.ui_widget, 'webapi_logger'):
+                                self.ui_widget.webapi_logger.log_system_event(f"⚠ 读取LRC文件失败 {normalized_path}: {e}")
+                            continue
+                            
+                except Exception as path_e:
+                    # 路径处理失败
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_system_event(f"⚠ 路径处理失败 {lrc_path}: {path_e}")
+                    continue
             
             # 如果没有找到lrc文件，返回空字符串
             if hasattr(self.ui_widget, 'webapi_logger'):
-                self.ui_widget.webapi_logger.log_system_event("未找到对应的LRC歌词文件")
+                self.ui_widget.webapi_logger.log_system_event("⚠ 未找到对应的LRC歌词文件")
             return ""
             
         except Exception as e:
             if hasattr(self.ui_widget, 'webapi_logger'):
-                self.ui_widget.webapi_logger.log_system_event(f"获取LRC歌词失败: {e}")
+                self.ui_widget.webapi_logger.log_system_event(f"⚠ 获取LRC歌词失败: {e}")
             return ""
     
     
@@ -744,19 +805,141 @@ class WebAPIHandler(BaseHTTPRequestHandler):
         """停止当前音频播放"""
         if hasattr(self, 'audio_thread') and self.audio_thread is not None:
             try:
+                # 先设置停止标志
                 self.audio_thread.stop()
-                self.audio_thread.wait(2000)  # 等待最多2秒
+                
+                # 在Windows上，尝试停止音频播放
+                if sys.platform == 'win32':
+                    try:
+                        import winsound
+                        winsound.PlaySound(None, winsound.SND_PURGE)  # 停止所有音频播放
+                    except:
+                        pass
+                
+                # 等待线程结束
+                self.audio_thread.wait(3000)  # 等待最多3秒
+                
                 if hasattr(self.ui_widget, 'webapi_logger'):
-                    self.ui_widget.webapi_logger.log_system_event("音频播放已停止")
+                    self.ui_widget.webapi_logger.log_system_event("✓ 音频播放已停止")
+                    
             except Exception as e:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"⚠ 停止音频播放异常: {e}")
                 print(f"停止音频播放异常: {e}")
             finally:
                 self.audio_thread = None
+                
             # 确保Live2D动作停止
             if hasattr(self.ui_widget, 'trigger_live2d_motion'):
                 self.ui_widget.trigger_live2d_motion(7)
     
     
+    def _handle_lyrics_request(self):
+        """处理歌词请求"""
+        import time
+        lyrics_start_time = time.time()
+        
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/lyrics', "EMPTY_REQUEST", "Empty request body")
+                self._send_error_response(400, "Empty request body")
+                return
+            
+            # 记录请求开始
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_system_event("开始处理歌词请求")
+            
+            # 读取请求体
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            # 验证必需字段
+            if 'audio_base64' not in data:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/lyrics', "MISSING_FIELD", "Missing 'audio_base64' field")
+                self._send_error_response(400, "Missing 'audio_base64' field")
+                return
+            
+            audio_base64 = data['audio_base64'].strip()
+            if not audio_base64:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/lyrics', "EMPTY_AUDIO", "Empty audio_base64")
+                self._send_error_response(400, "Empty audio_base64")
+                return
+            
+            # 验证API密钥（如果配置了）
+            has_api_key = False
+            if hasattr(self.ui_widget, 'config_data'):
+                api_key = self.ui_widget.config_data.get('webapi', {}).get('api_key', '')
+                if api_key and data.get('api_key') != api_key:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_error('/api/lyrics', "INVALID_API_KEY", "Invalid API key")
+                    self._send_error_response(401, "Invalid API key")
+                    return
+                has_api_key = bool(data.get('api_key'))
+            
+            # 获取歌词
+            try:
+                lrc_text = self._get_lrc_lyrics(audio_base64)
+                
+                lyrics_duration = (time.time() - lyrics_start_time) * 1000
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"歌词请求处理完成，耗时: {lyrics_duration:.2f}ms")
+                
+                if lrc_text:
+                    # 注释掉歌词请求时的字幕显示，歌词应该只在播放时按时间同步显示
+                    # # 发送歌词字幕显示请求
+                    # if hasattr(self.ui_widget, 'config_data'):
+                    #     subtitle_enabled = self.ui_widget.config_data.get('setting', {}).get('subtitle_enabled', False)
+                    #     if subtitle_enabled:
+                    #         subtitle_data = {
+                    #             "text": lrc_text,
+                    #             "source": "lyrics",
+                    #             "timestamp": time.time()
+                    #         }
+                    #         
+                    #         # 使用消息队列发送函数
+                    #         if self._send_message_queue_data('show_subtitle', subtitle_data, priority=1):
+                    #             if hasattr(self.ui_widget, 'webapi_logger'):
+                    #                 self.ui_widget.webapi_logger.log_system_event("✓ 已发送歌词字幕显示请求")
+                    #         else:
+                    #             if hasattr(self.ui_widget, 'webapi_logger'):
+                    #                 self.ui_widget.webapi_logger.log_system_event("⚠ 发送歌词字幕显示请求失败")
+                    
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_system_event("✓ 歌词内容已准备，将在播放时按时间同步显示")
+                    
+                    self._send_json_response({
+                        "lyrics": lrc_text,
+                        "status": "success",
+                        "found": True,
+                        "timestamp": time.time()
+                    })
+                else:
+                    self._send_json_response({
+                        "lyrics": "",
+                        "status": "success",
+                        "found": False,
+                        "message": "未找到对应的LRC歌词文件",
+                        "timestamp": time.time()
+                    })
+                    
+            except Exception as e:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_error('/api/lyrics', "LYRICS_PROCESSING_ERROR", str(e))
+                self._send_error_response(500, f"歌词处理错误: {str(e)}")
+                
+        except json.JSONDecodeError:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/lyrics', "JSON_DECODE_ERROR", "Invalid JSON")
+            self._send_error_response(400, "Invalid JSON")
+        except Exception as e:
+            if hasattr(self.ui_widget, 'webapi_logger'):
+                self.ui_widget.webapi_logger.log_error('/api/lyrics', "GENERAL_ERROR", str(e))
+            self._send_error_response(500, f"Server error: {str(e)}")
+
     # 动作索引获取方法已迁移到main.py中的PetService类
     
     def _send_json_response(self, data):
@@ -3247,22 +3430,28 @@ class AudioPlaybackThread(QThread):
                 # 循环播放
                 while self.is_running:
                     try:
-                        winsound.PlaySound(self.temp_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                        if duration > 0:
-                            time.sleep(min(duration, 30.0))  # 最长等待30秒
-                        else:
-                            time.sleep(1.0)  # 默认等待1秒
+                        # 使用同步播放，这样可以更好地控制循环
+                        winsound.PlaySound(self.temp_path, winsound.SND_FILENAME)
+                        
+                        # 检查是否需要停止（在播放间隔中检查）
+                        if not self.is_running:
+                            break
+                            
+                        # 短暂延迟后继续下一轮循环
+                        time.sleep(0.5)
+                        
                     except Exception as e:
                         print(f"Windows循环播放异常: {e}")
                         break
             else:
                 # 单次播放
-                winsound.PlaySound(self.temp_path, winsound.SND_FILENAME)
-                # 等待播放完成
-                if duration > 0:
-                    time.sleep(min(duration + 0.5, 30.0))  # 额外0.5秒缓冲，最长30秒
-                else:
-                    time.sleep(2.0)  # 默认等待2秒
+                if self.is_running:  # 检查是否需要播放
+                    winsound.PlaySound(self.temp_path, winsound.SND_FILENAME)
+                    # 等待播放完成
+                    if duration > 0:
+                        time.sleep(min(duration + 0.5, 30.0))  # 额外0.5秒缓冲，最长30秒
+                    else:
+                        time.sleep(2.0)  # 默认等待2秒
                     
         except Exception as e:
             print(f"Windows音频播放异常: {e}")
@@ -3277,12 +3466,22 @@ class AudioPlaybackThread(QThread):
                 # 循环播放
                 while self.is_running:
                     try:
+                        # 检查是否需要停止
+                        if not self.is_running:
+                            break
+                            
                         cmd = ['aplay', self.temp_path]
                         result = subprocess.run(cmd, timeout=30, capture_output=True)
                         if result.returncode != 0:
                             print(f"aplay命令执行失败: {result.stderr.decode()}")
                             break
-                        time.sleep(0.1)  # 短暂延迟
+                            
+                        # 检查是否需要停止（在播放间隔中检查）
+                        if not self.is_running:
+                            break
+                            
+                        time.sleep(0.5)  # 短暂延迟后继续下一轮循环
+                        
                     except subprocess.TimeoutExpired:
                         continue
                     except Exception as e:
@@ -3290,10 +3489,11 @@ class AudioPlaybackThread(QThread):
                         break
             else:
                 # 单次播放
-                cmd = ['aplay', self.temp_path]
-                result = subprocess.run(cmd, timeout=60, capture_output=True)  # 60秒超时
-                if result.returncode != 0:
-                    print(f"aplay命令执行失败: {result.stderr.decode()}")
+                if self.is_running:  # 检查是否需要播放
+                    cmd = ['aplay', self.temp_path]
+                    result = subprocess.run(cmd, timeout=60, capture_output=True)  # 60秒超时
+                    if result.returncode != 0:
+                        print(f"aplay命令执行失败: {result.stderr.decode()}")
                     
         except Exception as e:
             print(f"Unix音频播放异常: {e}")
@@ -7364,10 +7564,21 @@ class Widget(Interface):
         
         # 控制按钮
         webapi_btn_layout = QHBoxLayout()
-        self.webapi_start_btn = PushButton("启动服务", self)
-        self.webapi_stop_btn = PushButton("停止服务", self)
-        self.webapi_test_btn = PushButton("测试API", self)
         
+        # WebAPI服务按钮 - 使用合适的图标和按钮类型
+        self.webapi_start_btn = PrimaryToolButton(FIF.PLAY)
+        self.webapi_start_btn.setText("启动服务")
+        self.webapi_start_btn.setToolTip("启动WebAPI服务器，监听HTTP请求")
+        
+        self.webapi_stop_btn = ToolButton(FIF.PAUSE)
+        self.webapi_stop_btn.setText("停止服务")
+        self.webapi_stop_btn.setToolTip("停止WebAPI服务器")
+        
+        self.webapi_test_btn = ToolButton(FIF.SEND)
+        self.webapi_test_btn.setText("测试API")
+        self.webapi_test_btn.setToolTip("发送测试请求验证API服务")
+        
+        # 连接按钮事件
         self.webapi_start_btn.clicked.connect(self.start_webapi_server)
         self.webapi_stop_btn.clicked.connect(self.stop_webapi_server)
         self.webapi_test_btn.clicked.connect(self.test_webapi)
@@ -7394,7 +7605,394 @@ class Widget(Interface):
         webapi_form.addRow("使用说明:", webapi_help_text)
         
         self.vBoxLayout.addWidget(webapi_group)
+        
+        # 日志管理配置组
+        log_group = QGroupBox("日志管理")
+        log_form = QFormLayout(log_group)
+        
+        # 日志状态显示
+        self.log_status_label = QLabel("日志文件状态: 正常")
+        self.log_status_label.setStyleSheet("color: #666;")
+        log_form.addRow("", self.log_status_label)
+        
+        # 更新日志状态
+        self._update_log_status()
+        
+        # 控制按钮
+        log_btn_layout = QHBoxLayout()
+        
+        # 保存日志包按钮 - 使用PrimaryToolButton表示主要操作
+        self.save_logs_btn = PrimaryToolButton(FIF.SAVE)
+        self.save_logs_btn.setText("保存日志包")
+        self.save_logs_btn.setToolTip("将所有日志文件和系统信息打包保存为ZIP文件")
+        
+        # 清空日志按钮 - 使用ToolButton表示危险操作
+        self.clear_logs_btn = ToolButton(FIF.DELETE)
+        self.clear_logs_btn.setText("清空日志")
+        self.clear_logs_btn.setToolTip("清空所有日志文件的内容，释放磁盘空间")
+        
+        # 查看日志目录按钮 - 使用ToolButton表示辅助操作
+        self.view_logs_btn = ToolButton(FIF.FOLDER)
+        self.view_logs_btn.setText("查看日志目录")
+        self.view_logs_btn.setToolTip("在文件管理器中打开logs文件夹")
+        
+        # 连接按钮事件
+        self.save_logs_btn.clicked.connect(self.save_logs_package)
+        self.clear_logs_btn.clicked.connect(self.clear_all_logs)
+        self.view_logs_btn.clicked.connect(self.view_logs_directory)
+        
+        log_btn_layout.addWidget(self.save_logs_btn)
+        log_btn_layout.addWidget(self.clear_logs_btn)
+        log_btn_layout.addWidget(self.view_logs_btn)
+        log_form.addRow("操作:", log_btn_layout)
+        
+        # 日志说明
+        log_help_text = QTextEdit()
+        log_help_text.setMaximumHeight(100)
+        log_help_text.setReadOnly(True)
+        log_help_text.setPlainText(
+            "日志管理说明:\n"
+            "• 保存日志包: 打包所有日志文件和系统信息为ZIP文件\n"
+            "• 清空日志: 删除所有日志文件内容，释放磁盘空间\n"
+            "• 查看日志目录: 打开logs文件夹查看详细日志文件"
+        )
+        log_form.addRow("说明:", log_help_text)
+        
+        self.vBoxLayout.addWidget(log_group)
+        
+        # 系统信息显示组
+        system_info_group = QGroupBox("系统信息")
+        system_info_form = QFormLayout(system_info_group)
+        
+        # 系统信息显示区域
+        self.system_info_display = QTextEdit()
+        self.system_info_display.setReadOnly(True)
+        self.system_info_display.setMaximumHeight(300)
+        self.system_info_display.setStyleSheet("QTextEdit { background-color: #f5f5f5; font-family: 'Consolas', monospace; }")
+        
+        # 获取并显示系统信息
+        system_info_text = self._get_detailed_system_info()
+        self.system_info_display.setPlainText(system_info_text)
+        
+        system_info_form.addRow("", self.system_info_display)
+        
+        # 刷新按钮
+        refresh_system_info_btn = ToolButton(FIF.SYNC)
+        refresh_system_info_btn.setText("刷新系统信息")
+        refresh_system_info_btn.setToolTip("重新获取并更新系统硬件信息")
+        refresh_system_info_btn.clicked.connect(self._refresh_system_info)
+        system_info_form.addRow("", refresh_system_info_btn)
+        
+        self.vBoxLayout.addWidget(system_info_group)
+        
+        # 音频设备配置组
+        audio_device_group = QGroupBox("音频设备设置")
+        audio_device_form = QFormLayout(audio_device_group)
+        
+        # 当前系统音频设备显示
+        self.current_audio_device_label = QLabel("正在检测...")
+        self.current_audio_device_label.setStyleSheet("color: #0078d4; font-weight: bold;")
+        audio_device_form.addRow("当前系统音频设备:", self.current_audio_device_label)
+        
+        # 音频设备选择下拉框
+        self.audio_device_combo = QComboBox()
+        self.audio_device_combo.setMinimumWidth(300)
+        self.widgets['audio.device_index'] = {"widget": self.audio_device_combo, "type": "combobox"}
+        audio_device_form.addRow("选择音频输出设备:", self.audio_device_combo)
+        
+        # 音量控制
+        self.audio_volume_spin = DoubleSpinBox()
+        self.audio_volume_spin.setRange(0.0, 2.0)
+        self.audio_volume_spin.setValue(self.config_data.get('audio', {}).get('volume', 1.0))
+        self.audio_volume_spin.setSingleStep(0.1)
+        self.audio_volume_spin.setDecimals(1)
+        self.audio_volume_spin.setSuffix("x")
+        self.widgets['audio.volume'] = {"widget": self.audio_volume_spin, "type": "doublespinbox"}
+        audio_device_form.addRow("音量:", self.audio_volume_spin)
+        
+        # 控制按钮
+        audio_btn_layout = QHBoxLayout()
+        
+        # 刷新设备列表按钮
+        self.refresh_audio_devices_btn = ToolButton(FIF.SYNC)
+        self.refresh_audio_devices_btn.setText("刷新设备")
+        self.refresh_audio_devices_btn.setToolTip("重新扫描可用的音频输出设备")
+        self.refresh_audio_devices_btn.clicked.connect(self.refresh_audio_devices)
+        
+        # 测试音频按钮
+        self.test_audio_btn = PrimaryToolButton(FIF.PLAY)
+        self.test_audio_btn.setText("测试音频")
+        self.test_audio_btn.setToolTip("播放测试音频验证设备是否正常工作")
+        self.test_audio_btn.clicked.connect(self.test_audio_device)
+        
+        # 停止测试按钮
+        self.stop_test_audio_btn = ToolButton(FIF.PAUSE)
+        self.stop_test_audio_btn.setText("停止测试")
+        self.stop_test_audio_btn.setToolTip("停止当前的音频测试")
+        self.stop_test_audio_btn.clicked.connect(self.stop_test_audio)
+        self.stop_test_audio_btn.setEnabled(False)
+        
+        audio_btn_layout.addWidget(self.refresh_audio_devices_btn)
+        audio_btn_layout.addWidget(self.test_audio_btn)
+        audio_btn_layout.addWidget(self.stop_test_audio_btn)
+        audio_device_form.addRow("操作:", audio_btn_layout)
+        
+        # 音频设备信息显示
+        self.audio_device_info = QTextEdit()
+        self.audio_device_info.setReadOnly(True)
+        self.audio_device_info.setMaximumHeight(120)
+        self.audio_device_info.setStyleSheet("QTextEdit { background-color: #f5f5f5; font-family: 'Consolas', monospace; font-size: 10pt; }")
+        audio_device_form.addRow("设备信息:", self.audio_device_info)
+        
+        # 初始化音频设备列表
+        self.refresh_audio_devices()
+        
+        self.vBoxLayout.addWidget(audio_device_group)
         self.vBoxLayout.addStretch()
+
+    def _get_detailed_system_info(self):
+        """获取详细的系统信息"""
+        try:
+            import platform
+            import subprocess
+            try:
+                import psutil
+                HAS_PSUTIL = True
+            except ImportError:
+                HAS_PSUTIL = False
+            
+            info = []
+            
+            # === 基本系统信息 ===
+            info.append("=== 基本系统信息 ===")
+            info.append(f"操作系统: {platform.system()} {platform.release()} ({platform.version()})")
+            info.append(f"计算机名: {platform.node()}")
+            info.append(f"处理器架构: {platform.machine()}")
+            info.append(f"Python版本: {platform.python_version()}")
+            info.append("")
+            
+            # === CPU信息 ===
+            info.append("=== CPU信息 ===")
+            if HAS_PSUTIL:
+                try:
+                    info.append(f"处理器: {platform.processor()}")
+                    info.append(f"物理核心数: {psutil.cpu_count(logical=False)}")
+                    info.append(f"逻辑核心数: {psutil.cpu_count(logical=True)}")
+                    cpu_freq = psutil.cpu_freq()
+                    if cpu_freq:
+                        info.append(f"CPU频率: {cpu_freq.current:.2f} MHz (最大: {cpu_freq.max:.2f} MHz)")
+                    info.append(f"CPU使用率: {psutil.cpu_percent(interval=1):.1f}%")
+                except Exception as e:
+                    info.append(f"CPU信息获取失败: {e}")
+            else:
+                info.append(f"处理器: {platform.processor()}")
+                info.append("详细CPU信息需要psutil库")
+            info.append("")
+            
+            # === 内存信息 ===
+            info.append("=== 内存信息 ===")
+            if HAS_PSUTIL:
+                try:
+                    memory = psutil.virtual_memory()
+                    info.append(f"总内存: {memory.total / (1024**3):.2f} GB")
+                    info.append(f"可用内存: {memory.available / (1024**3):.2f} GB")
+                    info.append(f"已用内存: {memory.used / (1024**3):.2f} GB")
+                    info.append(f"内存使用率: {memory.percent:.1f}%")
+                    
+                    # 交换内存
+                    swap = psutil.swap_memory()
+                    info.append(f"交换内存总量: {swap.total / (1024**3):.2f} GB")
+                    info.append(f"交换内存使用率: {swap.percent:.1f}%")
+                except Exception as e:
+                    info.append(f"内存信息获取失败: {e}")
+            else:
+                info.append("内存信息需要psutil库")
+            info.append("")
+            
+            # === 显卡信息 ===
+            info.append("=== 显卡信息 ===")
+            try:
+                # 尝试获取NVIDIA GPU信息
+                try:
+                    result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,driver_version,cuda_version', '--format=csv,noheader,nounits'], 
+                                          capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        gpu_lines = result.stdout.strip().split('\n')
+                        for i, line in enumerate(gpu_lines):
+                            parts = line.split(', ')
+                            if len(parts) >= 4:
+                                info.append(f"GPU {i+1}: {parts[0]}")
+                                info.append(f"  显存: {parts[1]} MB")
+                                info.append(f"  驱动版本: {parts[2]}")
+                                info.append(f"  CUDA版本: {parts[3]}")
+                    else:
+                        info.append("未检测到NVIDIA显卡或nvidia-smi不可用")
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    info.append("NVIDIA GPU信息获取失败 (nvidia-smi不可用)")
+                
+                # 尝试通过wmic获取显卡信息 (Windows)
+                if platform.system() == "Windows":
+                    try:
+                        result = subprocess.run(['wmic', 'path', 'win32_VideoController', 'get', 'name,AdapterRAM'], 
+                                              capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            lines = result.stdout.strip().split('\n')[1:]  # 跳过标题行
+                            for line in lines:
+                                line = line.strip()
+                                if line and 'AdapterRAM' not in line:
+                                    parts = line.split()
+                                    if len(parts) >= 2:
+                                        ram_bytes = parts[0] if parts[0].isdigit() else "N/A"
+                                        gpu_name = ' '.join(parts[1:]) if len(parts) > 1 else "未知显卡"
+                                        if ram_bytes != "N/A" and ram_bytes.isdigit():
+                                            ram_mb = int(ram_bytes) // (1024*1024)
+                                            info.append(f"显卡: {gpu_name} (显存: {ram_mb} MB)")
+                                        else:
+                                            info.append(f"显卡: {gpu_name}")
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        info.append("Windows显卡信息获取失败")
+                        
+            except Exception as e:
+                info.append(f"显卡信息获取失败: {e}")
+            info.append("")
+            
+            # === CUDA信息 ===
+            info.append("=== CUDA信息 ===")
+            try:
+                # 检查CUDA版本
+                try:
+                    result = subprocess.run(['nvcc', '--version'], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        for line in result.stdout.split('\n'):
+                            if 'release' in line.lower():
+                                info.append(f"NVCC版本: {line.strip()}")
+                                break
+                    else:
+                        info.append("NVCC不可用")
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    info.append("NVCC未安装或不在PATH中")
+                
+                # 尝试通过PyTorch检查CUDA
+                try:
+                    import torch
+                    info.append(f"PyTorch CUDA可用: {torch.cuda.is_available()}")
+                    if torch.cuda.is_available():
+                        info.append(f"PyTorch CUDA版本: {torch.version.cuda}")
+                        info.append(f"可用GPU数量: {torch.cuda.device_count()}")
+                        for i in range(torch.cuda.device_count()):
+                            info.append(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+                except ImportError:
+                    info.append("PyTorch未安装，无法检查CUDA状态")
+                except Exception as e:
+                    info.append(f"PyTorch CUDA检查失败: {e}")
+                    
+            except Exception as e:
+                info.append(f"CUDA信息获取失败: {e}")
+            info.append("")
+            
+            # === 声卡信息 ===
+            info.append("=== 声卡信息 ===")
+            try:
+                if platform.system() == "Windows":
+                    try:
+                        result = subprocess.run(['wmic', 'sounddev', 'get', 'name'], 
+                                              capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            lines = result.stdout.strip().split('\n')[1:]  # 跳过标题行
+                            audio_devices = [line.strip() for line in lines if line.strip() and 'Name' not in line]
+                            for device in audio_devices:
+                                if device:
+                                    info.append(f"声卡: {device}")
+                        else:
+                            info.append("Windows声卡信息获取失败")
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        info.append("Windows声卡信息获取失败 (wmic不可用)")
+                else:
+                    info.append("仅支持Windows系统的声卡信息获取")
+                    
+            except Exception as e:
+                info.append(f"声卡信息获取失败: {e}")
+            info.append("")
+            
+            # === 网络信息 ===
+            info.append("=== 网络信息 ===")
+            try:
+                import socket
+                hostname = socket.gethostname()
+                local_ip = socket.gethostbyname(hostname)
+                info.append(f"主机名: {hostname}")
+                info.append(f"本地IP: {local_ip}")
+                
+                if HAS_PSUTIL:
+                    try:
+                        # 网络接口信息
+                        net_if_addrs = psutil.net_if_addrs()
+                        for interface, addrs in net_if_addrs.items():
+                            for addr in addrs:
+                                if addr.family == socket.AF_INET:  # IPv4
+                                    info.append(f"网络接口 {interface}: {addr.address}")
+                    except Exception as e:
+                        info.append(f"网络接口信息获取失败: {e}")
+                        
+            except Exception as e:
+                info.append(f"网络信息获取失败: {e}")
+            info.append("")
+            
+            # === 存储信息 ===
+            info.append("=== 存储信息 ===")
+            if HAS_PSUTIL:
+                try:
+                    partitions = psutil.disk_partitions()
+                    for partition in partitions:
+                        try:
+                            usage = psutil.disk_usage(partition.mountpoint)
+                            info.append(f"磁盘 {partition.device}:")
+                            info.append(f"  文件系统: {partition.fstype}")
+                            info.append(f"  总空间: {usage.total / (1024**3):.2f} GB")
+                            info.append(f"  已用空间: {usage.used / (1024**3):.2f} GB")
+                            info.append(f"  可用空间: {usage.free / (1024**3):.2f} GB")
+                            info.append(f"  使用率: {(usage.used / usage.total) * 100:.1f}%")
+                        except PermissionError:
+                            info.append(f"磁盘 {partition.device}: 权限不足")
+                except Exception as e:
+                    info.append(f"存储信息获取失败: {e}")
+            else:
+                info.append("存储信息需要psutil库")
+            
+            info.append("")
+            info.append(f"信息更新时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            return "\n".join(info)
+            
+        except Exception as e:
+            return f"系统信息获取失败: {e}"
+    
+    def _refresh_system_info(self):
+        """刷新系统信息显示"""
+        try:
+            system_info_text = self._get_detailed_system_info()
+            self.system_info_display.setPlainText(system_info_text)
+            
+            InfoBar.success(
+                title="刷新成功",
+                content="系统信息已更新",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title="刷新失败",
+                content=f"系统信息刷新失败: {e}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
 
     def on_action_buttons_enabled_changed(self, state):
         """处理动作按钮开关状态变化"""
@@ -7445,6 +8043,718 @@ class Widget(Interface):
 
         except Exception as e:
             print(f"处理动作按钮开关状态变化失败: {e}")
+
+    def _update_log_status(self):
+        """更新日志状态显示"""
+        try:
+            log_dir = "logs"
+            if not os.path.exists(log_dir):
+                self.log_status_label.setText("日志文件状态: 日志目录不存在")
+                self.log_status_label.setStyleSheet("color: #d83b01;")
+                return
+            
+            log_files = [
+                "llm_interactions.log",
+                "asr_interactions.log", 
+                "tts_interactions.log",
+                "webapi_interactions.log"
+            ]
+            
+            total_size = 0
+            file_count = 0
+            
+            for log_file in log_files:
+                log_path = os.path.join(log_dir, log_file)
+                if os.path.exists(log_path):
+                    file_count += 1
+                    total_size += os.path.getsize(log_path)
+            
+            # 格式化文件大小
+            if total_size < 1024:
+                size_str = f"{total_size} B"
+            elif total_size < 1024 * 1024:
+                size_str = f"{total_size / 1024:.1f} KB"
+            else:
+                size_str = f"{total_size / (1024 * 1024):.1f} MB"
+            
+            self.log_status_label.setText(f"日志文件状态: {file_count}个文件, 总大小 {size_str}")
+            self.log_status_label.setStyleSheet("color: #666;")
+            
+        except Exception as e:
+            self.log_status_label.setText(f"日志文件状态: 检查失败 ({str(e)})")
+            self.log_status_label.setStyleSheet("color: #d83b01;")
+
+    def save_logs_package(self):
+        """保存日志包到用户选择的位置"""
+        try:
+            # 选择保存位置
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "保存日志包",
+                f"ai_live2d_logs_{time.strftime('%Y%m%d_%H%M%S')}.zip",
+                "ZIP文件 (*.zip)"
+            )
+            
+            if not file_path:
+                return
+            
+            # 显示进度提示
+            InfoBar.info(
+                title='正在打包',
+                content='正在收集日志和系统信息...',
+                orient=Qt.Horizontal,
+                isClosable=False,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+            import zipfile
+            import platform
+            try:
+                import psutil
+                HAS_PSUTIL = True
+            except ImportError:
+                HAS_PSUTIL = False
+            
+            with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # 1. 添加所有日志文件
+                log_dir = "logs"
+                if os.path.exists(log_dir):
+                    for root, dirs, files in os.walk(log_dir):
+                        for file in files:
+                            if file.endswith('.log'):
+                                file_path_in_logs = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path_in_logs, ".")
+                                zipf.write(file_path_in_logs, arcname)
+                
+                # 2. 添加配置文件
+                config_files = ["config.json", "config_example.json"]
+                for config_file in config_files:
+                    if os.path.exists(config_file):
+                        zipf.write(config_file, config_file)
+                
+                # 3. 添加其他重要日志文件
+                other_logs = ["chat_log.txt", "pet_system.log"]
+                for log_file in other_logs:
+                    if os.path.exists(log_file):
+                        zipf.write(log_file, log_file)
+                
+                # 4. 生成系统信息文件
+                system_info = self._collect_system_info()
+                zipf.writestr("system_info.txt", system_info)
+                
+                # 5. 生成运行状态文件
+                runtime_info = self._collect_runtime_info()
+                zipf.writestr("runtime_info.txt", runtime_info)
+            
+            # 更新日志状态
+            self._update_log_status()
+            
+            InfoBar.success(
+                title='保存成功',
+                content=f'日志包已保存到: {file_path}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='保存失败',
+                content=f'保存日志包时出错: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def _collect_system_info(self):
+        """收集系统信息"""
+        try:
+            import platform
+            import subprocess
+            try:
+                import psutil
+                HAS_PSUTIL = True
+            except ImportError:
+                HAS_PSUTIL = False
+            
+            info = []
+            info.append("=== 系统信息 ===")
+            info.append(f"操作系统: {platform.system()} {platform.release()}")
+            info.append(f"处理器: {platform.processor()}")
+            info.append(f"Python版本: {platform.python_version()}")
+            info.append(f"架构: {platform.machine()}")
+            info.append("")
+            
+            info.append("=== 硬件信息 ===")
+            if HAS_PSUTIL:
+                try:
+                    # CPU信息
+                    info.append(f"CPU核心数: {psutil.cpu_count(logical=False)} 物理核心, {psutil.cpu_count(logical=True)} 逻辑核心")
+                    info.append(f"CPU使用率: {psutil.cpu_percent(interval=1)}%")
+                    
+                    # 内存信息
+                    memory = psutil.virtual_memory()
+                    info.append(f"总内存: {memory.total / (1024**3):.2f} GB")
+                    info.append(f"可用内存: {memory.available / (1024**3):.2f} GB")
+                    info.append(f"内存使用率: {memory.percent}%")
+                    
+                    # 磁盘信息
+                    disk = psutil.disk_usage('.')
+                    info.append(f"磁盘总空间: {disk.total / (1024**3):.2f} GB")
+                    info.append(f"磁盘可用空间: {disk.free / (1024**3):.2f} GB")
+                    info.append(f"磁盘使用率: {(disk.used / disk.total) * 100:.1f}%")
+                    
+                except Exception as e:
+                    info.append(f"硬件信息收集失败: {e}")
+            else:
+                info.append("硬件信息收集需要psutil库，当前未安装")
+            
+            # === 显卡信息 ===
+            info.append("")
+            info.append("=== 显卡信息 ===")
+            try:
+                # 尝试获取NVIDIA GPU信息
+                try:
+                    result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,driver_version,cuda_version', '--format=csv,noheader,nounits'], 
+                                          capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        gpu_lines = result.stdout.strip().split('\n')
+                        for i, line in enumerate(gpu_lines):
+                            parts = line.split(', ')
+                            if len(parts) >= 4:
+                                info.append(f"NVIDIA GPU {i+1}: {parts[0]}")
+                                info.append(f"  显存: {parts[1]} MB")
+                                info.append(f"  驱动版本: {parts[2]}")
+                                info.append(f"  CUDA版本: {parts[3]}")
+                    else:
+                        info.append("未检测到NVIDIA显卡或nvidia-smi不可用")
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    info.append("NVIDIA GPU信息获取失败 (nvidia-smi不可用)")
+                
+                # 尝试通过wmic获取显卡信息 (Windows)
+                if platform.system() == "Windows":
+                    try:
+                        result = subprocess.run(['wmic', 'path', 'win32_VideoController', 'get', 'name,AdapterRAM'], 
+                                              capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            lines = result.stdout.strip().split('\n')[1:]  # 跳过标题行
+                            for line in lines:
+                                line = line.strip()
+                                if line and 'AdapterRAM' not in line:
+                                    parts = line.split()
+                                    if len(parts) >= 2:
+                                        ram_bytes = parts[0] if parts[0].isdigit() else "N/A"
+                                        gpu_name = ' '.join(parts[1:]) if len(parts) > 1 else "未知显卡"
+                                        if ram_bytes != "N/A" and ram_bytes.isdigit():
+                                            ram_mb = int(ram_bytes) // (1024*1024)
+                                            info.append(f"显卡: {gpu_name} (显存: {ram_mb} MB)")
+                                        else:
+                                            info.append(f"显卡: {gpu_name}")
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        pass  # 已经有NVIDIA信息，这里的失败不需要额外提示
+                        
+                # CUDA信息
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        info.append(f"PyTorch CUDA可用: 是")
+                        info.append(f"PyTorch CUDA版本: {torch.version.cuda}")
+                        info.append(f"可用GPU数量: {torch.cuda.device_count()}")
+                    else:
+                        info.append(f"PyTorch CUDA可用: 否")
+                except ImportError:
+                    pass  # PyTorch未安装
+                except Exception as e:
+                    info.append(f"CUDA检查失败: {e}")
+                    
+            except Exception as e:
+                info.append(f"显卡信息获取失败: {e}")
+            
+            info.append("")
+            info.append("=== 网络信息 ===")
+            try:
+                import socket
+                hostname = socket.gethostname()
+                local_ip = socket.gethostbyname(hostname)
+                info.append(f"主机名: {hostname}")
+                info.append(f"本地IP: {local_ip}")
+            except Exception as e:
+                info.append(f"网络信息收集失败: {e}")
+            
+            info.append("")
+            info.append(f"信息收集时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            return "\n".join(info)
+            
+        except Exception as e:
+            return f"系统信息收集失败: {e}"
+
+    def _collect_runtime_info(self):
+        """收集运行时信息"""
+        try:
+            try:
+                import psutil
+                HAS_PSUTIL = True
+            except ImportError:
+                HAS_PSUTIL = False
+            
+            info = []
+            info.append("=== 运行时信息 ===")
+            
+            # 配置信息摘要
+            info.append("=== 配置摘要 ===")
+            if hasattr(self, 'config_data') and self.config_data:
+                # LLM配置
+                llm_config = self.config_data.get('llm', {})
+                info.append(f"LLM启用: {llm_config.get('enabled', False)}")
+                info.append(f"LLM模型: {llm_config.get('model', 'N/A')}")
+                
+                # TTS配置  
+                tts_config = self.config_data.get('tts', {})
+                info.append(f"TTS启用: {tts_config.get('enabled', False)}")
+                info.append(f"TTS类型: {tts_config.get('type', 'N/A')}")
+                
+                # ASR配置
+                asr_config = self.config_data.get('asr', {})
+                info.append(f"ASR启用: {asr_config.get('enabled', False)}")
+                info.append(f"ASR类型: {asr_config.get('type', 'N/A')}")
+                
+                # WebAPI配置
+                webapi_config = self.config_data.get('webapi', {})
+                info.append(f"WebAPI启用: {webapi_config.get('enabled', False)}")
+                info.append(f"WebAPI端口: {webapi_config.get('port', 'N/A')}")
+            
+            info.append("")
+            
+            # 进程信息
+            info.append("=== 进程信息 ===")
+            if HAS_PSUTIL:
+                try:
+                    current_process = psutil.Process()
+                    info.append(f"当前进程PID: {current_process.pid}")
+                    info.append(f"内存使用: {current_process.memory_info().rss / (1024**2):.2f} MB")
+                    info.append(f"CPU使用率: {current_process.cpu_percent()}%")
+                    info.append(f"启动时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_process.create_time()))}")
+                except Exception as e:
+                    info.append(f"进程信息收集失败: {e}")
+            else:
+                info.append("进程信息收集需要psutil库，当前未安装")
+                info.append(f"当前进程PID: {os.getpid()}")
+            
+            info.append("")
+            
+            # 环境变量（部分）
+            info.append("=== 重要环境变量 ===")
+            important_env_vars = ['PATH', 'PYTHONPATH', 'CONDA_DEFAULT_ENV', 'VIRTUAL_ENV']
+            for var in important_env_vars:
+                value = os.environ.get(var, 'N/A')
+                if len(value) > 200:  # 截断过长的值
+                    value = value[:200] + "..."
+                info.append(f"{var}: {value}")
+            
+            info.append("")
+            info.append(f"信息收集时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            return "\n".join(info)
+            
+        except Exception as e:
+            return f"运行时信息收集失败: {e}"
+
+    def clear_all_logs(self):
+        """清空所有日志文件"""
+        try:
+            # 确认对话框
+            reply = QMessageBox.question(
+                self,
+                '确认清空日志',
+                '这将清空所有日志文件的内容。\n\n此操作不可撤销，确定要继续吗？',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply != QMessageBox.Yes:
+                return
+            
+            log_dir = "logs"
+            if not os.path.exists(log_dir):
+                InfoBar.warning(
+                    title='警告',
+                    content='日志目录不存在，无需清理',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                return
+            
+            cleared_count = 0
+            error_count = 0
+            
+            # 清空logs目录下的所有.log文件
+            for root, dirs, files in os.walk(log_dir):
+                for file in files:
+                    if file.endswith('.log'):
+                        try:
+                            file_path = os.path.join(root, file)
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write("")  # 清空文件内容
+                            cleared_count += 1
+                        except Exception as e:
+                            error_count += 1
+                            print(f"清理日志文件 {file} 失败: {e}")
+            
+            # 清空其他日志文件
+            other_logs = ["chat_log.txt", "pet_system.log"]
+            for log_file in other_logs:
+                if os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'w', encoding='utf-8') as f:
+                            f.write("")
+                        cleared_count += 1
+                    except Exception as e:
+                        error_count += 1
+                        print(f"清理日志文件 {log_file} 失败: {e}")
+            
+            # 更新日志状态
+            self._update_log_status()
+            
+            if error_count == 0:
+                InfoBar.success(
+                    title='清理完成',
+                    content=f'已成功清空 {cleared_count} 个日志文件',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+            else:
+                InfoBar.warning(
+                    title='清理完成',
+                    content=f'成功清空 {cleared_count} 个文件，{error_count} 个文件清理失败',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                
+        except Exception as e:
+            InfoBar.error(
+                title='清理失败',
+                content=f'清空日志时出错: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def view_logs_directory(self):
+        """打开日志目录"""
+        try:
+            log_dir = os.path.abspath("logs")
+            
+            if not os.path.exists(log_dir):
+                InfoBar.warning(
+                    title='目录不存在',
+                    content='日志目录不存在，将创建该目录',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                os.makedirs(log_dir, exist_ok=True)
+            
+            # 根据操作系统打开文件管理器
+            import platform
+            import subprocess
+            
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(log_dir)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", log_dir])
+            else:  # Linux
+                subprocess.run(["xdg-open", log_dir])
+                
+            InfoBar.info(
+                title='已打开',
+                content='日志目录已在文件管理器中打开',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='打开失败',
+                content=f'无法打开日志目录: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def refresh_audio_devices(self):
+        """刷新音频设备列表"""
+        try:
+            import sounddevice as sd
+            
+            # 获取所有音频设备
+            devices = sd.query_devices()
+            
+            # 清空下拉框
+            self.audio_device_combo.clear()
+            
+            # 获取当前系统默认设备
+            default_device = sd.default.device[1]  # 输出设备
+            current_device_name = "未知设备"
+            
+            # 添加设备到下拉框
+            output_devices = []
+            for i, device in enumerate(devices):
+                if device['max_output_channels'] > 0:  # 只显示输出设备
+                    device_name = f"{i}: {device['name']} ({device['max_output_channels']}ch)"
+                    self.audio_device_combo.addItem(device_name, i)
+                    output_devices.append((i, device))
+                    
+                    # 检查是否是当前默认设备
+                    if i == default_device:
+                        current_device_name = device['name']
+            
+            # 显示当前系统音频设备
+            self.current_audio_device_label.setText(f"{current_device_name} (索引: {default_device})")
+            
+            # 尝试从配置中恢复选择
+            saved_device_index = self.config_data.get('audio', {}).get('device_index', default_device)
+            combo_index = -1
+            for i in range(self.audio_device_combo.count()):
+                if self.audio_device_combo.itemData(i) == saved_device_index:
+                    combo_index = i
+                    break
+            
+            if combo_index >= 0:
+                self.audio_device_combo.setCurrentIndex(combo_index)
+            else:
+                # 如果没找到保存的设备，选择默认设备
+                for i in range(self.audio_device_combo.count()):
+                    if self.audio_device_combo.itemData(i) == default_device:
+                        self.audio_device_combo.setCurrentIndex(i)
+                        break
+            
+            # 连接选择变化事件
+            self.audio_device_combo.currentTextChanged.connect(self.on_audio_device_changed)
+            
+            # 更新设备信息显示
+            self.update_audio_device_info()
+            
+        except ImportError:
+            self.audio_device_combo.addItem("sounddevice模块未安装", -1)
+            self.current_audio_device_label.setText("sounddevice模块未安装")
+            self.audio_device_info.setText("请安装sounddevice模块: pip install sounddevice")
+        except Exception as e:
+            self.audio_device_combo.addItem(f"获取设备失败: {str(e)}", -1)
+            self.current_audio_device_label.setText("获取设备失败")
+            self.audio_device_info.setText(f"错误详情: {str(e)}")
+
+    def on_audio_device_changed(self):
+        """音频设备选择变化时的处理"""
+        self.update_audio_device_info()
+
+    def update_audio_device_info(self):
+        """更新音频设备信息显示"""
+        try:
+            import sounddevice as sd
+            
+            current_index = self.audio_device_combo.currentIndex()
+            if current_index < 0:
+                return
+            
+            device_index = self.audio_device_combo.itemData(current_index)
+            if device_index is None or device_index < 0:
+                return
+            
+            # 获取设备详细信息
+            device = sd.query_devices(device_index)
+            
+            info_text = f"""设备索引: {device_index}
+设备名称: {device['name']}
+输出声道数: {device['max_output_channels']}
+输入声道数: {device['max_input_channels']}
+默认采样率: {device['default_samplerate']} Hz
+主机API: {sd.query_hostapis(device['hostapi'])['name']}
+延迟 (低/高): {device['default_low_output_latency']:.3f}s / {device['default_high_output_latency']:.3f}s"""
+            
+            self.audio_device_info.setText(info_text)
+            
+        except Exception as e:
+            self.audio_device_info.setText(f"获取设备信息失败: {str(e)}")
+
+    def test_audio_device(self):
+        """测试选中的音频设备"""
+        try:
+            import sounddevice as sd
+            import numpy as np
+            import threading
+            
+            current_index = self.audio_device_combo.currentIndex()
+            if current_index < 0:
+                InfoBar.warning(
+                    title='无设备选择',
+                    content='请先选择一个音频输出设备',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                return
+            
+            device_index = self.audio_device_combo.itemData(current_index)
+            if device_index is None or device_index < 0:
+                InfoBar.warning(
+                    title='设备无效',
+                    content='选中的音频设备无效',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                return
+            
+            # 获取音量设置
+            volume = self.audio_volume_spin.value()
+            
+            # 生成测试音频（1秒440Hz正弦波）
+            duration = 1.0  # 秒
+            sample_rate = 44100
+            frequency = 440  # A4音
+            
+            t = np.linspace(0, duration, int(sample_rate * duration), False)
+            test_audio = np.sin(frequency * 2 * np.pi * t) * volume * 0.3  # 降低音量避免过响
+            
+            # 禁用测试按钮，启用停止按钮
+            self.test_audio_btn.setEnabled(False)
+            self.stop_test_audio_btn.setEnabled(True)
+            
+            # 在后台线程播放测试音频
+            def play_test_audio():
+                try:
+                    # 设置音频设备
+                    sd.default.device[1] = device_index
+                    
+                    InfoBar.info(
+                        title='正在测试',
+                        content=f'正在通过设备 {device_index} 播放测试音频...',
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=1500,
+                        parent=self
+                    )
+                    
+                    # 播放测试音频
+                    sd.play(test_audio, sample_rate, blocking=True)
+                    
+                    InfoBar.success(
+                        title='测试完成',
+                        content='音频测试播放完成',
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                    
+                except Exception as e:
+                    InfoBar.error(
+                        title='播放失败',
+                        content=f'音频测试失败: {str(e)}',
+                        orient=Qt.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+                finally:
+                    # 恢复按钮状态
+                    self.test_audio_btn.setEnabled(True)
+                    self.stop_test_audio_btn.setEnabled(False)
+            
+            # 启动测试线程
+            self.audio_test_thread = threading.Thread(target=play_test_audio)
+            self.audio_test_thread.daemon = True
+            self.audio_test_thread.start()
+            
+        except ImportError:
+            InfoBar.error(
+                title='模块缺失',
+                content='sounddevice或numpy模块未安装，无法测试音频',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        except Exception as e:
+            InfoBar.error(
+                title='测试失败',
+                content=f'音频测试失败: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            # 恢复按钮状态
+            self.test_audio_btn.setEnabled(True)
+            self.stop_test_audio_btn.setEnabled(False)
+
+    def stop_test_audio(self):
+        """停止音频测试"""
+        try:
+            import sounddevice as sd
+            
+            # 停止所有音频播放
+            sd.stop()
+            
+            # 恢复按钮状态
+            self.test_audio_btn.setEnabled(True)
+            self.stop_test_audio_btn.setEnabled(False)
+            
+            InfoBar.info(
+                title='已停止',
+                content='音频测试已停止',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1500,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='停止失败',
+                content=f'停止音频测试失败: {str(e)}',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
 
     def create_voice_clone_tab(self):
         """创建“声音克隆”页面：包含两个子选项卡

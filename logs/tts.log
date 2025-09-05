@@ -1,0 +1,27 @@
+WARNING:  未指定GPT模型路径, fallback后当前值: GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt
+INFO:     默认参考音频路径: tts-model/neuro/01.wav
+INFO:     默认参考音频文本: Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday.
+INFO:     默认参考音频语种: en
+INFO:     半精: True
+INFO:     编码格式: wav
+sovits版本: v2
+INFO:     Number of parameter: 77.49M
+INFO:     Started server process [21296]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:64746 - "POST / HTTP/1.1" 200 OK
+当前使用g2pw进行拼音推理
+Building prefix dict from the default dictionary ...
+DEBUG:jieba_fast:Building prefix dict from the default dictionary ...
+Loading model from cache C:\Users\MAOWEI~1\AppData\Local\Temp\jieba.cache
+DEBUG:jieba_fast:Loading model from cache C:\Users\MAOWEI~1\AppData\Local\Temp\jieba.cache
+Loading model cost 0.703 seconds.
+DEBUG:jieba_fast:Loading model cost 0.703 seconds.
+Prefix dict has been built succesfully.
+DEBUG:jieba_fast:Prefix dict has been built succesfully.
+  0%|          | 0/1500 [00:00<?, ?it/s]  0%|          | 1/1500 [00:00<02:53,  8.66it/s]  0%|          | 6/1500 [00:00<00:47, 31.34it/s]  1%|          | 13/1500 [00:00<00:32, 45.15it/s]  1%|1         | 18/1500 [00:00<00:31, 46.76it/s]T2S Decoding EOS [243 -> 267]
+  2%|1         | 23/1500 [00:00<00:34, 43.41it/s]
+INFO:     127.0.0.1:64746 - "POST / HTTP/1.1" 200 OK
+  0%|          | 0/1500 [00:00<?, ?it/s]  0%|          | 5/1500 [00:00<00:31, 46.85it/s]  1%|          | 10/1500 [00:00<00:30, 48.17it/s]  1%|1         | 16/1500 [00:00<00:28, 52.56it/s]  1%|1         | 22/1500 [00:00<00:28, 51.42it/s]  2%|1         | 28/1500 [00:00<00:27, 54.25it/s]T2S Decoding EOS [243 -> 273]
+  2%|1         | 29/1500 [00:00<00:28, 51.28it/s]

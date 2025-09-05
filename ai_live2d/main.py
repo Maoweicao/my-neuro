@@ -23,7 +23,9 @@ import signal
 import sys
 import os
 import json
-import socket
+import traceback
+# 注释掉不再使用的socket导入
+# import socket
 import threading
 import time
 from pathlib import Path
@@ -49,6 +51,12 @@ import numpy as np
 import sounddevice as sd
 from interface.action_buttons import ActionButtonsWindow
 
+# 导入消息队列
+from utils.message_queue import get_message_queue, register_handler, start_message_listener, stop_message_listener
+
+# 导入LRC歌词管理器
+from utils.lrc_manager import LRCManager
+
 class PetService:
     """AI桌面宠物服务类 - 支持Qt和asyncio集成"""
     
@@ -60,11 +68,9 @@ class PetService:
         self._running: bool = False
         self._shutdown_event = asyncio.Event()
         
-        # 进程间通信相关
-        self.interrupt_socket = None
-        self.interrupt_thread = None
+        # 进程间通信相关 - 使用消息队列替代socket
+        self.message_queue = get_message_queue()
         self.interrupt_signal_file = Path("interrupt_signal.tmp")
-        self.interrupt_port = 8889  # 固定的中断通信端口
         self.event_loop = None  # 保存事件循环引用
         
         # 音频播放相关
@@ -74,6 +80,9 @@ class PetService:
         
         # 动作按钮相关
         self.action_buttons_window = None
+        
+        # LRC歌词管理器
+        self.lrc_manager = None
         
     async def initialize(self) -> None:
         """初始化服务"""
@@ -105,8 +114,8 @@ class PetService:
             # 初始化应用管理器
             await self.app_manager.initialize()
             
-            # 启动中断监听器
-            self.start_interrupt_listener()
+            # 启动消息队列监听器
+            self.start_message_listener()
             
             # 初始化动作按钮窗口
             self.initialize_action_buttons()
@@ -158,8 +167,8 @@ class PetService:
                 if self.logger:
                     self.logger.info(">>> 应用管理器... [ 已关闭 ]")
             
-            # 停止中断监听器
-            self.stop_interrupt_listener()
+            # 停止消息队列监听器
+            self.stop_message_listener()
             
             # 清理事件循环引用
             self.event_loop = None
@@ -189,86 +198,221 @@ class PetService:
         if self._running:
             self._shutdown_event.set()
 
-    def start_interrupt_listener(self):
-        """启动中断监听器"""
+    def start_message_listener(self):
+        """启动消息队列监听器"""
         try:
             if self.logger:
-                self.logger.info(">>> 启动中断监听器... [ 进行中 ]")
+                self.logger.info(">>> 启动消息队列监听器... [ 进行中 ]")
             
-            # 启动socket监听线程
-            self.interrupt_thread = threading.Thread(
-                target=self._interrupt_listener_thread,
-                daemon=True
-            )
-            self.interrupt_thread.start()
+            # 注册消息处理器
+            self.message_queue.register_handler('interrupt', self._handle_interrupt_message)
+            self.message_queue.register_handler('shutdown', self._handle_shutdown_message)
+            self.message_queue.register_handler('play_audio', self._handle_play_audio_message)
+            self.message_queue.register_handler('custom_action', self._handle_custom_action_message)
+            self.message_queue.register_handler('show_action_buttons', self._handle_show_action_buttons_message)
+            self.message_queue.register_handler('hide_action_buttons', self._handle_hide_action_buttons_message)
+            self.message_queue.register_handler('show_subtitle', self._handle_show_subtitle_message)
+            
+            # 启动监听器
+            self.message_queue.start_listener()
             
             if self.logger:
-                self.logger.info(">>> 中断监听器... [ 已启动 ]")
+                self.logger.info(">>> 消息队列监听器... [ 已启动 ]")
                 
         except Exception as e:
             if self.logger:
-                self.logger.error(f">>> 启动中断监听器失败: {e}")
+                self.logger.error(f">>> 启动消息队列监听器失败: {e}")
 
-    def stop_interrupt_listener(self):
-        """停止中断监听器"""
+    def stop_message_listener(self):
+        """停止消息队列监听器"""
         try:
             if self.logger:
-                self.logger.info(">>> 停止中断监听器... [ 进行中 ]")
+                self.logger.info(">>> 停止消息队列监听器... [ 进行中 ]")
             
-            # 关闭socket
-            if self.interrupt_socket:
-                self.interrupt_socket.close()
-                self.interrupt_socket = None
-            
-            # 等待线程结束
-            if self.interrupt_thread and self.interrupt_thread.is_alive():
-                self.interrupt_thread.join(timeout=2.0)
+            # 停止监听器
+            self.message_queue.stop_listener()
             
             if self.logger:
-                self.logger.info(">>> 中断监听器... [ 已停止 ]")
+                self.logger.info(">>> 消息队列监听器... [ 已停止 ]")
                 
         except Exception as e:
             if self.logger:
-                self.logger.error(f">>> 停止中断监听器失败: {e}")
+                self.logger.error(f">>> 停止消息队列监听器失败: {e}")
 
-    def _interrupt_listener_thread(self):
-        """中断监听器线程"""
+    def _handle_interrupt_message(self, data):
+        """处理中断消息"""
         try:
-            # 创建socket服务器
-            self.interrupt_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.interrupt_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.interrupt_socket.bind(('127.0.0.1', self.interrupt_port))
-            self.interrupt_socket.listen(1)
-            self.interrupt_socket.settimeout(1.0)  # 1秒超时，用于定期检查
-            
             if self.logger:
-                self.logger.info(f">>> 中断监听器绑定到端口: {self.interrupt_port}")
+                self.logger.info(">>> 收到中断消息")
             
-            while self._running:
-                try:
-                    # 同时监听socket连接和文件信号
-                    self._check_interrupt_signal()
+            # 安全地在主事件循环中运行异步中断操作
+            if self.event_loop and self.event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._perform_interrupt(), 
+                    self.event_loop
+                )
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 事件循环不可用，无法执行异步中断操作")
                     
-                    # 尝试接受socket连接
-                    try:
-                        client_socket, addr = self.interrupt_socket.accept()
-                        self._handle_interrupt_connection(client_socket, addr)
-                    except socket.timeout:
-                        continue  # 超时，继续循环
-                        
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理中断消息时出错: {e}")
+
+    def _handle_shutdown_message(self, data):
+        """处理关闭消息"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 收到关闭消息")
+            self.request_shutdown()
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理关闭消息时出错: {e}")
+
+    def _handle_play_audio_message(self, data):
+        """处理音频播放消息"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 收到音频播放消息")
+            
+            audio_data_b64 = data.get('audio_data', '')
+            volume = data.get('volume', 1.0)
+            loop = data.get('loop', False)
+            singing_motion = data.get('singing_motion', '唱歌')
+            lrc_content = data.get('lrc_content', '')  # 添加LRC歌词内容
+            
+            if audio_data_b64:
+                import base64
+                audio_data = base64.b64decode(audio_data_b64)
+                self.play_singing_audio(audio_data, volume, loop, singing_motion, lrc_content)
+                if self.logger:
+                    self.logger.info(">>> 收到音频播放请求，开始播放")
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 音频播放请求缺少音频数据")
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理音频播放消息时出错: {e}")
+
+    def _handle_custom_action_message(self, data):
+        """处理自定义动作消息"""
+        try:
+            action_num = data.get('action_num', 1)
+            self.trigger_custom_action(action_num)
+            if self.logger:
+                self.logger.info(f">>> 收到自定义动作请求: {action_num}")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理自定义动作消息时出错: {e}")
+
+    def _handle_show_action_buttons_message(self, data):
+        """处理显示动作按钮消息"""
+        try:
+            self.show_action_buttons()
+            if self.logger:
+                self.logger.info(">>> 收到显示动作按钮请求")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理显示动作按钮消息时出错: {e}")
+
+    def _handle_hide_action_buttons_message(self, data):
+        """处理隐藏动作按钮消息"""
+        try:
+            self.hide_action_buttons()
+            if self.logger:
+                self.logger.info(">>> 收到隐藏动作按钮请求")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理隐藏动作按钮消息时出错: {e}")
+
+    def _handle_show_subtitle_message(self, data):
+        """处理显示字幕消息"""
+        try:
+            subtitle_text = data.get('text', '')
+            source = data.get('source', 'unknown')
+            if subtitle_text:
+                self.show_subtitle(subtitle_text, source)
+                if self.logger:
+                    self.logger.info(f">>> 收到字幕显示请求: {source} - {subtitle_text[:30]}...")
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 字幕显示请求缺少文本内容")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理字幕显示消息时出错: {e}")
+
+    async def _perform_interrupt(self):
+        """执行中断操作"""
+        try:
+            if self.logger:
+                self.logger.info(">>> 执行中断操作... [ 进行中 ]")
+            
+            # 中断LLM输出
+            if self.app_manager and hasattr(self.app_manager, 'llm_client') and self.app_manager.llm_client:
+                if hasattr(self.app_manager.llm_client, 'interrupt'):
+                    self.app_manager.llm_client.interrupt()
+                    if self.logger:
+                        self.logger.info(">>> LLM输出已中断")
+            
+            # 中断TTS播放
+            if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
+                if hasattr(self.app_manager.tts_client, 'interrupt'):
+                    self.app_manager.tts_client.interrupt()
+                    if self.logger:
+                        self.logger.info(">>> TTS播放已中断")
+                elif hasattr(self.app_manager.tts_client, 'stop'):
+                    await self.app_manager.tts_client.stop()
+                    if self.logger:
+                        self.logger.info(">>> TTS播放已中断")
+            
+            # 中断ASR
+            if self.app_manager and hasattr(self.app_manager, 'asr_client') and self.app_manager.asr_client:
+                if hasattr(self.app_manager.asr_client, 'interrupt'):
+                    self.app_manager.asr_client.interrupt()
+                    if self.logger:
+                        self.logger.info(">>> ASR已中断")
+                elif hasattr(self.app_manager.asr_client, 'stop'):
+                    await self.app_manager.asr_client.stop()
+                    if self.logger:
+                        self.logger.info(">>> ASR已中断")
+            
+            # 中断字幕显示
+            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                self.app_manager.subtitle_manager.clear_text()
+                if self.logger:
+                    self.logger.info(">>> 字幕已中断")
+            
+            # 停止Live2D动作
+            if self.app_manager and hasattr(self.app_manager, 'live2d_model') and self.app_manager.live2d_model:
+                # 这里可以调用Live2D的停止方法
+                if self.logger:
+                    self.logger.info(">>> Live2D动作已停止")
+            
+            # 停止音频播放
+            self.stop_audio_playback()
+            
+            # 停止LRC歌词播放
+            if self.lrc_manager:
+                try:
+                    self.lrc_manager.stop_playback()
+                    if self.logger:
+                        self.logger.info(">>> LRC歌词播放已中断")
                 except Exception as e:
                     if self.logger:
-                        self.logger.warning(f">>> 中断监听器循环出错: {e}")
-                    time.sleep(0.1)  # 短暂延迟
-                    
+                        self.logger.error(f">>> 中断LRC歌词播放失败: {e}")
+            
+            # 重置动作按钮
+            self.reset_action_buttons()
+            
+            if self.logger:
+                self.logger.info(">>> 中断操作... [ 完成 ]")
+                
         except Exception as e:
             if self.logger:
-                self.logger.error(f">>> 中断监听器线程异常: {e}")
-        finally:
-            if self.interrupt_socket:
-                self.interrupt_socket.close()
+                self.logger.error(f">>> 执行中断操作时出错: {e}")
 
-    def _check_interrupt_signal(self):
+    def initialize_action_buttons(self):
         """检查中断信号文件"""
         try:
             if self.interrupt_signal_file.exists():
@@ -290,24 +434,6 @@ class PetService:
         except Exception as e:
             if self.logger:
                 self.logger.warning(f">>> 处理中断信号文件出错: {e}")
-
-    def _handle_interrupt_connection(self, client_socket, addr):
-        """处理中断连接"""
-        try:
-            if self.logger:
-                self.logger.info(f">>> 收到中断连接: {addr}")
-            
-            # 接收数据
-            data = client_socket.recv(1024)
-            if data:
-                signal_data = json.loads(data.decode('utf-8'))
-                self._process_interrupt_signal(signal_data)
-            
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(f">>> 处理中断连接出错: {e}")
-        finally:
-            client_socket.close()
 
     def _process_interrupt_signal(self, signal_data):
         """处理中断信号"""
@@ -384,66 +510,6 @@ class PetService:
                 self.logger.error(f">>> 处理中断信号时出错: {e}")
                 import traceback
                 self.logger.error(f">>> 错误详情: {traceback.format_exc()}")
-
-    async def _perform_interrupt(self):
-        """执行中断操作"""
-        try:
-            if self.logger:
-                self.logger.info(">>> 执行中断操作... [ 进行中 ]")
-            
-            # 中断LLM输出
-            if self.app_manager and hasattr(self.app_manager, 'llm_client') and self.app_manager.llm_client:
-                if hasattr(self.app_manager.llm_client, 'interrupt'):
-                    self.app_manager.llm_client.interrupt()
-                    if self.logger:
-                        self.logger.info(">>> LLM输出已中断")
-            
-            # 中断TTS播放
-            if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
-                if hasattr(self.app_manager.tts_client, 'interrupt'):
-                    self.app_manager.tts_client.interrupt()
-                    if self.logger:
-                        self.logger.info(">>> TTS播放已中断")
-                elif hasattr(self.app_manager.tts_client, 'stop'):
-                    await self.app_manager.tts_client.stop()
-                    if self.logger:
-                        self.logger.info(">>> TTS播放已中断")
-            
-            # 中断ASR
-            if self.app_manager and hasattr(self.app_manager, 'asr_client') and self.app_manager.asr_client:
-                if hasattr(self.app_manager.asr_client, 'interrupt'):
-                    self.app_manager.asr_client.interrupt()
-                    if self.logger:
-                        self.logger.info(">>> ASR已中断")
-                elif hasattr(self.app_manager.asr_client, 'stop'):
-                    await self.app_manager.asr_client.stop()
-                    if self.logger:
-                        self.logger.info(">>> ASR已中断")
-            
-            # 中断字幕显示
-            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
-                self.app_manager.subtitle_manager.clear_text()
-                if self.logger:
-                    self.logger.info(">>> 字幕已中断")
-            
-            # 停止Live2D动作
-            if self.app_manager and hasattr(self.app_manager, 'live2d_model') and self.app_manager.live2d_model:
-                # 这里可以调用Live2D的停止方法
-                if self.logger:
-                    self.logger.info(">>> Live2D动作已停止")
-            
-            # 停止音频播放
-            self.stop_audio_playback()
-            
-            # 重置动作按钮
-            self.reset_action_buttons()
-            
-            if self.logger:
-                self.logger.info(">>> 中断操作... [ 完成 ]")
-                
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f">>> 执行中断操作时出错: {e}")
 
     def initialize_action_buttons(self):
         """初始化动作按钮窗口"""
@@ -590,11 +656,59 @@ class PetService:
         }
         return motion_map.get(motion_name, 5)  # 默认唱歌动作
 
-    def play_singing_audio(self, audio_data, volume=1.0, loop=False, singing_motion="唱歌"):
+    def _set_live2d_motion(self, motion_index):
+        """设置Live2D动作的统一方法"""
+        try:
+            if self.app_manager and hasattr(self.app_manager, 'live2d_model') and self.app_manager.live2d_model:
+                # 检查Live2D模型的正确方法名
+                if hasattr(self.app_manager.live2d_model, 'set_motion'):
+                    self.app_manager.live2d_model.set_motion(motion_index)
+                elif hasattr(self.app_manager.live2d_model, 'setMotion'):
+                    self.app_manager.live2d_model.setMotion(motion_index, 0)  # 参数可能不同
+                elif hasattr(self.app_manager.live2d_model, 'play_motion'):
+                    self.app_manager.live2d_model.play_motion(motion_index)
+                else:
+                    if self.logger:
+                        self.logger.info(f">>> Live2D模型没有可用的动作设置方法，尝试设置动作: {motion_index}")
+                    return False
+                return True
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f">>> 设置Live2D动作失败: {e}")
+            return False
+
+    def play_singing_audio(self, audio_data, volume=1.0, loop=False, singing_motion="唱歌", lrc_content=""):
         """播放唱歌音频"""
         try:
             if self.logger:
                 self.logger.info(">>> 开始播放唱歌音频")
+            
+            # 初始化LRC管理器（如果有歌词内容）
+            if lrc_content and self.app_manager and hasattr(self.app_manager, 'subtitle_manager'):
+                try:
+                    if self.logger:
+                        self.logger.info(f">>> 接收到LRC歌词内容长度: {len(lrc_content)} 字符")
+                        self.logger.info(f">>> LRC歌词内容前200字符: {lrc_content[:200]}")
+                    
+                    self.lrc_manager = LRCManager(self.app_manager.subtitle_manager)
+                    if self.lrc_manager.load_lrc_content(lrc_content):
+                        if self.logger:
+                            self.logger.info(">>> LRC歌词加载成功")
+                    else:
+                        if self.logger:
+                            self.logger.warning(">>> LRC歌词加载失败")
+                        self.lrc_manager = None
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f">>> 初始化LRC管理器失败: {e}")
+                        self.logger.error(f">>> 错误详情: {traceback.format_exc()}")
+                    self.lrc_manager = None
+            else:
+                if self.logger:
+                    if not lrc_content:
+                        self.logger.info(">>> 没有LRC歌词内容")
+                    else:
+                        self.logger.warning(">>> 字幕管理器不可用，无法初始化LRC管理器")
             
             # 转换音频格式
             converted_audio_data = self._convert_audio_format(audio_data)
@@ -766,15 +880,38 @@ class PetService:
             # 转换为numpy数组并应用音量
             dtype = np.int16 if sample_width == 2 else np.int8
             audio_array = np.frombuffer(frames, dtype=dtype)
-            audio_float = audio_array.astype(np.float32) / 32767.0
-            audio_float *= volume  # 应用音量
             
-            # 重塑为多声道
+            # 确保正确的数据类型转换
+            if sample_width == 2:
+                audio_float = audio_array.astype(np.float32) / 32767.0
+            else:
+                audio_float = audio_array.astype(np.float32) / 127.0
+            
+            # 重塑为多声道（必须在其他操作之前）
             if channels > 1:
                 audio_float = audio_float.reshape(-1, channels)
             
+            # 应用音量并确保在有效范围内，避免失真和噪音
+            audio_float *= volume
+            audio_float = np.clip(audio_float, -0.8, 0.8)  # 限制在更安全的范围内
+            
+            # 添加淡入淡出效果减少噪音
+            fade_samples = int(framerate * 0.01)  # 10ms淡入淡出
+            if len(audio_float) > 2 * fade_samples:
+                # 淡入
+                fade_in = np.linspace(0, 1, fade_samples)
+                if channels > 1:
+                    fade_in = fade_in.reshape(-1, 1)  # 为多声道调整形状
+                audio_float[:fade_samples] *= fade_in
+                
+                # 淡出
+                fade_out = np.linspace(1, 0, fade_samples)
+                if channels > 1:
+                    fade_out = fade_out.reshape(-1, 1)  # 为多声道调整形状
+                audio_float[-fade_samples:] *= fade_out
+            
             if self.logger:
-                self.logger.info(f">>> 音频数据处理完成，应用音量: {volume}")
+                self.logger.info(f">>> 音频数据处理完成，应用音量: {volume}, 数据范围: [{audio_float.min():.3f}, {audio_float.max():.3f}]")
             
             # 触发Live2D唱歌动作
             singing_motion_index = self._get_motion_index_by_name(singing_motion)
@@ -783,6 +920,169 @@ class PetService:
                     self.logger.info(f">>> 触发Live2D唱歌动作: {singing_motion} (索引: {singing_motion_index})")
                 # 这里可以调用Live2D模型的动作触发方法
             
+            # 启动LRC歌词播放（如果有）
+            if self.lrc_manager:
+                try:
+                    self.lrc_manager.start_playback()
+                    if self.logger:
+                        self.logger.info(">>> LRC歌词播放已启动")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f">>> 启动LRC歌词播放失败: {e}")
+            
+            # 检查音频设备可用性并选择最佳设备
+            try:
+                devices = sd.query_devices()
+                output_devices = [d for d in devices if d['max_output_channels'] > 0]
+                if not output_devices:
+                    raise Exception("没有可用的音频输出设备")
+                
+                # 从配置文件中获取音频设备设置
+                config_audio = {}
+                try:
+                    with open(self.config_path, 'r', encoding='utf-8') as f:
+                        config_data = json.load(f)
+                        config_audio = config_data.get('audio', {})
+                except Exception as config_e:
+                    if self.logger:
+                        self.logger.warning(f">>> 读取音频配置失败，使用默认设置: {config_e}")
+                
+                # 获取配置中的音频设备索引和音量
+                configured_device_index = config_audio.get('device_index', None)
+                configured_volume = config_audio.get('volume', 1.0)
+                
+                # 应用配置的音量
+                volume *= configured_volume
+                
+                # 选择音频设备
+                selected_device = None
+                
+                if configured_device_index is not None:
+                    # 验证配置的设备是否可用
+                    try:
+                        if 0 <= configured_device_index < len(devices):
+                            device = devices[configured_device_index]
+                            if device['max_output_channels'] > 0:
+                                selected_device = configured_device_index
+                                if self.logger:
+                                    self.logger.info(f">>> 使用配置的音频设备: [{configured_device_index}] {device['name']}")
+                            else:
+                                if self.logger:
+                                    self.logger.warning(f">>> 配置的设备不支持音频输出: [{configured_device_index}] {device['name']}")
+                        else:
+                            if self.logger:
+                                self.logger.warning(f">>> 配置的设备索引无效: {configured_device_index}")
+                    except Exception as device_e:
+                        if self.logger:
+                            self.logger.warning(f">>> 验证配置设备失败: {device_e}")
+                
+                # 如果配置的设备无效，选择最佳设备
+                if selected_device is None:
+                    if self.logger:
+                        self.logger.info(">>> 配置设备无效，自动选择最佳音频设备...")
+                    
+                    # 选择支持当前采样率且延迟较低的设备
+                    best_device = None
+                    min_latency = float('inf')
+                    target_sample_rate = framerate
+                    
+                    for i, device in enumerate(devices):
+                        if device['max_output_channels'] > 0:
+                            # 检查设备是否支持目标采样率
+                            device_sample_rate = device.get('default_samplerate', 44100)
+                            if abs(device_sample_rate - target_sample_rate) <= 1000:  # 允许1kHz误差
+                                latency = device.get('default_low_output_latency', device.get('default_high_output_latency', 0.1))
+                                if latency < min_latency:
+                                    min_latency = latency
+                                    best_device = i
+                    
+                    # 如果没找到匹配的设备，使用默认设备
+                    if best_device is None:
+                        # 重新寻找，优先选择44100Hz或48000Hz的设备
+                        for i, device in enumerate(devices):
+                            if device['max_output_channels'] > 0:
+                                device_sample_rate = device.get('default_samplerate', 44100)
+                                if device_sample_rate in [44100, 48000]:
+                                    best_device = i
+                                    break
+                    
+                    selected_device = best_device
+                
+                # 应用选择的设备
+                if selected_device is not None:
+                    try:
+                        sd.default.device[1] = selected_device
+                        if self.logger:
+                            device_name = devices[selected_device]['name']
+                            self.logger.info(f">>> 设置音频输出设备: [{selected_device}] {device_name}")
+                    except:
+                        # 如果设置失败，使用系统默认
+                        if self.logger:
+                            self.logger.warning(">>> 设备选择失败，使用系统默认设备")
+                
+                if self.logger:
+                    self.logger.info(f">>> 找到 {len(output_devices)} 个音频输出设备")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f">>> 音频设备检查失败: {e}")
+                
+                # 检查是否是严重的音频驱动错误
+                error_str = str(e)
+                critical_errors = [
+                    "PaErrorCode -9999",  # Windows WDM-KS错误
+                    "Unanticipated host error",
+                    "DeviceIoControl",
+                    "WdmSyncIoctl"
+                ]
+                
+                is_critical_error = any(error in error_str for error in critical_errors)
+                
+                if is_critical_error:
+                    if self.logger:
+                        self.logger.error(">>> 检测到严重音频设备错误，退出播放")
+                    
+                    # 停止LRC歌词播放
+                    if self.lrc_manager:
+                        try:
+                            self.lrc_manager.stop_playback()
+                            if self.logger:
+                                self.logger.info(">>> LRC歌词播放已停止")
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.error(f">>> 停止LRC歌词播放失败: {e}")
+                    
+                    # 清理字幕显示
+                    if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                        try:
+                            self.app_manager.subtitle_manager.clear_text()
+                            if self.logger:
+                                self.logger.info(">>> 字幕已清理")
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.warning(f">>> 清理字幕时出错: {e}")
+                    
+                    # 停止Live2D动作
+                    if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
+                        try:
+                            self._set_live2d_motion(0)  # 设置为默认动作
+                            if self.logger:
+                                self.logger.info(">>> Live2D动作已重置为默认状态")
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
+                    
+                    # 重置播放状态
+                    self._stop_singing = True
+                    self.current_audio_stream = None
+                    
+                    if self.logger:
+                        self.logger.info(">>> 播放状态已重置，退出音频播放")
+                    return
+                
+                # 回退到系统播放器
+                self._play_audio_fallback(audio_data, volume, loop, singing_motion)
+                return
+            
             # 非阻塞播放音频
             if loop:
                 # 循环播放 - 在后台线程中处理
@@ -790,24 +1090,145 @@ class PetService:
                     self.logger.info(">>> 开始循环播放音频")
                 
                 def loop_playback():
+                    current_stream = None
                     try:
                         while not self._stop_singing:
-                            sd.play(audio_float, samplerate=framerate, blocking=False)
-                            while sd.get_stream().active and not self._stop_singing:
-                                time.sleep(0.01)
-                            if self._stop_singing:
+                            try:
+                                # 开始播放
+                                current_stream = sd.play(audio_float, samplerate=framerate, blocking=False)
+                                self.current_audio_stream = current_stream
+                                
                                 if self.logger:
-                                    self.logger.info(">>> 收到停止信号，结束循环播放")
-                                break
+                                    self.logger.info(">>> 音频流已启动")
+                                
+                                # 等待播放完成
+                                start_time = time.time()
+                                timeout = 30.0  # 30秒超时
+                                
+                                while not self._stop_singing and time.time() - start_time < timeout:
+                                    if current_stream and hasattr(current_stream, 'active'):
+                                        if not current_stream.active:
+                                            break
+                                    else:
+                                        # 尝试使用sd.wait()
+                                        try:
+                                            sd.wait(timeout=0.1)
+                                            if not sd.get_stream() or not sd.get_stream().active:
+                                                break
+                                        except:
+                                            break
+                                    time.sleep(0.01)
+                                
+                                # 停止当前流
+                                if current_stream:
+                                    try:
+                                        current_stream.stop()
+                                        current_stream.close()
+                                    except:
+                                        pass
+                                
+                                if self._stop_singing:
+                                    if self.logger:
+                                        self.logger.info(">>> 收到停止信号，结束循环播放")
+                                    break
+                                    
+                            except Exception as stream_error:
+                                if self.logger:
+                                    self.logger.error(f">>> 音频流播放异常: {stream_error}")
+                                
+                                # 检查是否是严重的音频驱动错误
+                                error_str = str(stream_error)
+                                critical_errors = [
+                                    "PaErrorCode -9999",  # Windows WDM-KS错误
+                                    "Unanticipated host error",
+                                    "DeviceIoControl",
+                                    "WdmSyncIoctl"
+                                ]
+                                
+                                is_critical_error = any(error in error_str for error in critical_errors)
+                                
+                                if is_critical_error:
+                                    if self.logger:
+                                        self.logger.error(">>> 循环播放中检测到严重音频驱动错误，退出播放")
+                                    
+                                    # 清理字幕显示
+                                    if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                                        try:
+                                            self.app_manager.subtitle_manager.clear_text()
+                                            if self.logger:
+                                                self.logger.info(">>> 字幕已清理")
+                                        except Exception as e:
+                                            if self.logger:
+                                                self.logger.warning(f">>> 清理字幕时出错: {e}")
+                                    
+                                    # 停止LRC歌词播放
+                                    if self.lrc_manager:
+                                        try:
+                                            self.lrc_manager.stop_playback()
+                                            if self.logger:
+                                                self.logger.info(">>> LRC歌词播放已停止")
+                                        except Exception as e:
+                                            if self.logger:
+                                                self.logger.error(f">>> 停止LRC歌词播放失败: {e}")
+                                    
+                                    # 停止Live2D动作
+                                    if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
+                                        try:
+                                            self._set_live2d_motion(0)  # 设置为默认动作
+                                            if self.logger:
+                                                self.logger.info(">>> Live2D动作已重置为默认状态")
+                                        except Exception as e:
+                                            if self.logger:
+                                                self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
+                                    
+                                    self._stop_singing = True  # 强制停止循环
+                                    break
+                                
+                                time.sleep(0.1)  # 短暂延迟后重试
+                                
                     except Exception as e:
                         if self.logger:
                             self.logger.error(f">>> 循环播放异常: {e}")
                     finally:
-                        # 播放结束后停止唱歌动作
+                        # 清理音频流
+                        if current_stream:
+                            try:
+                                current_stream.stop()
+                                current_stream.close()
+                            except:
+                                pass
+                        self.current_audio_stream = None
+                        
+                        # 播放结束后清理字幕、停止唱歌动作和LRC歌词
+                        # 清理字幕显示
+                        if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                            try:
+                                self.app_manager.subtitle_manager.clear_text()
+                                if self.logger:
+                                    self.logger.info(">>> 字幕已清理")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.warning(f">>> 清理字幕时出错: {e}")
+                        
+                        # 停止Live2D动作
                         if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
-                            if self.logger:
-                                self.logger.info(">>> 停止Live2D唱歌动作")
-                            # 这里可以调用Live2D的停止方法
+                            try:
+                                self._set_live2d_motion(0)  # 设置为默认动作
+                                if self.logger:
+                                    self.logger.info(">>> Live2D动作已重置为默认状态")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
+                        
+                        # 停止LRC歌词播放
+                        if self.lrc_manager:
+                            try:
+                                self.lrc_manager.stop_playback()
+                                if self.logger:
+                                    self.logger.info(">>> LRC歌词播放已停止")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.error(f">>> 停止LRC歌词播放失败: {e}")
                         
                         if self.logger:
                             self.logger.info(">>> 循环播放完成")
@@ -821,29 +1242,222 @@ class PetService:
                 if self.logger:
                     self.logger.info(">>> 开始单次播放音频")
                 
-                sd.play(audio_float, samplerate=framerate, blocking=False)
-                
-                # 在后台线程中等待播放完成并停止动作
-                def wait_and_stop():
-                    try:
-                        while sd.get_stream().active and not self._stop_singing:
-                            time.sleep(0.01)
-                        # 播放结束后停止唱歌动作
-                        if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
+                try:
+                    # 开始播放，使用更安全的参数
+                    current_stream = sd.play(audio_float, samplerate=framerate, blocking=False)
+                    self.current_audio_stream = current_stream
+                    
+                    if self.logger:
+                        self.logger.info(">>> 音频流已启动")
+                    
+                    # 在后台线程中等待播放完成并停止动作
+                    def wait_and_stop():
+                        try:
+                            # 计算音频实际播放时长
+                            audio_duration = len(audio_float) / framerate
+                            if channels > 1:
+                                audio_duration = len(audio_float) / framerate  # 已经是正确的长度
+                            
                             if self.logger:
-                                self.logger.info(">>> 播放完成，停止Live2D唱歌动作")
-                            # 这里可以调用Live2D的停止方法
+                                self.logger.info(f">>> 音频时长: {audio_duration:.2f}秒, 采样率: {framerate}Hz, 声道: {channels}")
+                            
+                            start_time = time.time()
+                            # 设置超时为音频时长的1.5倍，最少10秒，最多5分钟
+                            timeout = max(10.0, min(audio_duration * 1.5, 300.0))
+                            
+                            if self.logger:
+                                self.logger.info(f">>> 开始等待音频播放完成，超时时间: {timeout:.2f}秒")
+                            
+                            while not self._stop_singing and time.time() - start_time < timeout:
+                                try:
+                                    # 首先检查流是否还活跃
+                                    if current_stream and hasattr(current_stream, 'active'):
+                                        if not current_stream.active:
+                                            if self.logger:
+                                                self.logger.info(">>> 检测到音频流已停止")
+                                            break
+                                    
+                                    # 尝试获取当前流状态
+                                    try:
+                                        active_stream = sd.get_stream()
+                                        if not active_stream or not active_stream.active:
+                                            if self.logger:
+                                                self.logger.info(">>> 通过sd.get_stream()检测到音频播放完成")
+                                            break
+                                    except:
+                                        # 如果获取不到流，检查时间是否超过预期播放时间
+                                        elapsed = time.time() - start_time
+                                        if elapsed >= audio_duration * 0.9:  # 播放了90%以上认为完成
+                                            if self.logger:
+                                                self.logger.info(f">>> 基于时间判断音频播放完成 ({elapsed:.2f}s >= {audio_duration * 0.9:.2f}s)")
+                                            break
+                                
+                                except Exception as wait_error:
+                                    if self.logger:
+                                        self.logger.warning(f">>> 检查音频流状态时出错: {wait_error}")
+                                    # 如果检查状态失败，基于时间判断
+                                    elapsed = time.time() - start_time
+                                    if elapsed >= audio_duration * 0.8:  # 播放了80%以上可能完成
+                                        if self.logger:
+                                            self.logger.info(f">>> 状态检查失败，基于时间判断播放可能完成 ({elapsed:.2f}s >= {audio_duration * 0.8:.2f}s)")
+                                        break
+                                
+                                time.sleep(0.1)  # 短暂延迟后重试
+                            
+                            elapsed_time = time.time() - start_time
+                            if self.logger:
+                                if elapsed_time >= timeout:
+                                    self.logger.warning(f">>> 音频播放超时 ({elapsed_time:.2f}s >= {timeout:.2f}s)")
+                                else:
+                                    self.logger.info(f">>> 音频播放完成，实际播放时间: {elapsed_time:.2f}s")
+                            
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.error(f">>> 等待播放完成异常: {e}")
+                        finally:
+                            # 清理音频流
+                            if current_stream:
+                                try:
+                                    current_stream.stop()
+                                    current_stream.close()
+                                except:
+                                    pass
+                            self.current_audio_stream = None
+                            
+                            # 播放结束后清理字幕、停止唱歌动作和LRC歌词
+                            # 清理字幕显示
+                            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                                try:
+                                    self.app_manager.subtitle_manager.clear_text()
+                                    if self.logger:
+                                        self.logger.info(">>> 字幕已清理")
+                                except Exception as e:
+                                    if self.logger:
+                                        self.logger.warning(f">>> 清理字幕时出错: {e}")
+                            
+                            # 停止Live2D动作
+                            if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
+                                try:
+                                    self._set_live2d_motion(0)  # 设置为默认动作
+                                    if self.logger:
+                                        self.logger.info(">>> Live2D动作已重置为默认状态")
+                                except Exception as e:
+                                    if self.logger:
+                                        self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
+                            
+                            # 停止LRC歌词播放
+                            if self.lrc_manager:
+                                try:
+                                    self.lrc_manager.stop_playback()
+                                    if self.logger:
+                                        self.logger.info(">>> LRC歌词播放已停止")
+                                except Exception as e:
+                                    if self.logger:
+                                        self.logger.error(f">>> 停止LRC歌词播放失败: {e}")
+                            
+                            if self.logger:
+                                self.logger.info(">>> 单次播放完成")
+                    
+                    import threading
+                    stop_thread = threading.Thread(target=wait_and_stop)
+                    stop_thread.daemon = True
+                    stop_thread.start()
+                    
+                except Exception as play_error:
+                    if self.logger:
+                        self.logger.error(f">>> sounddevice播放失败: {play_error}")
+                    
+                    # 检查是否是严重的音频驱动错误，直接退出播放状态
+                    error_str = str(play_error)
+                    critical_errors = [
+                        "PaErrorCode -9999",  # Windows WDM-KS错误
+                        "Unanticipated host error",
+                        "DeviceIoControl",
+                        "WdmSyncIoctl"
+                    ]
+                    
+                    is_critical_error = any(error in error_str for error in critical_errors)
+                    
+                    if is_critical_error:
+                        if self.logger:
+                            self.logger.error(">>> 检测到严重音频驱动错误，直接退出播放状态")
+                        
+                        # 停止LRC歌词播放
+                        if self.lrc_manager:
+                            try:
+                                self.lrc_manager.stop_playback()
+                                if self.logger:
+                                    self.logger.info(">>> LRC歌词播放已停止")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.error(f">>> 停止LRC歌词播放失败: {e}")
+                        
+                        # 清理字幕显示
+                        if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                            try:
+                                self.app_manager.subtitle_manager.clear_text()
+                                if self.logger:
+                                    self.logger.info(">>> 字幕已清理")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.warning(f">>> 清理字幕时出错: {e}")
+                        
+                        # 停止Live2D动作
+                        if self.app_manager and hasattr(self.app_manager, 'live2d_model'):
+                            try:
+                                self._set_live2d_motion(0)  # 设置为默认动作
+                                if self.logger:
+                                    self.logger.info(">>> Live2D动作已重置为默认状态")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
+                        
+                        # 重置播放状态
+                        self._stop_singing = True
+                        self.current_audio_stream = None
                         
                         if self.logger:
-                            self.logger.info(">>> 单次播放完成")
-                    except Exception as e:
+                            self.logger.info(">>> 播放状态已重置，退出音频播放")
+                        return  # 直接退出，不进行任何重试
+                    
+                    # 如果是采样率错误，尝试使用默认设备和常见采样率
+                    if "Invalid sample rate" in error_str or "PaErrorCode -9997" in error_str:
                         if self.logger:
-                            self.logger.error(f">>> 等待播放完成异常: {e}")
-                
-                import threading
-                stop_thread = threading.Thread(target=wait_and_stop)
-                stop_thread.daemon = True
-                stop_thread.start()
+                            self.logger.info(">>> 尝试使用系统默认设备和标准采样率...")
+                        
+                        try:
+                            # 重置为系统默认设备
+                            sd.default.reset()
+                            
+                            # 尝试48000Hz采样率
+                            if framerate != 48000:
+                                # 简单重采样
+                                ratio = 48000 / framerate
+                                new_length = int(len(audio_float) * ratio)
+                                indices = np.linspace(0, len(audio_float) - 1, new_length)
+                                if channels > 1:
+                                    resampled_audio = np.zeros((new_length, channels))
+                                    for ch in range(channels):
+                                        resampled_audio[:, ch] = np.interp(indices, np.arange(len(audio_float)), audio_float[:, ch])
+                                else:
+                                    resampled_audio = np.interp(indices, np.arange(len(audio_float)), audio_float)
+                                
+                                current_stream = sd.play(resampled_audio, samplerate=48000, blocking=False)
+                                if self.logger:
+                                    self.logger.info(">>> 使用48000Hz采样率播放成功")
+                            else:
+                                current_stream = sd.play(audio_float, samplerate=framerate, blocking=False)
+                                if self.logger:
+                                    self.logger.info(">>> 使用默认设备播放成功")
+                                    
+                        except Exception as retry_error:
+                            if self.logger:
+                                self.logger.error(f">>> 重试播放也失败: {retry_error}")
+                            # 最终回退到系统播放器
+                            self._play_audio_fallback(audio_data, volume, loop, singing_motion)
+                    else:
+                        # 其他错误，直接回退到系统播放器
+                        self._play_audio_fallback(audio_data, volume, loop, singing_motion)
             
         except ImportError as e:
             if self.logger:
@@ -857,6 +1471,20 @@ class PetService:
     def _play_audio_fallback(self, audio_data, volume, loop, singing_motion):
         """音频播放的回退方法"""
         try:
+            # 从配置文件中获取音频设置
+            config_audio = {}
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    config_audio = config_data.get('audio', {})
+            except Exception as config_e:
+                if self.logger:
+                    self.logger.warning(f">>> 读取音频配置失败（回退播放），使用默认设置: {config_e}")
+            
+            # 应用配置的音量
+            configured_volume = config_audio.get('volume', 1.0)
+            volume *= configured_volume
+            
             # 保存为临时文件并使用系统播放器
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
                 temp_file.write(audio_data)
@@ -1002,7 +1630,11 @@ class PetService:
         """
         try:
             if self.logger:
-                self.logger.info(f">>> 显示字幕: {source} - {text[:50]}...")
+                # 为歌词显示完整内容，其他内容截断显示
+                if source == "lyrics":
+                    self.logger.info(f">>> 显示字幕: {source} - 完整歌词内容:\n{text}")
+                else:
+                    self.logger.info(f">>> 显示字幕: {source} - {text[:50]}...")
             
             # 检查字幕管理器是否存在
             if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
@@ -1050,6 +1682,36 @@ class PetService:
             
             # 清理音频线程引用
             self.audio_thread = None
+            
+            # 停止LRC歌词播放和清理字幕
+            if self.lrc_manager:
+                try:
+                    self.lrc_manager.stop_playback()
+                    if self.logger:
+                        self.logger.info(">>> LRC歌词播放已停止")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 停止LRC歌词时出错: {e}")
+            
+            # 清理字幕显示
+            if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
+                try:
+                    self.app_manager.subtitle_manager.clear_text()
+                    if self.logger:
+                        self.logger.info(">>> 字幕已清理")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 清理字幕时出错: {e}")
+            
+            # 停止Live2D动作（返回默认状态）
+            if self.app_manager and hasattr(self.app_manager, 'live2d_model') and self.app_manager.live2d_model:
+                try:
+                    self._set_live2d_motion(0)  # 设置为默认动作
+                    if self.logger:
+                        self.logger.info(">>> Live2D动作已重置为默认状态")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 重置Live2D动作时出错: {e}")
             
             if self.logger:
                 self.logger.info(">>> 音频播放... [ 已停止 ]")
