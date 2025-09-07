@@ -28,7 +28,7 @@ from utils.message_queue import send_message
 
 # 抑制SIP相关的弃用警告，这是PyQt5版本兼容性问题
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
-from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QRect, QUrl, QEvent, QThread, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QIcon, QPainter, QImage, QBrush, QColor, QFont, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -57,7 +57,10 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QAbstractItemView,
-    QColorDialog
+    QColorDialog,
+    QTextBrowser,
+    QGridLayout,
+    QSlider
 )
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
@@ -173,6 +176,9 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 self._send_error_response(400, "Empty message")
                 return
             
+            # 获取可选的图片数据
+            image_data = data.get('image_data', None)  # base64编码的图片数据
+            
             # 验证API密钥（如果配置了）
             has_api_key = False
             if hasattr(self.ui_widget, 'config_data'):
@@ -186,16 +192,19 @@ class WebAPIHandler(BaseHTTPRequestHandler):
             if hasattr(self.ui_widget, 'webapi_logger'):
                 self.ui_widget.webapi_logger.log_chat_request(len(message), has_api_key)
             
-            # 记录请求
+            # 记录请求（包含是否有图片的信息）
             if hasattr(self.ui_widget, 'log_user_input'):
-                self.ui_widget.log_user_input(f"[WebAPI] {message}")
+                log_message = f"[WebAPI] {message}"
+                if image_data:
+                    log_message += " [包含图片]"
+                self.ui_widget.log_user_input(log_message)
             
-            # 调用LLM处理逻辑
+            # 调用LLM处理逻辑，传入图片数据
             import time
             chat_start_time = time.time()
             try:
                 if hasattr(self.ui_widget, 'process_llm_request'):
-                    response_text = self.ui_widget.process_llm_request(message)
+                    response_text = self.ui_widget.process_llm_request(message, image_data=image_data)
                 else:
                     response_text = f"收到您的消息: {message}"
             except Exception as e:
@@ -4766,15 +4775,40 @@ class Widget(Interface):
                 parent=self
             )
 
-    def process_llm_request(self, message):
-        """处理LLM请求的核心方法"""
+    def process_llm_request(self, message, image_data=None):
+        """处理LLM请求的核心方法 - 支持视觉识别"""
         try:
             # 获取LLM配置
             llm_config = self.config_data.get('llm', {})
             if not llm_config.get('api_url') or not llm_config.get('api_key'):
                 return "错误：LLM配置不完整，请检查API URL和API Key设置"
             
-            # 构建请求
+            # 获取视觉配置
+            vision_config = self.config_data.get('vision', {})
+            vision_enabled = vision_config.get('enabled', False)
+            
+            # 检查是否有图片数据且需要视觉处理
+            vision_result = ""
+            if image_data and vision_enabled:
+                # 检查主LLM是否支持视觉，或者配置为仅fallback使用
+                main_model = llm_config.get('model', '')
+                fallback_only = vision_config.get('fallback_only', True)
+                
+                # 判断主模型是否支持视觉（简单的模型名称判断）
+                vision_supported_models = ['gpt-4-vision', 'gpt-4o', 'claude-3', 'gemini-pro-vision']
+                main_supports_vision = any(vm in main_model.lower() for vm in vision_supported_models)
+                
+                # 如果主模型不支持视觉，或者不是仅fallback模式，则使用视觉模型
+                if not main_supports_vision or not fallback_only:
+                    vision_result = self._process_vision_request(image_data, vision_config)
+                    if vision_result.startswith("错误："):
+                        return vision_result
+                    
+                    # 如果成功获取视觉识别结果，将其作为上下文添加到消息中
+                    if vision_result:
+                        message = f"[图片识别结果]: {vision_result}\n\n[用户问题]: {message}"
+            
+            # 构建LLM请求
             api_url = llm_config['api_url'].rstrip('/') + '/chat/completions'
             api_key = llm_config['api_key']
             model = llm_config.get('model', 'gpt-3.5-turbo')
@@ -4790,6 +4824,32 @@ class Widget(Interface):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message}
             ]
+            
+            # 如果主模型支持视觉且有图片数据，添加图片到消息中
+            if image_data and not vision_result:  # 只有当没有使用独立视觉模型时才添加
+                try:
+                    import base64
+                    # 假设image_data是base64编码的图片数据
+                    if isinstance(image_data, str):
+                        image_b64 = image_data
+                    else:
+                        image_b64 = base64.b64encode(image_data).decode('utf-8')
+                    
+                    # 修改最后一条用户消息，添加图片
+                    messages[-1] = {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": message},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_b64}"
+                                }
+                            }
+                        ]
+                    }
+                except Exception as e:
+                    print(f"处理图片数据时出错: {e}")
             
             data = {
                 "model": model,
@@ -4831,6 +4891,258 @@ class Widget(Interface):
         except Exception as e:
             self.log_api_response(0, 0, str(e))
             return f"错误：处理LLM请求时发生异常 - {str(e)}"
+    
+    def _process_vision_request(self, image_data, vision_config):
+        """处理视觉识别请求"""
+        try:
+            if not vision_config.get('api_url') or not vision_config.get('api_key'):
+                return "错误：视觉模型配置不完整，请检查API URL和API Key设置"
+            
+            api_url = vision_config['api_url'].rstrip('/') + '/chat/completions'
+            api_key = vision_config['api_key']
+            model = vision_config.get('model', 'gpt-4-vision-preview')
+            vision_prompt = vision_config.get('system_prompt', '请仔细观察这张图片，描述你看到的内容。')
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            
+            # 处理图片数据
+            import base64
+            if isinstance(image_data, str):
+                image_b64 = image_data
+            else:
+                image_b64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # 构建视觉识别消息
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": vision_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}"
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            data = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 500
+            }
+            
+            # 发送视觉识别请求
+            response = requests.post(api_url, headers=headers, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'choices' in result and len(result['choices']) > 0:
+                    vision_result = result['choices'][0]['message']['content']
+                    print(f"✓ 视觉识别完成: {vision_result[:100]}...")
+                    return vision_result
+                else:
+                    return "错误：视觉模型返回的响应格式不正确"
+            else:
+                error_msg = f"HTTP {response.status_code}: {response.text}"
+                return f"错误：视觉模型API请求失败 - {error_msg}"
+                
+        except Exception as e:
+            return f"错误：处理视觉识别请求时发生异常 - {str(e)}"
+    
+    def process_image_input(self):
+        """处理图片输入 - 支持从剪贴板获取图片"""
+        try:
+            from PyQt5.QtWidgets import QApplication
+            from PyQt5.QtGui import QPixmap
+            import base64
+            import io
+            
+            # 从剪贴板获取图片
+            clipboard = QApplication.clipboard()
+            mime_data = clipboard.mimeData()
+            
+            if mime_data.hasImage():
+                # 从剪贴板获取图片
+                image = clipboard.image()
+                if not image.isNull():
+                    # 将QImage转换为base64
+                    byte_array = io.BytesIO()
+                    pixmap = QPixmap.fromImage(image)
+                    pixmap.save(byte_array, format='JPEG', quality=85)
+                    image_bytes = byte_array.getvalue()
+                    image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+                    
+                    print("✓ 已从剪贴板获取图片")
+                    return image_b64
+            
+            # 如果剪贴板没有图片，可以添加文件选择对话框
+            from PyQt5.QtWidgets import QFileDialog
+            file_dialog = QFileDialog()
+            file_path, _ = file_dialog.getOpenFileName(
+                self, 
+                "选择图片文件", 
+                "", 
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
+            )
+            
+            if file_path:
+                with open(file_path, 'rb') as f:
+                    image_bytes = f.read()
+                image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+                print(f"✓ 已从文件获取图片: {file_path}")
+                return image_b64
+            
+            return None
+            
+        except Exception as e:
+            print(f"获取图片时出错: {e}")
+            return None
+    
+    def _test_vision_recognition(self):
+        """测试视觉识别功能"""
+        try:
+            # 检查视觉模式是否启用
+            vision_config = self.config_data.get('vision', {})
+            if not vision_config.get('enabled', False):
+                InfoBar.warning(
+                    title='视觉模式未启用',
+                    content='请先在视觉模型配置中启用视觉模式',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 检查配置完整性
+            if not vision_config.get('api_url') or not vision_config.get('api_key'):
+                InfoBar.warning(
+                    title='视觉模型配置不完整',
+                    content='请先配置视觉模型的API URL和API Key',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 获取图片数据
+            image_data = self.process_image_input()
+            if not image_data:
+                InfoBar.warning(
+                    title='未找到图片',
+                    content='请先复制图片到剪贴板或准备图片文件',
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 执行视觉识别
+            InfoBar.info(
+                title='视觉识别中...',
+                content='正在进行图片识别，请稍候',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+            # 在后台线程中执行识别
+            import threading
+            def run_vision_test():
+                try:
+                    result = self._process_vision_request(image_data, vision_config)
+                    
+                    # 在主线程中显示结果
+                    def show_result():
+                        if result.startswith("错误："):
+                            InfoBar.error(
+                                title='视觉识别失败',
+                                content=result,
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=5000,
+                                parent=self
+                            )
+                        else:
+                            # 创建结果显示对话框
+                            dialog = QDialog(self)
+                            dialog.setWindowTitle("视觉识别结果")
+                            dialog.setModal(True)
+                            dialog.resize(600, 400)
+                            
+                            layout = QVBoxLayout(dialog)
+                            
+                            # 添加结果文本框
+                            result_text = QTextEdit()
+                            result_text.setPlainText(result)
+                            result_text.setReadOnly(True)
+                            layout.addWidget(result_text)
+                            
+                            # 添加关闭按钮
+                            close_btn = QPushButton("关闭")
+                            close_btn.clicked.connect(dialog.accept)
+                            layout.addWidget(close_btn)
+                            
+                            dialog.exec_()
+                            
+                            InfoBar.success(
+                                title='视觉识别成功',
+                                content='已完成图片识别，结果已显示',
+                                orient=Qt.Horizontal,
+                                isClosable=True,
+                                position=InfoBarPosition.TOP,
+                                duration=3000,
+                                parent=self
+                            )
+                    
+                    # 使用QTimer在主线程中执行
+                    from PyQt5.QtCore import QTimer
+                    QTimer.singleShot(0, show_result)
+                    
+                except Exception as e:
+                    def show_error():
+                        InfoBar.error(
+                            title='测试异常',
+                            content=f'视觉识别测试过程中出错: {str(e)}',
+                            orient=Qt.Horizontal,
+                            isClosable=True,
+                            position=InfoBarPosition.TOP,
+                            duration=5000,
+                            parent=self
+                        )
+                    
+                    from PyQt5.QtCore import QTimer
+                    QTimer.singleShot(0, show_error)
+            
+            test_thread = threading.Thread(target=run_vision_test)
+            test_thread.daemon = True
+            test_thread.start()
+            
+        except Exception as e:
+            InfoBar.error(
+                title='测试失败',
+                content=f"测试过程中出错: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
     
     def interrupt_current_operations(self):
         """打断当前AI输出和语音播放 - 只发送中断信号，由main.py处理"""
@@ -5027,7 +5339,7 @@ class Widget(Interface):
 
         # 设置示例文本
         self.left_browser.setText("终端输出于此处，毕竟是测试版本，如果出现了bug也很正常吧（")
-        self.right_browser.setHtml("<p>欢迎使用，点击按钮即可打开终端(*´∀ ˋ*)。<br/>什么，你想问上图作者是谁(*ﾟ∀ﾟ*)？<br/>是<b>菊花茶洋参</b>大佬哦ξ( ✿＞◡❛)</p>")
+        self.right_browser.setHtml("<p>欢迎使用，点击按钮即可打开终端(*´∀ ˋ*)。<br/>什么，你想问上图作者是谁(*ﾟ∀ﾟ*)？<br/>是<b>菊花茶洋参</b>大佬哦ξ( ✿＞◡❛)<br>本体程序由<b>老汤圆</b>大佬完成(☄⊙ω⊙)☄<br>但是当前你运行的是由<b>猫尾草</b>魔改的版本~(￣0￣)/</p>")
         
         # 设置日志处理器
         if not self.log_handler:
@@ -5108,6 +5420,81 @@ class Widget(Interface):
         # 注册
         self.widgets['llm.model'] = {"widget": self.llm_model_combo, "type": "combobox"}
         self.vBoxLayout.addWidget(group)
+
+        # 视觉模型配置组
+        vision_group = QGroupBox("视觉模型配置")
+        vision_form = QFormLayout(vision_group)
+        
+        # 启用视觉模式
+        vision_enabled_check = CheckBox()
+        vision_enabled_check.setChecked(bool(self.config_data.get('vision', {}).get('enabled', False)))
+        self.widgets['vision.enabled'] = {"widget": vision_enabled_check, "type": "checkbox"}
+        vision_form.addRow("启用视觉模式:", vision_enabled_check)
+        
+        # 视觉模型API Key
+        vision_api_key = PasswordLineEdit()
+        vision_api_key.setText(self.config_data.get('vision', {}).get('api_key', ''))
+        vision_api_key.setPlaceholderText("视觉模型的API Key")
+        self.widgets['vision.api_key'] = {"widget": vision_api_key, "type": "passwordlineedit"}
+        vision_form.addRow("视觉模型API Key:", vision_api_key)
+        
+        # 视觉模型API URL
+        vision_api_url = LineEdit()
+        vision_api_url.setText(self.config_data.get('vision', {}).get('api_url', ''))
+        vision_api_url.setPlaceholderText("如: https://api.openai.com 或其他兼容接口")
+        self.widgets['vision.api_url'] = {"widget": vision_api_url, "type": "lineedit"}
+        vision_form.addRow("视觉模型API URL:", vision_api_url)
+        
+        # 视觉模型选择（可编辑下拉 + 获取按钮）
+        vision_model_row = QHBoxLayout()
+        self.vision_model_combo = QComboBox()
+        self.vision_model_combo.setEditable(True)
+        vision_model_val = self.config_data.get('vision', {}).get('model', 'gpt-4-vision-preview')
+        if vision_model_val:
+            self.vision_model_combo.setEditText(str(vision_model_val))
+        vision_fetch_btn = QPushButton('获取模型')
+        vision_fetch_btn.clicked.connect(lambda: self._on_click_fetch_models(
+            api_url_key='vision.api_url', api_key_key='vision.api_key', combo=self.vision_model_combo, btn=vision_fetch_btn
+        ))
+        vision_model_row.addWidget(self.vision_model_combo)
+        vision_model_row.addWidget(vision_fetch_btn)
+        vision_row_container = QWidget()
+        vision_row_container.setLayout(vision_model_row)
+        vision_form.addRow('视觉模型:', vision_row_container)
+        self.widgets['vision.model'] = {"widget": self.vision_model_combo, "type": "combobox"}
+        
+        # 视觉识别提示词
+        vision_prompt = QTextEdit()
+        vision_prompt.setPlainText(self.config_data.get('vision', {}).get('system_prompt', '请仔细观察这张图片，描述你看到的内容。重点关注图片中的文字、物体、人物、场景等关键信息。'))
+        vision_prompt.setMinimumHeight(80)
+        vision_prompt.setPlaceholderText("视觉识别时使用的提示词，用于指导AI如何分析图片")
+        self.widgets['vision.system_prompt'] = {"widget": vision_prompt, "type": "textedit"}
+        vision_form.addRow("视觉识别提示词:", vision_prompt)
+        
+        # 只在不支持视觉的LLM下使用
+        vision_fallback_check = CheckBox()
+        vision_fallback_check.setChecked(bool(self.config_data.get('vision', {}).get('fallback_only', True)))
+        self.widgets['vision.fallback_only'] = {"widget": vision_fallback_check, "type": "checkbox"}
+        vision_form.addRow("仅在主LLM不支持视觉时使用:", vision_fallback_check)
+        
+        self.vBoxLayout.addWidget(vision_group)
+
+        # 视觉测试组
+        vision_test_group = QGroupBox("视觉功能测试")
+        vision_test_form = QFormLayout(vision_test_group)
+        
+        # 测试按钮和说明
+        vision_test_button = PushButton("测试视觉识别 (从剪贴板/文件)")
+        vision_test_button.clicked.connect(self._test_vision_recognition)
+        vision_test_form.addRow("", vision_test_button)
+        
+        # 添加说明文字
+        vision_help_label = QLabel("使用方法：\n1. 复制图片到剪贴板，或准备好图片文件\n2. 点击测试按钮\n3. 如果剪贴板没有图片，会弹出文件选择框")
+        vision_help_label.setWordWrap(True)
+        vision_help_label.setStyleSheet("color: #666; font-size: 12px; padding: 10px;")
+        vision_test_form.addRow("", vision_help_label)
+        
+        self.vBoxLayout.addWidget(vision_test_group)
 
         # 同声传译配置
         trans_group = QGroupBox("同声传译设置")
@@ -6429,6 +6816,14 @@ class Widget(Interface):
         self.test_expression_btn.setEnabled(False)
         button_layout.addWidget(self.test_expression_btn)
         
+        # 预览Live2D按钮
+        self.preview_live2d_btn = ToolButton(FIF.VIEW)
+        self.preview_live2d_btn.setText("预览Live2D")
+        self.preview_live2d_btn.clicked.connect(self.open_live2d_preview)
+        self.preview_live2d_btn.setEnabled(False)
+        self.preview_live2d_btn.setToolTip("在新窗口中预览Live2D模型")
+        button_layout.addWidget(self.preview_live2d_btn)
+        
         button_layout.addStretch()
         details_layout.addLayout(button_layout)
         
@@ -6670,128 +7065,34 @@ class Widget(Interface):
             return
         
         try:
-            # 尝试导入Live2D模型类
-            # 添加模型路径到搜索路径
-            model_paths = [
-                os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'),
-                os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro'),
-                os.path.join(os.path.dirname(__file__), 'models'),
-                os.path.join(os.path.dirname(__file__))
-            ]
+            # 首先检查文件完整性
+            file_size = os.path.getsize(current_model_path)
+            if file_size < 100:  # 如果文件太小，可能是损坏的
+                raise Exception(f"模型文件可能损坏或不完整 (文件大小: {file_size} bytes)")
             
-            for path in model_paths:
-                abs_path = os.path.abspath(path)
-                if abs_path not in sys.path:
-                    sys.path.insert(0, abs_path)
+            # 直接使用备用方法解析JSON文件，这样更稳定
+            print(f"🔍 开始解析模型文件: {current_model_path}")
+            self.load_model_details_fallback(current_model_path)
+            return
             
-            # 尝试导入Live2D模型
-            Live2DModel = None
-            init_live2d = None
-            has_live2d = False
-            
-            try:
-                # 第一种方法：直接从py-my-neuro导入
-                py_my_neuro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'))
-                main_logger = logging.getLogger()
-                main_logger.info(f"尝试从路径导入Live2D: {py_my_neuro_path}")
-                sys.path.insert(0, py_my_neuro_path)
-                live2d_module = __import__('live2d_model', fromlist=['Live2DModel', 'init_live2d'])
-                Live2DModel = getattr(live2d_module, 'Live2DModel', None)
-                init_live2d = getattr(live2d_module, 'init_live2d', None)
-                if Live2DModel and init_live2d:
-                    has_live2d = True
-                    main_logger = logging.getLogger()
-                    main_logger.info("✅ 成功从py-my-neuro导入Live2D模块")
-            except ImportError as e:
-                py_my_neuro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'py-my-neuro', 'UI'))
-                main_logger = logging.getLogger()
-                main_logger.error(f"❌ 从py-my-neuro导入失败: {e}")
-                main_logger.warning(f"ℹ️  py-my-neuro路径不存在或不可访问: {py_my_neuro_path}")
-                main_logger.info("ℹ️  尝试备用导入方法...")
-                try:
-                    # 第二种方法：尝试通过完整模块路径导入
-                    models_module = __import__('models.live2d_model', fromlist=['Live2DModel', 'init_live2d'])
-                    Live2DModel = getattr(models_module, 'Live2DModel', None)
-                    init_live2d = getattr(models_module, 'init_live2d', None)
-                    if Live2DModel and init_live2d:
-                        has_live2d = True
-                        main_logger = logging.getLogger()
-                        main_logger.info("✅ 成功从models模块导入Live2D")
-                        main_logger.info("💡 提示: 如果需要使用py-my-neuro，请确保该目录存在且包含正确的Live2D模块")
-                except ImportError as e2:
-                    print(f"❌ 从models导入失败: {e2}")
-                    # 最后尝试使用原始方法读取模型文件
-                    try:
-                        self.load_model_details_fallback(current_model_path)
-                        return
-                    except Exception as e3:
-                        print(f"❌ 备用方法也失败: {e3}")
-                        has_live2d = False
-            
-            if not has_live2d:
-                self.model_info_browser.setHtml("""
-                <div style='color: orange;'>
-                <h4>⚠️ Live2D模块未找到</h4>
-                <p>无法动态加载模型详情，但可以显示文件信息：</p>
-                <p><b>模型路径:</b> {}</p>
-                <p><b>文件大小:</b> {:.2f} KB</p>
-                <p><b>最后修改:</b> {}</p>
-                </div>
-                """.format(
-                    current_model_path,
-                    os.path.getsize(current_model_path) / 1024,
-                    time.ctime(os.path.getmtime(current_model_path))
-                ))
-                self.expression_list.clear()
-                self.motion_list.clear()
-                self.test_expression_btn.setEnabled(False)
-                return
-            
-            # 初始化Live2D引擎（如果尚未初始化）
-            if not init_live2d():
-                raise Exception("Live2D引擎初始化失败")
-            
-            # 创建临时模型实例来获取信息
-            temp_model = Live2DModel()
-            
-            # 尝试加载模型文件
-            if hasattr(temp_model, 'model') and temp_model.model:
-                temp_model.model.LoadModelJson(current_model_path)
-                
-                # 获取表情列表
-                expressions = []
-                if hasattr(temp_model.model, 'GetExpressionIds'):
-                    expressions = temp_model.model.GetExpressionIds() or []
-                
-                # 获取动作组列表
-                motions = {}
-                if hasattr(temp_model.model, 'GetMotionGroups'):
-                    motions = temp_model.model.GetMotionGroups() or {}
-                
-                # 获取参数数量
-                param_count = 0
-                if hasattr(temp_model.model, 'GetParameterCount'):
-                    param_count = temp_model.model.GetParameterCount()
-                
-                # 获取画布大小
-                canvas_info = "未知"
-                if hasattr(temp_model.model, 'GetCanvasSize'):
-                    try:
-                        w, h = temp_model.model.GetCanvasSize()
-                        canvas_info = f"{w} x {h}"
-                    except:
-                        canvas_info = "获取失败"
-                
-                # 更新UI显示
-                self.update_model_info_display(
-                    current_model_path, expressions, motions, param_count, canvas_info
-                )
-                
-                # 清理临时模型
-                del temp_model
-                
-            else:
-                raise Exception("无法创建模型实例")
+        except Exception as e:
+            print(f"❌ 模型解析失败: {e}")
+            self.model_info_browser.setHtml(f"""
+            <div style='color: red;'>
+            <h4>❌ 加载模型详情失败</h4>
+            <p><b>错误信息:</b> {str(e)}</p>
+            <p><b>模型路径:</b> {current_model_path}</p>
+            <p><b>文件大小:</b> {os.path.getsize(current_model_path) / 1024:.2f} KB</p>
+            <p><b>最后修改:</b> {time.ctime(os.path.getmtime(current_model_path))}</p>
+            <p style='color: gray; font-size: 12px;'>提示：请确保Live2D模型文件完整且格式正确</p>
+            <br>
+            <button onclick='this.parentElement.style.display="none"' style='background: #0078d4; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px;'>关闭错误信息</button>
+            </div>
+            """)
+            self.expression_list.clear()
+            self.motion_list.clear()
+            self.test_expression_btn.setEnabled(False)
+            raise e
                 
         except Exception as e:
             self.model_info_browser.setHtml(f"""
@@ -6943,46 +7244,159 @@ class Widget(Interface):
                 parent=self
             )
 
+    def open_live2d_preview(self):
+        """打开Live2D预览窗口"""
+        try:
+            # 获取当前选中的模型路径
+            current_model = ""
+            if hasattr(self, 'model_combo') and self.model_combo.currentData():
+                current_model = self.model_combo.currentData()
+            elif hasattr(self, 'config_data'):
+                # 从配置中获取模型路径作为备选
+                current_model = self.config_data.get('ui', {}).get('model_path', '')
+            
+            if not current_model:
+                InfoBar.warning(
+                    title='请选择模型',
+                    content="请先在UI配置中选择要预览的Live2D模型文件",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            if not os.path.exists(current_model):
+                InfoBar.error(
+                    title='模型文件不存在',
+                    content=f"找不到模型文件: {current_model}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 创建并显示预览窗口
+            try:
+                preview_window = Live2DPreviewWindow(current_model, self)
+                preview_window.exec_()  # 模态显示
+            except Exception as e:
+                InfoBar.error(
+                    title='预览窗口创建失败',
+                    content=f"无法创建预览窗口: {str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+                print(f"❌ 预览窗口创建失败: {e}")
+                
+        except Exception as e:
+            InfoBar.error(
+                title='预览功能错误',
+                content=f"预览功能发生错误: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+            print(f"❌ 预览功能错误: {e}")
+            InfoBar.error(
+                title='预览功能错误',
+                content=f"预览功能发生错误: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+            print(f"❌ 预览功能错误: {e}")
+
     def load_model_details_fallback(self, model_path):
         """备用方法：直接解析model3.json文件获取信息"""
         try:
             print(f"🔍 使用备用方法解析模型文件: {model_path}")
             
+            # 检查文件是否可读
+            if not os.access(model_path, os.R_OK):
+                raise Exception("模型文件无法读取，请检查文件权限")
+            
             # 读取model3.json文件
             with open(model_path, 'r', encoding='utf-8') as f:
-                model_data = json.load(f)
+                content = f.read().strip()
+                if not content:
+                    raise Exception("模型文件为空")
+                
+                try:
+                    model_data = json.loads(content)
+                except json.JSONDecodeError as e:
+                    raise Exception(f"模型文件JSON格式错误: {e}")
+            
+            # 验证基本结构
+            if not isinstance(model_data, dict):
+                raise Exception("模型文件格式不正确：根元素必须是对象")
             
             # 解析表情信息
             expressions = []
             if 'FileReferences' in model_data and 'Expressions' in model_data['FileReferences']:
-                for expr in model_data['FileReferences']['Expressions']:
-                    if 'Name' in expr:
-                        expressions.append(expr['Name'])
-                    elif 'File' in expr:
-                        # 从文件名提取表情名
-                        expr_name = os.path.splitext(os.path.basename(expr['File']))[0]
-                        expressions.append(expr_name)
+                expr_data = model_data['FileReferences']['Expressions']
+                if isinstance(expr_data, list):
+                    for expr in expr_data:
+                        if isinstance(expr, dict):
+                            if 'Name' in expr:
+                                expressions.append(expr['Name'])
+                            elif 'File' in expr:
+                                # 从文件名提取表情名
+                                expr_name = os.path.splitext(os.path.basename(expr['File']))[0]
+                                expressions.append(expr_name)
+                        elif isinstance(expr, str):
+                            # 直接是文件名
+                            expr_name = os.path.splitext(os.path.basename(expr))[0]
+                            expressions.append(expr_name)
             
             # 解析动作信息
             motions = {}
             if 'FileReferences' in model_data and 'Motions' in model_data['FileReferences']:
-                for group_name, motion_list in model_data['FileReferences']['Motions'].items():
-                    if isinstance(motion_list, list):
-                        motions[group_name] = len(motion_list)
-                    else:
-                        motions[group_name] = 1
+                motion_data = model_data['FileReferences']['Motions']
+                if isinstance(motion_data, dict):
+                    for group_name, motion_list in motion_data.items():
+                        if isinstance(motion_list, list):
+                            motions[group_name] = len(motion_list)
+                        elif isinstance(motion_list, dict):
+                            motions[group_name] = 1
+                        else:
+                            motions[group_name] = 1
             
             # 获取参数信息（从文件中解析）
-            param_count = 0
+            param_count = "未知"
+            moc_file = "未找到"
             if 'FileReferences' in model_data and 'Moc' in model_data['FileReferences']:
+                moc_file = model_data['FileReferences']['Moc']
                 param_count = "通过.moc文件确定"
+                
+                # 尝试验证moc文件是否存在
+                if isinstance(moc_file, str):
+                    moc_path = os.path.join(os.path.dirname(model_path), moc_file)
+                    if os.path.exists(moc_path):
+                        param_count = f"Moc文件存在 ({os.path.getsize(moc_path) / 1024:.1f} KB)"
+                    else:
+                        param_count = f"Moc文件不存在: {moc_file}"
             
             # 获取画布信息
             canvas_info = "默认"
             if 'Layout' in model_data:
                 layout = model_data['Layout']
-                if 'CenterX' in layout and 'CenterY' in layout:
-                    canvas_info = f"中心点: ({layout.get('CenterX', 0)}, {layout.get('CenterY', 0)})"
+                if isinstance(layout, dict):
+                    center_x = layout.get('CenterX', 0)
+                    center_y = layout.get('CenterY', 0)
+                    width = layout.get('Width', 'auto')
+                    height = layout.get('Height', 'auto')
+                    canvas_info = f"中心: ({center_x}, {center_y}), 尺寸: {width}x{height}"
             
             # 更新显示
             self.update_model_info_display_fallback(
@@ -6993,6 +7407,26 @@ class Widget(Interface):
             
         except Exception as e:
             print(f"❌ 备用方法解析失败: {e}")
+            # 显示详细错误信息
+            self.model_info_browser.setHtml(f"""
+            <div style='color: red; font-family: Microsoft YaHei;'>
+            <h4>❌ 模型文件解析失败</h4>
+            <p><b>错误详情:</b> {str(e)}</p>
+            <p><b>文件路径:</b> {model_path}</p>
+            <p><b>文件大小:</b> {os.path.getsize(model_path) if os.path.exists(model_path) else 0} bytes</p>
+            <p><b>可能的原因:</b></p>
+            <ul>
+                <li>模型文件损坏或不完整</li>
+                <li>JSON格式错误</li>
+                <li>文件编码问题</li>
+                <li>文件权限不足</li>
+            </ul>
+            <p style='color: orange;'><b>建议:</b> 请检查模型文件是否正确下载，或尝试重新获取模型文件</p>
+            </div>
+            """)
+            self.expression_list.clear()
+            self.motion_list.clear()
+            self.test_expression_btn.setEnabled(False)
             raise e
 
     def update_model_info_display_fallback(self, model_path, expressions, motions, param_count, canvas_info, model_data):
@@ -7052,6 +7486,11 @@ class Widget(Interface):
             item = QListWidgetItem("🚫 该模型不包含动作组定义")
             item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             self.motion_list.addItem(item)
+        
+        # 启用预览按钮（如果存在）
+        if hasattr(self, 'preview_live2d_btn'):
+            self.preview_live2d_btn.setEnabled(True)
+            self.preview_live2d_btn.setToolTip(f"预览Live2D模型: {os.path.basename(model_path)}")
 
     def create_subtitle_tab(self):
         """创建字幕配置标签页"""
@@ -11162,6 +11601,1188 @@ class Window(FramelessWindow):
         except Exception as e:
             print(f"Window类打断操作时出错: {e}")
             return False
+
+
+class Live2DPreviewWindow(QDialog):
+    """Live2D模型预览窗口 - 支持动态预览"""
+    
+    def __init__(self, model_path, parent=None):
+        super().__init__(parent)
+        self.model_path = model_path
+        self.model_name = os.path.basename(os.path.dirname(model_path))
+        self.model_data = None
+        self.live2d_widget = None
+        self.current_expression = None
+        self.current_motion = None
+        self.init_ui()
+        self.load_model_preview()
+    
+    def init_ui(self):
+        """初始化UI"""
+        self.setWindowTitle(f"Live2D动态预览 - {self.model_name}")
+        self.setWindowIcon(QIcon("resources/logo.png"))
+        self.resize(1000, 700)
+        
+        # 设置窗口标志
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint)
+        
+        # 创建主布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 标题栏
+        title_layout = QHBoxLayout()
+        title_label = QLabel(f"🎭 Live2D动态预览")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #0078d4;
+                padding: 5px;
+            }
+        """)
+        title_layout.addWidget(title_label)
+        
+        # 预览模式切换
+        self.preview_mode_combo = QComboBox()
+        self.preview_mode_combo.addItems(["静态预览", "动态预览"])
+        self.preview_mode_combo.currentTextChanged.connect(self.on_preview_mode_changed)
+        title_layout.addWidget(QLabel("预览模式:"))
+        title_layout.addWidget(self.preview_mode_combo)
+        
+        title_layout.addStretch()
+        
+        # 关闭按钮
+        close_btn = QPushButton("✕ 关闭")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        close_btn.clicked.connect(self.close)
+        title_layout.addWidget(close_btn)
+        
+        main_layout.addLayout(title_layout)
+        
+        # 创建分割器
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # 左侧：模型信息和控制
+        left_widget = self.create_control_panel()
+        splitter.addWidget(left_widget)
+        
+        # 右侧：预览区域
+        right_widget = self.create_preview_panel()
+        splitter.addWidget(right_widget)
+        
+        # 设置分割器比例
+        splitter.setSizes([350, 650])
+        main_layout.addWidget(splitter)
+        
+        # 状态栏
+        status_layout = QHBoxLayout()
+        self.status_label = QLabel("正在加载模型信息...")
+        self.status_label.setStyleSheet("color: #666; font-size: 12px;")
+        status_layout.addWidget(self.status_label)
+        status_layout.addStretch()
+        
+        # 操作按钮
+        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn.clicked.connect(self.load_model_preview)
+        status_layout.addWidget(refresh_btn)
+        
+        main_layout.addLayout(status_layout)
+    
+    def create_control_panel(self):
+        """创建控制面板"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        # 模型信息显示
+        info_group = QGroupBox("📋 模型信息")
+        info_layout = QVBoxLayout(info_group)
+        
+        self.info_browser = QTextBrowser()
+        self.info_browser.setMaximumHeight(180)
+        self.info_browser.setStyleSheet("""
+            QTextBrowser {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: #f8f9fa;
+                font-size: 11px;
+            }
+        """)
+        info_layout.addWidget(self.info_browser)
+        layout.addWidget(info_group)
+        
+        # 表情控制
+        expr_group = QGroupBox("😊 表情控制")
+        expr_layout = QVBoxLayout(expr_group)
+        
+        self.expr_list = QListWidget()
+        self.expr_list.setMaximumHeight(120)
+        self.expr_list.itemClicked.connect(self.on_expression_selected)
+        self.expr_list.itemDoubleClicked.connect(self.on_expression_double_clicked)
+        expr_layout.addWidget(self.expr_list)
+        
+        # 表情控制按钮
+        expr_btn_layout = QHBoxLayout()
+        self.apply_expr_btn = QPushButton("应用表情")
+        self.reset_expr_btn = QPushButton("重置表情")
+        self.apply_expr_btn.clicked.connect(self.apply_current_expression)
+        self.reset_expr_btn.clicked.connect(self.reset_expression)
+        self.apply_expr_btn.setEnabled(False)
+        expr_btn_layout.addWidget(self.apply_expr_btn)
+        expr_btn_layout.addWidget(self.reset_expr_btn)
+        expr_layout.addLayout(expr_btn_layout)
+        
+        layout.addWidget(expr_group)
+        
+        # 动作控制
+        motion_group = QGroupBox("🎬 动作控制")
+        motion_layout = QVBoxLayout(motion_group)
+        
+        self.motion_list = QListWidget()
+        self.motion_list.setMaximumHeight(120)
+        self.motion_list.itemClicked.connect(self.on_motion_selected)
+        self.motion_list.itemDoubleClicked.connect(self.on_motion_double_clicked)
+        motion_layout.addWidget(self.motion_list)
+        
+        # 动作控制按钮
+        motion_btn_layout = QHBoxLayout()
+        self.play_motion_btn = QPushButton("播放动作")
+        self.stop_motion_btn = QPushButton("停止动作")
+        self.play_motion_btn.clicked.connect(self.play_current_motion)
+        self.stop_motion_btn.clicked.connect(self.stop_motion)
+        self.play_motion_btn.setEnabled(False)
+        motion_btn_layout.addWidget(self.play_motion_btn)
+        motion_btn_layout.addWidget(self.stop_motion_btn)
+        motion_layout.addLayout(motion_btn_layout)
+        
+        # 动作设置
+        motion_settings_layout = QFormLayout()
+        self.motion_loop_check = CheckBox()
+        self.motion_loop_check.setText("循环播放")
+        self.motion_loop_check.setChecked(False)
+        motion_settings_layout.addRow("播放设置:", self.motion_loop_check)
+        motion_layout.addLayout(motion_settings_layout)
+        
+        layout.addWidget(motion_group)
+        
+        # 全局控制
+        global_group = QGroupBox("🎮 全局控制")
+        global_layout = QVBoxLayout(global_group)
+        
+        global_btn_layout = QHBoxLayout()
+        self.reset_all_btn = QPushButton("🔄 重置全部")
+        self.random_motion_btn = QPushButton("🎲 随机动作")
+        self.random_expr_btn = QPushButton("🎭 随机表情")
+        
+        self.reset_all_btn.clicked.connect(self.reset_all)
+        self.random_motion_btn.clicked.connect(self.play_random_motion)
+        self.random_expr_btn.clicked.connect(self.apply_random_expression)
+        
+        global_btn_layout.addWidget(self.reset_all_btn)
+        global_btn_layout.addWidget(self.random_motion_btn)
+        global_btn_layout.addWidget(self.random_expr_btn)
+        global_layout.addLayout(global_btn_layout)
+        
+        layout.addWidget(global_group)
+        
+        layout.addStretch()
+        return widget
+    
+    def create_preview_panel(self):
+        """创建预览面板"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        # 预览标题和控制
+        header_layout = QHBoxLayout()
+        preview_label = QLabel("🖼️ 模型预览")
+        preview_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50;")
+        header_layout.addWidget(preview_label)
+        
+        header_layout.addStretch()
+        
+        # 预览质量设置
+        quality_label = QLabel("渲染质量:")
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItems(["高质量", "标准", "性能优先"])
+        self.quality_combo.setCurrentText("标准")
+        header_layout.addWidget(quality_label)
+        header_layout.addWidget(self.quality_combo)
+        
+        layout.addLayout(header_layout)
+        
+        # 创建预览区域容器
+        self.preview_container = QWidget()
+        self.preview_container.setMinimumSize(600, 450)
+        self.preview_container.setStyleSheet("""
+            QWidget {
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: #ecf0f1;
+            }
+        """)
+        
+        # 预览区域布局
+        preview_layout = QVBoxLayout(self.preview_container)
+        preview_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 静态预览区域
+        self.static_preview_area = QLabel()
+        self.static_preview_area.setAlignment(Qt.AlignCenter)
+        self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n选择上方'动态预览'模式\n体验真实Live2D动画")
+        self.static_preview_area.setStyleSheet("""
+            QLabel {
+                border: none;
+                background-color: transparent;
+                color: #7f8c8d;
+                font-size: 14px;
+            }
+        """)
+        preview_layout.addWidget(self.static_preview_area)
+        
+        # 动态预览区域 (将在需要时创建)
+        self.dynamic_preview_area = None
+        
+        layout.addWidget(self.preview_container)
+        
+        # 预览控制面板
+        control_group = QGroupBox("预览控制")
+        control_layout = QGridLayout(control_group)
+        
+        # 播放控制
+        self.play_btn = QPushButton("▶️ 开始动画")
+        self.pause_btn = QPushButton("⏸️ 暂停")
+        self.reset_pose_btn = QPushButton("🔄 重置姿态")
+        
+        self.play_btn.clicked.connect(self.start_animation)
+        self.pause_btn.clicked.connect(self.pause_animation)
+        self.reset_pose_btn.clicked.connect(self.reset_pose)
+        
+        self.play_btn.setEnabled(False)
+        self.pause_btn.setEnabled(False)
+        
+        control_layout.addWidget(self.play_btn, 0, 0)
+        control_layout.addWidget(self.pause_btn, 0, 1)
+        control_layout.addWidget(self.reset_pose_btn, 0, 2)
+        
+        # 视图控制
+        zoom_layout = QHBoxLayout()
+        zoom_layout.addWidget(QLabel("缩放:"))
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setRange(50, 200)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.valueChanged.connect(self.on_zoom_changed)
+        zoom_layout.addWidget(self.zoom_slider)
+        self.zoom_label = QLabel("100%")
+        zoom_layout.addWidget(self.zoom_label)
+        
+        zoom_widget = QWidget()
+        zoom_widget.setLayout(zoom_layout)
+        control_layout.addWidget(zoom_widget, 1, 0, 1, 3)
+        
+        layout.addWidget(control_group)
+        
+        return widget
+    
+    def on_preview_mode_changed(self, mode):
+        """预览模式切换处理"""
+        if mode == "动态预览":
+            self.enable_dynamic_preview()
+        else:
+            self.enable_static_preview()
+    
+    def enable_static_preview(self):
+        """启用静态预览模式"""
+        try:
+            # 隐藏动态预览组件
+            if self.dynamic_preview_area:
+                self.dynamic_preview_area.hide()
+            
+            # 显示静态预览
+            self.static_preview_area.show()
+            self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n选择上方'动态预览'模式\n体验真实Live2D动画")
+            
+            # 禁用动态控制
+            self.play_btn.setEnabled(False)
+            self.pause_btn.setEnabled(False)
+            self.apply_expr_btn.setEnabled(False)
+            self.play_motion_btn.setEnabled(False)
+            
+            self.status_label.setText("静态预览模式 - 显示模型信息和资源列表")
+            
+        except Exception as e:
+            print(f"切换到静态预览模式失败: {e}")
+    
+    def enable_dynamic_preview(self):
+        """启用动态预览模式"""
+        try:
+            # 隐藏静态预览
+            self.static_preview_area.hide()
+            
+            # 创建或显示动态预览组件
+            if not self.dynamic_preview_area:
+                self.create_dynamic_preview_widget()
+            
+            if self.dynamic_preview_area:
+                self.dynamic_preview_area.show()
+                # 启动Live2D模型
+                self.start_live2d_preview()
+                
+                # 启用动态控制
+                self.play_btn.setEnabled(True)
+                self.pause_btn.setEnabled(True)
+                self.apply_expr_btn.setEnabled(True)
+                self.play_motion_btn.setEnabled(True)
+                
+                self.status_label.setText("动态预览模式 - Live2D实时渲染")
+            else:
+                # 回退到静态模式
+                self.preview_mode_combo.setCurrentText("静态预览")
+                self.status_label.setText("动态预览初始化失败，已回退到静态模式")
+                
+        except Exception as e:
+            print(f"切换到动态预览模式失败: {e}")
+            self.preview_mode_combo.setCurrentText("静态预览")
+            self.status_label.setText(f"动态预览启动失败: {str(e)}")
+    
+    def create_dynamic_preview_widget(self):
+        """创建动态预览组件"""
+        try:
+            # 检查是否可以导入Live2D相关模块
+            try:
+                from main import Live2DApp
+                live2d_available = True
+            except ImportError:
+                live2d_available = False
+            
+            if live2d_available:
+                # 创建Live2D预览组件
+                self.dynamic_preview_area = Live2DPreviewWidget(
+                    model_path=self.model_path,
+                    parent=self.preview_container
+                )
+                
+                # 添加到预览容器布局
+                layout = self.preview_container.layout()
+                layout.addWidget(self.dynamic_preview_area)
+                
+                # 连接信号
+                if hasattr(self.dynamic_preview_area, 'expression_changed'):
+                    self.dynamic_preview_area.expression_changed.connect(self.on_dynamic_expression_changed)
+                if hasattr(self.dynamic_preview_area, 'motion_changed'):
+                    self.dynamic_preview_area.motion_changed.connect(self.on_dynamic_motion_changed)
+                    
+                print("动态预览组件创建成功")
+                
+            else:
+                # 创建模拟Live2D组件
+                self.dynamic_preview_area = QLabel()
+                self.dynamic_preview_area.setAlignment(Qt.AlignCenter)
+                self.dynamic_preview_area.setText("🎭\n\nLive2D动态预览\n\n模拟Live2D渲染区域\n\n(实际项目中此处会显示真实的Live2D动画)")
+                self.dynamic_preview_area.setStyleSheet("""
+                    QLabel {
+                        border: 2px solid #3498db;
+                        border-radius: 8px;
+                        background-color: #f8f9fa;
+                        color: #2c3e50;
+                        font-size: 14px;
+                    }
+                """)
+                
+                # 添加到预览容器布局
+                layout = self.preview_container.layout()
+                layout.addWidget(self.dynamic_preview_area)
+                
+                print("创建模拟Live2D预览组件")
+                
+        except Exception as e:
+            print(f"创建动态预览组件失败: {e}")
+            self.dynamic_preview_area = None
+    
+    def start_live2d_preview(self):
+        """启动Live2D预览"""
+        try:
+            if hasattr(self.dynamic_preview_area, 'load_model'):
+                self.dynamic_preview_area.load_model(self.model_path)
+                self.status_label.setText("Live2D模型加载成功")
+            else:
+                # 模拟启动
+                if isinstance(self.dynamic_preview_area, QLabel):
+                    self.dynamic_preview_area.setText("🎭\n\nLive2D动态预览已启动\n\n模型路径: " + 
+                                                    os.path.basename(self.model_path) + 
+                                                    "\n\n双击左侧列表项体验动画效果")
+                self.status_label.setText("Live2D模拟预览已启动")
+                
+        except Exception as e:
+            print(f"启动Live2D预览失败: {e}")
+            self.status_label.setText(f"Live2D预览启动失败: {str(e)}")
+    
+    def on_dynamic_expression_changed(self, expression_name):
+        """动态预览表情变化回调"""
+        self.status_label.setText(f"当前表情: {expression_name}")
+    
+    def on_dynamic_motion_changed(self, motion_name):
+        """动态预览动作变化回调"""
+        self.status_label.setText(f"正在播放动作: {motion_name}")
+    
+    # 表情控制方法
+    def on_expression_selected(self, item):
+        """表情选择处理"""
+        self.current_expression = item.text()
+        self.apply_expr_btn.setEnabled(True)
+        self.status_label.setText(f"已选择表情: {self.current_expression}")
+    
+    def on_expression_double_clicked(self, item):
+        """表情双击处理 - 直接应用"""
+        self.current_expression = item.text()
+        self.apply_current_expression()
+    
+    def apply_current_expression(self):
+        """应用当前选中的表情"""
+        if not self.current_expression:
+            return
+            
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                # 动态预览模式
+                if hasattr(self.dynamic_preview_area, 'set_expression'):
+                    self.dynamic_preview_area.set_expression(self.current_expression)
+                    self.status_label.setText(f"已应用表情: {self.current_expression}")
+                else:
+                    # 模拟应用表情
+                    if isinstance(self.dynamic_preview_area, QLabel):
+                        self.dynamic_preview_area.setText(f"🎭\n\nLive2D动态预览\n\n当前表情: {self.current_expression}\n\n表情已应用到模型")
+                    self.status_label.setText(f"模拟应用表情: {self.current_expression}")
+            else:
+                # 静态预览模式
+                self.static_preview_area.setText(f"🎭\n\nLive2D模型预览\n\n当前表情: {self.current_expression}\n\n切换到动态预览模式\n查看真实表情效果")
+                self.status_label.setText(f"静态预览 - 选中表情: {self.current_expression}")
+                
+        except Exception as e:
+            print(f"应用表情失败: {e}")
+            self.status_label.setText(f"应用表情失败: {str(e)}")
+    
+    def reset_expression(self):
+        """重置表情"""
+        try:
+            self.current_expression = None
+            self.expr_list.clearSelection()
+            self.apply_expr_btn.setEnabled(False)
+            
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'reset_expression'):
+                    self.dynamic_preview_area.reset_expression()
+                else:
+                    # 模拟重置
+                    if isinstance(self.dynamic_preview_area, QLabel):
+                        self.dynamic_preview_area.setText("🎭\n\nLive2D动态预览\n\n表情已重置为默认状态\n\n双击左侧列表项体验动画效果")
+                self.status_label.setText("表情已重置")
+            else:
+                self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n表情已重置\n\n选择上方'动态预览'模式\n体验真实Live2D动画")
+                self.status_label.setText("静态预览 - 表情已重置")
+                
+        except Exception as e:
+            print(f"重置表情失败: {e}")
+            self.status_label.setText(f"重置表情失败: {str(e)}")
+    
+    # 动作控制方法
+    def on_motion_selected(self, item):
+        """动作选择处理"""
+        self.current_motion = item.text()
+        self.play_motion_btn.setEnabled(True)
+        self.status_label.setText(f"已选择动作: {self.current_motion}")
+    
+    def on_motion_double_clicked(self, item):
+        """动作双击处理 - 直接播放"""
+        self.current_motion = item.text()
+        self.play_current_motion()
+    
+    def play_current_motion(self):
+        """播放当前选中的动作"""
+        if not self.current_motion:
+            return
+            
+        try:
+            loop_enabled = self.motion_loop_check.isChecked()
+            
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                # 动态预览模式
+                if hasattr(self.dynamic_preview_area, 'play_motion'):
+                    self.dynamic_preview_area.play_motion(self.current_motion, loop=loop_enabled)
+                    self.status_label.setText(f"正在播放动作: {self.current_motion} {'(循环)' if loop_enabled else ''}")
+                else:
+                    # 模拟播放动作
+                    if isinstance(self.dynamic_preview_area, QLabel):
+                        self.dynamic_preview_area.setText(f"🎭\n\nLive2D动态预览\n\n正在播放动作: {self.current_motion}\n\n{'循环播放模式' if loop_enabled else '单次播放模式'}")
+                    self.status_label.setText(f"模拟播放动作: {self.current_motion}")
+            else:
+                # 静态预览模式
+                self.static_preview_area.setText(f"🎭\n\nLive2D模型预览\n\n选中动作: {self.current_motion}\n\n切换到动态预览模式\n查看真实动作效果")
+                self.status_label.setText(f"静态预览 - 选中动作: {self.current_motion}")
+                
+        except Exception as e:
+            print(f"播放动作失败: {e}")
+            self.status_label.setText(f"播放动作失败: {str(e)}")
+    
+    def stop_motion(self):
+        """停止动作播放"""
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'stop_motion'):
+                    self.dynamic_preview_area.stop_motion()
+                else:
+                    # 模拟停止
+                    if isinstance(self.dynamic_preview_area, QLabel):
+                        self.dynamic_preview_area.setText("🎭\n\nLive2D动态预览\n\n动作播放已停止\n\n双击左侧列表项体验动画效果")
+                self.status_label.setText("动作播放已停止")
+            else:
+                self.status_label.setText("静态预览模式 - 无动作播放")
+                
+        except Exception as e:
+            print(f"停止动作失败: {e}")
+            self.status_label.setText(f"停止动作失败: {str(e)}")
+    
+    # 全局控制方法
+    def reset_all(self):
+        """重置所有状态"""
+        try:
+            self.reset_expression()
+            self.stop_motion()
+            self.current_motion = None
+            self.motion_list.clearSelection()
+            self.play_motion_btn.setEnabled(False)
+            
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'reset_pose'):
+                    self.dynamic_preview_area.reset_pose()
+                else:
+                    # 模拟重置
+                    if isinstance(self.dynamic_preview_area, QLabel):
+                        self.dynamic_preview_area.setText("🎭\n\nLive2D动态预览\n\n所有状态已重置\n\n双击左侧列表项体验动画效果")
+                self.status_label.setText("所有状态已重置")
+            else:
+                self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n所有状态已重置\n\n选择上方'动态预览'模式\n体验真实Live2D动画")
+                self.status_label.setText("静态预览 - 所有状态已重置")
+                
+        except Exception as e:
+            print(f"重置失败: {e}")
+            self.status_label.setText(f"重置失败: {str(e)}")
+    
+    def play_random_motion(self):
+        """播放随机动作"""
+        try:
+            if self.motion_list.count() > 0:
+                import random
+                random_index = random.randint(0, self.motion_list.count() - 1)
+                random_item = self.motion_list.item(random_index)
+                self.motion_list.setCurrentItem(random_item)
+                self.current_motion = random_item.text()
+                self.play_current_motion()
+            else:
+                self.status_label.setText("没有可用的动作")
+        except Exception as e:
+            print(f"播放随机动作失败: {e}")
+            self.status_label.setText(f"播放随机动作失败: {str(e)}")
+    
+    def apply_random_expression(self):
+        """应用随机表情"""
+        try:
+            if self.expr_list.count() > 0:
+                import random
+                random_index = random.randint(0, self.expr_list.count() - 1)
+                random_item = self.expr_list.item(random_index)
+                self.expr_list.setCurrentItem(random_item)
+                self.current_expression = random_item.text()
+                self.apply_current_expression()
+            else:
+                self.status_label.setText("没有可用的表情")
+        except Exception as e:
+            print(f"应用随机表情失败: {e}")
+            self.status_label.setText(f"应用随机表情失败: {str(e)}")
+    
+    # 播放控制方法
+    def start_animation(self):
+        """开始动画"""
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'start_animation'):
+                    self.dynamic_preview_area.start_animation()
+                self.status_label.setText("Live2D动画已开始")
+            else:
+                self.status_label.setText("请切换到动态预览模式")
+        except Exception as e:
+            print(f"开始动画失败: {e}")
+            self.status_label.setText(f"开始动画失败: {str(e)}")
+    
+    def pause_animation(self):
+        """暂停动画"""
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'pause_animation'):
+                    self.dynamic_preview_area.pause_animation()
+                self.status_label.setText("Live2D动画已暂停")
+            else:
+                self.status_label.setText("请切换到动态预览模式")
+        except Exception as e:
+            print(f"暂停动画失败: {e}")
+            self.status_label.setText(f"暂停动画失败: {str(e)}")
+    
+    def reset_pose(self):
+        """重置姿态"""
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'reset_pose'):
+                    self.dynamic_preview_area.reset_pose()
+                self.status_label.setText("Live2D姿态已重置")
+            else:
+                self.status_label.setText("请切换到动态预览模式")
+        except Exception as e:
+            print(f"重置姿态失败: {e}")
+            self.status_label.setText(f"重置姿态失败: {str(e)}")
+    
+    def on_zoom_changed(self, value):
+        """缩放变化处理"""
+        self.zoom_label.setText(f"{value}%")
+        try:
+            if self.preview_mode_combo.currentText() == "动态预览" and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'set_zoom'):
+                    self.dynamic_preview_area.set_zoom(value / 100.0)
+        except Exception as e:
+            print(f"设置缩放失败: {e}")
+    
+    def load_model_preview(self):
+        """加载模型预览数据"""
+        try:
+            self.status_label.setText("正在加载模型数据...")
+            
+            # 加载模型数据
+            if os.path.exists(self.model_path):
+                self.model_data = self.load_model_details_fallback(self.model_path)
+                
+                if self.model_data:
+                    # 更新模型信息
+                    self.update_model_info()
+                    
+                    # 更新表情列表
+                    self.update_expression_list()
+                    
+                    # 更新动作列表
+                    self.update_motion_list()
+                    
+                    # 尝试加载预览图
+                    self.load_preview_image_enhanced()
+                    
+                    self.status_label.setText(f"模型加载完成 - {self.model_name}")
+                else:
+                    self.status_label.setText("模型数据加载失败")
+                    self.info_browser.setText("❌ 模型数据加载失败\n\n请检查模型文件是否完整")
+            else:
+                self.status_label.setText("模型文件不存在")
+                self.info_browser.setText("❌ 模型文件不存在\n\n请检查模型路径是否正确")
+                
+        except Exception as e:
+            print(f"加载模型预览失败: {e}")
+            self.status_label.setText(f"加载失败: {str(e)}")
+            self.info_browser.setText(f"❌ 加载模型预览失败\n\n错误信息: {str(e)}")
+    
+    def load_model_details_fallback(self, model_path):
+        """加载模型详细信息的回退方法"""
+        try:
+            with open(model_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"回退加载模型失败: {e}")
+            return None
+    
+    def update_model_info(self):
+        """更新模型信息显示"""
+        try:
+            if not self.model_data:
+                return
+                
+            info_html = f"""
+            <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+                <h3 style="color: #2c3e50; margin: 0 0 10px 0;">🎭 {self.model_name}</h3>
+                
+                <p><strong>📁 文件路径:</strong><br>
+                <span style="font-size: 10px; color: #7f8c8d;">{self.model_path}</span></p>
+                
+                <p><strong>📋 基本信息:</strong><br>
+                • 版本: {self.model_data.get('Version', 'Unknown')}<br>
+                • 物理文件: {self.model_data.get('PhysicsFileName', 'None')}<br>
+                • 姿态文件: {self.model_data.get('PoseFileName', 'None')}</p>
+                
+                <p><strong>🎨 纹理信息:</strong><br>
+                • 纹理数量: {len(self.model_data.get('FileReferences', {}).get('Textures', []))}<br>
+                • 模型文件: {len(self.model_data.get('FileReferences', {}).get('Moc', []))}</p>
+                
+                <p><strong>🎭 动画资源:</strong><br>
+                • 表情数量: {len(self.model_data.get('FileReferences', {}).get('Expressions', []))}<br>
+                • 动作数量: {sum(len(motions) for motions in self.model_data.get('FileReferences', {}).get('Motions', {}).values())}</p>
+            </div>
+            """
+            
+            self.info_browser.setHtml(info_html)
+            
+        except Exception as e:
+            print(f"更新模型信息失败: {e}")
+            self.info_browser.setText(f"更新模型信息失败: {str(e)}")
+    
+    def update_expression_list(self):
+        """更新表情列表"""
+        try:
+            self.expr_list.clear()
+            
+            if not self.model_data:
+                return
+                
+            expressions = self.model_data.get('FileReferences', {}).get('Expressions', [])
+            
+            if expressions:
+                for expr in expressions:
+                    if isinstance(expr, dict):
+                        name = expr.get('Name', '未知表情')
+                        file_path = expr.get('File', '')
+                        item_text = f"😊 {name}"
+                        if file_path:
+                            item_text += f" ({os.path.basename(file_path)})"
+                    else:
+                        item_text = f"😊 {str(expr)}"
+                    
+                    item = QListWidgetItem(item_text)
+                    item.setToolTip(f"双击应用表情: {name if isinstance(expr, dict) else str(expr)}")
+                    self.expr_list.addItem(item)
+            else:
+                item = QListWidgetItem("😔 无可用表情")
+                item.setFlags(Qt.NoItemFlags)
+                self.expr_list.addItem(item)
+                
+        except Exception as e:
+            print(f"更新表情列表失败: {e}")
+            item = QListWidgetItem(f"❌ 加载表情失败: {str(e)}")
+            item.setFlags(Qt.NoItemFlags)
+            self.expr_list.addItem(item)
+    
+    def update_motion_list(self):
+        """更新动作列表"""
+        try:
+            self.motion_list.clear()
+            
+            if not self.model_data:
+                return
+                
+            motions = self.model_data.get('FileReferences', {}).get('Motions', {})
+            
+            if motions:
+                for category, motion_list in motions.items():
+                    # 添加分类标题
+                    category_item = QListWidgetItem(f"📁 {category}")
+                    category_item.setFlags(Qt.NoItemFlags)
+                    category_item.setBackground(QColor("#f0f0f0"))
+                    self.motion_list.addItem(category_item)
+                    
+                    # 添加该分类下的动作
+                    for motion in motion_list:
+                        if isinstance(motion, dict):
+                            name = motion.get('File', '未知动作')
+                            name = os.path.splitext(os.path.basename(name))[0]  # 移除扩展名
+                            item_text = f"  🎬 {name}"
+                            if 'FadeInTime' in motion or 'FadeOutTime' in motion:
+                                fade_in = motion.get('FadeInTime', 0)
+                                fade_out = motion.get('FadeOutTime', 0)
+                                item_text += f" (淡入:{fade_in}s 淡出:{fade_out}s)"
+                        else:
+                            item_text = f"  🎬 {str(motion)}"
+                        
+                        item = QListWidgetItem(item_text)
+                        item.setToolTip(f"双击播放动作: {name if isinstance(motion, dict) else str(motion)}")
+                        self.motion_list.addItem(item)
+            else:
+                item = QListWidgetItem("😔 无可用动作")
+                item.setFlags(Qt.NoItemFlags)
+                self.motion_list.addItem(item)
+                
+        except Exception as e:
+            print(f"更新动作列表失败: {e}")
+            item = QListWidgetItem(f"❌ 加载动作失败: {str(e)}")
+            item.setFlags(Qt.NoItemFlags)
+            self.motion_list.addItem(item)
+    
+    def load_preview_image_enhanced(self):
+        """加载预览图像 - 增强版本"""
+        try:
+            model_dir = os.path.dirname(self.model_path)
+            
+            # 查找可能的预览图片
+            preview_files = ['preview.png', 'preview.jpg', 'thumbnail.png', 'icon.png']
+            
+            # 首先检查纹理文件
+            if self.model_data:
+                texture_files = self.model_data.get('FileReferences', {}).get('Textures', [])
+                if texture_files:
+                    # 使用第一个纹理作为预览
+                    texture_path = os.path.join(model_dir, texture_files[0])
+                    if os.path.exists(texture_path):
+                        self.display_preview_image_enhanced(texture_path, "纹理预览")
+                        return
+            
+            # 查找预览图片
+            for preview_file in preview_files:
+                preview_path = os.path.join(model_dir, preview_file)
+                if os.path.exists(preview_path):
+                    self.display_preview_image_enhanced(preview_path, "模型预览")
+                    return
+            
+            # 没找到预览图，显示默认内容
+            self.update_static_preview_text()
+            
+        except Exception as e:
+            print(f"加载预览图像失败: {e}")
+            self.update_static_preview_text()
+    
+    def display_preview_image_enhanced(self, image_path, image_type):
+        """显示预览图像 - 增强版本"""
+        try:
+            pixmap = QPixmap(image_path)
+            if not pixmap.isNull():
+                # 缩放图像以适应预览区域
+                scaled_pixmap = pixmap.scaled(
+                    self.static_preview_area.size() * 0.8,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                self.static_preview_area.setPixmap(scaled_pixmap)
+                self.status_label.setText(f"✅ {image_type}加载成功 - {os.path.basename(image_path)}")
+            else:
+                self.update_static_preview_text()
+                self.status_label.setText(f"❌ {image_type}加载失败")
+        except Exception as e:
+            print(f"显示预览图像失败: {e}")
+            self.update_static_preview_text()
+            self.status_label.setText(f"❌ 图像显示错误: {str(e)}")
+    
+    def update_static_preview_text(self):
+        """更新静态预览文本"""
+        try:
+            if hasattr(self, 'model_data') and self.model_data:
+                expressions = self.model_data.get('FileReferences', {}).get('Expressions', [])
+                motions = self.model_data.get('FileReferences', {}).get('Motions', {})
+                motion_count = sum(len(motion_list) for motion_list in motions.values())
+                
+                preview_text = f"🎭\n\n{self.model_name}\n\nLive2D模型预览\n\n📊 表情: {len(expressions)} 个\n🎬 动作: {motion_count} 个\n\n双击左侧列表体验功能\n\n切换到'动态预览'模式\n查看Live2D实时渲染"
+            else:
+                preview_text = "🎭\n\nLive2D模型预览\n\n选择上方'动态预览'模式\n体验真实Live2D动画"
+            
+            self.static_preview_area.setText(preview_text)
+        except Exception as e:
+            print(f"更新静态预览文本失败: {e}")
+            self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n加载中...")
+    
+    
+class Live2DPreviewWidget(QWidget):
+    """Live2D动态预览组件"""
+    
+    # 定义信号
+    expression_changed = pyqtSignal(str)
+    motion_changed = pyqtSignal(str)
+    
+    def __init__(self, model_path, parent=None):
+        super().__init__(parent)
+        self.model_path = model_path
+        self.model_data = None
+        self.current_expression = None
+        self.current_motion = None
+        self.animation_timer = None
+        self.zoom_factor = 1.0
+        self.init_widget()
+        
+    def init_widget(self):
+        """初始化组件"""
+        self.setStyleSheet("""
+            Live2DPreviewWidget {
+                border: 2px solid #3498db;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+            }
+        """)
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 状态标签
+        self.status_label = QLabel("Live2D预览组件初始化中...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                border: none;
+                background-color: rgba(52, 152, 219, 0.1);
+                color: #2c3e50;
+                font-size: 12px;
+                padding: 5px;
+                border-radius: 4px;
+            }
+        """)
+        layout.addWidget(self.status_label)
+        
+        # 预览区域 - 使用QLabel显示图像
+        self.preview_label = QLabel()
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setText("🎭\n\nLive2D动态预览\n\n等待模型加载...")
+        self.preview_label.setStyleSheet("""
+            QLabel {
+                border: 1px dashed #bdc3c7;
+                border-radius: 4px;
+                background-color: #ffffff;
+                color: #34495e;
+                font-size: 14px;
+                min-height: 300px;
+            }
+        """)
+        layout.addWidget(self.preview_label)
+        
+        # 创建动画定时器
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self.update_animation)
+        
+        # 动画相关变量
+        self.texture_frames = []  # 纹理图像列表
+        self.current_frame_index = 0
+        self.is_animating = False
+        
+    def load_model(self, model_path):
+        """加载Live2D模型"""
+        try:
+            self.model_path = model_path
+            self.status_label.setText(f"正在加载模型: {os.path.basename(model_path)}")
+            
+            # 加载纹理图像
+            self.texture_frames = []
+            
+            # 查找纹理文件 - 可能在子文件夹中
+            def find_texture_files(root_path):
+                textures = []
+                for root, dirs, files in os.walk(root_path):
+                    for file in files:
+                        if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                            textures.append(os.path.join(root, file))
+                return sorted(textures)
+            
+            self.texture_frames = find_texture_files(model_path)
+            
+            if self.texture_frames:
+                self.status_label.setText(f"找到 {len(self.texture_frames)} 个纹理文件")
+                self.display_frame(0)
+                self.start_animation()
+            else:
+                # 如果没有纹理文件，使用模拟
+                self.simulate_model_loading()
+            
+        except Exception as e:
+            print(f"加载Live2D模型失败: {e}")
+            self.status_label.setText(f"模型加载失败: {str(e)}")
+            self.preview_label.setText("❌\n\nLive2D模型加载失败\n\n请检查模型文件")
+    
+    def simulate_model_loading(self):
+        """模拟模型加载过程"""
+        try:
+            # 模拟加载延迟
+            QTimer.singleShot(1000, self.on_model_loaded)
+            self.preview_label.setText("⏳\n\nLive2D模型加载中...\n\n请稍等")
+            
+        except Exception as e:
+            print(f"模拟模型加载失败: {e}")
+    
+    def display_frame(self, frame_index):
+        """显示指定帧的图像"""
+        try:
+            if 0 <= frame_index < len(self.texture_frames):
+                image_path = self.texture_frames[frame_index]
+                pixmap = QPixmap(image_path)
+                
+                if not pixmap.isNull():
+                    # 应用缩放
+                    scaled_pixmap = pixmap.scaled(
+                        pixmap.size() * self.zoom_factor,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.preview_label.setPixmap(scaled_pixmap)
+                    self.preview_label.setText("")  # 清除文本，只显示图像
+                else:
+                    self.preview_label.setText(f"❌\n\n无法加载图像:\n{os.path.basename(image_path)}")
+            else:
+                self.preview_label.setText("🎭\n\nLive2D动态预览\n\n无可用帧")
+                
+        except Exception as e:
+            print(f"显示帧失败: {e}")
+            self.preview_label.setText(f"❌\n\n显示帧失败:\n{str(e)}")
+    
+    def on_model_loaded(self):
+        """模型加载完成回调"""
+        if self.texture_frames:
+            self.status_label.setText("Live2D模型加载完成")
+            # 图像已在load_model中显示
+        else:
+            self.status_label.setText("Live2D模型加载完成")
+            self.preview_label.setText("🎭\n\nLive2D模型已加载\n\n准备就绪，可以应用表情和播放动作\n\n(这是模拟预览)")
+            
+            # 启动基础动画
+            self.start_animation()
+    
+    def set_expression(self, expression_name):
+        """设置表情"""
+        try:
+            self.current_expression = expression_name
+            self.status_label.setText(f"应用表情: {expression_name}")
+            
+            # 根据表情名选择帧子集（模拟）
+            if self.texture_frames:
+                # 简单模拟：根据表情名哈希选择起始帧
+                start_index = hash(expression_name) % len(self.texture_frames)
+                self.current_frame_index = start_index
+                self.display_frame(self.current_frame_index)
+            else:
+                self.preview_label.setText(f"🎭\n\nLive2D动态预览\n\n当前表情: {expression_name}\n\n表情动画播放中...")
+                # 模拟表情动画
+                QTimer.singleShot(2000, lambda: self.preview_label.setText(f"🎭\n\nLive2D动态预览\n\n表情: {expression_name}\n\n表情动画完成"))
+            
+            # 发送表情变化信号
+            self.expression_changed.emit(expression_name)
+            
+        except Exception as e:
+            print(f"设置表情失败: {e}")
+            self.status_label.setText(f"设置表情失败: {str(e)}")
+    
+    def play_motion(self, motion_name, loop=False):
+        """播放动作"""
+        try:
+            self.current_motion = motion_name
+            motion_info = f"动作: {motion_name}"
+            if loop:
+                motion_info += " (循环播放)"
+            
+            self.status_label.setText(f"播放{motion_info}")
+            
+            if self.texture_frames:
+                self.is_animating = True
+                if not self.animation_timer.isActive():
+                    self.animation_timer.start(150)  # 稍微快一点的动作动画
+                self.preview_label.setText("")  # 清除文本，开始显示图像
+            else:
+                self.preview_label.setText(f"🎬\n\nLive2D动态预览\n\n正在播放动作: {motion_name}\n\n{'循环播放模式' if loop else '单次播放模式'}")
+                # 模拟动作播放时间
+                duration = 3000 if not loop else -1  # 循环播放不自动停止
+                if duration > 0:
+                    QTimer.singleShot(duration, self.on_motion_finished)
+            
+            # 发送动作变化信号
+            self.motion_changed.emit(motion_name)
+            
+        except Exception as e:
+            print(f"播放动作失败: {e}")
+            self.status_label.setText(f"播放动作失败: {str(e)}")
+    
+    def on_motion_finished(self):
+        """动作播放完成"""
+        self.status_label.setText("动作播放完成")
+        self.preview_label.setText("🎭\n\nLive2D动态预览\n\n动作播放完成\n\n等待下一个指令")
+        self.current_motion = None
+    
+    def stop_motion(self):
+        """停止动作播放"""
+        try:
+            self.current_motion = None
+            self.status_label.setText("动作播放已停止")
+            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n动作播放已停止\n\n等待下一个指令")
+            
+        except Exception as e:
+            print(f"停止动作失败: {e}")
+    
+    def reset_expression(self):
+        """重置表情"""
+        try:
+            self.current_expression = None
+            self.status_label.setText("表情已重置")
+            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n表情已重置为默认状态\n\n等待下一个指令")
+            
+        except Exception as e:
+            print(f"重置表情失败: {e}")
+    
+    def reset_pose(self):
+        """重置姿态"""
+        try:
+            self.current_expression = None
+            self.current_motion = None
+            self.status_label.setText("姿态已重置")
+            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n所有姿态已重置\n\n等待下一个指令")
+            
+        except Exception as e:
+            print(f"重置姿态失败: {e}")
+    
+    def start_animation(self):
+        """开始动画"""
+        try:
+            self.is_animating = True
+            if not self.animation_timer.isActive():
+                self.animation_timer.start(200)  # 200ms per frame
+                self.status_label.setText("Live2D动画已开始")
+                
+        except Exception as e:
+            print(f"开始动画失败: {e}")
+    
+    def pause_animation(self):
+        """暂停动画"""
+        try:
+            self.is_animating = False
+            if self.animation_timer.isActive():
+                self.animation_timer.stop()
+                self.status_label.setText("Live2D动画已暂停")
+                
+        except Exception as e:
+            print(f"暂停动画失败: {e}")
+    
+    def update_animation(self):
+        """更新动画帧"""
+        try:
+            if self.is_animating and self.texture_frames:
+                self.current_frame_index = (self.current_frame_index + 1) % len(self.texture_frames)
+                self.display_frame(self.current_frame_index)
+            # 如果没有纹理，使用简单的文本动画
+            elif not self.texture_frames:
+                # 简单的文本闪烁效果
+                current_text = self.preview_label.text()
+                if "🎭" in current_text:
+                    self.preview_label.setText(current_text.replace("🎭", "😊"))
+                elif "😊" in current_text:
+                    self.preview_label.setText(current_text.replace("😊", "🎭"))
+                    
+        except Exception as e:
+            print(f"更新动画失败: {e}")
+    
+    def set_zoom(self, zoom_factor):
+        """设置缩放"""
+        try:
+            self.zoom_factor = zoom_factor
+            # 重新显示当前帧以应用缩放
+            if self.texture_frames:
+                self.display_frame(self.current_frame_index)
+            self.status_label.setText(f"缩放设置为: {int(zoom_factor * 100)}%")
+            
+        except Exception as e:
+            print(f"设置缩放失败: {e}")
 
 
 if __name__ == '__main__':

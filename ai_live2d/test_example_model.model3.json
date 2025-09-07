@@ -1,0 +1,45 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "example.moc3",
+    "Textures": [
+      "texture_00.png",
+      "texture_01.png"
+    ],
+    "Expressions": [
+      {
+        "Name": "happy",
+        "File": "expressions/happy.exp3.json"
+      },
+      {
+        "Name": "sad",
+        "File": "expressions/sad.exp3.json"
+      },
+      {
+        "Name": "angry",
+        "File": "expressions/angry.exp3.json"
+      }
+    ],
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/idle_01.motion3.json"
+        },
+        {
+          "File": "motions/idle_02.motion3.json"
+        }
+      ],
+      "TapHead": [
+        {
+          "File": "motions/tap_head.motion3.json"
+        }
+      ]
+    }
+  },
+  "Layout": {
+    "CenterX": 0.0,
+    "CenterY": 0.0,
+    "Width": 2.0,
+    "Height": 2.0
+  }
+}
