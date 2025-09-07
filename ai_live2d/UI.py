@@ -8498,6 +8498,29 @@ class Widget(Interface):
         self.vBoxLayout.addWidget(audio_device_group)
         self.vBoxLayout.addStretch()
 
+    def stop_audio_playback(self):
+        """停止当前音频播放"""
+        try:
+            # 如果有WebAPI服务器，停止其音频播放
+            if hasattr(self, 'webapi_server') and self.webapi_server:
+                if hasattr(self.webapi_server, 'ui_widget') and self.webapi_server.ui_widget:
+                    if hasattr(self.webapi_server.ui_widget, 'stop_audio_playback'):
+                        self.webapi_server.ui_widget.stop_audio_playback()
+            
+            # 如果有音频播放线程，停止它
+            if hasattr(self, 'audio_thread') and self.audio_thread is not None:
+                try:
+                    self.audio_thread.stop()
+                    self.audio_thread.wait(3000)  # 等待最多3秒
+                except Exception as e:
+                    print(f"停止音频线程时出错: {e}")
+                finally:
+                    self.audio_thread = None
+            
+            print("音频播放已停止")
+        except Exception as e:
+            print(f"停止音频播放时出错: {e}")
+
     def _get_detailed_system_info(self):
         """获取详细的系统信息"""
         try:
@@ -11735,6 +11758,38 @@ class Window(FramelessWindow):
             
         except Exception as e:
             print(f"关闭worker线程时出错: {e}")
+    
+    def _cleanup_live2d_processes(self):
+        """清理所有Live2D预览进程"""
+        try:
+            # 清理Live2D预览进程列表
+            if hasattr(self, 'live2d_preview_processes'):
+                active_processes = []
+                for process in self.live2d_preview_processes:
+                    try:
+                        if process.poll() is None:  # 进程仍在运行
+                            print("终止Live2D预览进程...")
+                            process.terminate()
+                            # 等待进程结束，最多等待3秒
+                            try:
+                                process.wait(timeout=3.0)
+                                print("Live2D预览进程已终止")
+                            except subprocess.TimeoutExpired:
+                                print("Live2D预览进程未在预期时间内终止，强制结束")
+                                process.kill()
+                                process.wait()
+                        else:
+                            print("Live2D预览进程已结束")
+                    except Exception as e:
+                        print(f"清理Live2D预览进程时出错: {e}")
+                        active_processes.append(process)
+                
+                # 更新进程列表，只保留仍在运行的进程
+                self.live2d_preview_processes = active_processes
+            
+            print("Live2D预览进程清理完成")
+        except Exception as e:
+            print(f"清理Live2D预览进程失败: {e}")
     
     def _force_quit_app(self):
         """强制退出应用程序"""
