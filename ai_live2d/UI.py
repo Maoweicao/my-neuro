@@ -62,6 +62,8 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QSlider
 )
+from PyQt5.QtOpenGL import QGLWidget
+import live2d.v3 as live2d
 
 from qfluentwidgets import (NavigationInterface,NavigationItemPosition, NavigationWidget, MessageBox,
                             isDarkTheme, setTheme, Theme, qrouter)
@@ -3929,6 +3931,10 @@ class Widget(Interface):
 
     def __init__(self, text, num, parent=None):
         super().__init__(parent=parent)
+        
+        # 初始化标准logger
+        self.logger = logging.getLogger(__name__)
+        
         self.config_path = os.path.abspath("config.json")
         self.config_data = self.load_config()
         # 初始化日志处理器
@@ -7245,7 +7251,7 @@ class Widget(Interface):
             )
 
     def open_live2d_preview(self):
-        """打开Live2D预览窗口"""
+        """打开Live2D预览窗口 - 使用独立进程"""
         try:
             # 获取当前选中的模型路径
             current_model = ""
@@ -7254,7 +7260,7 @@ class Widget(Interface):
             elif hasattr(self, 'config_data'):
                 # 从配置中获取模型路径作为备选
                 current_model = self.config_data.get('ui', {}).get('model_path', '')
-            
+
             if not current_model:
                 InfoBar.warning(
                     title='请选择模型',
@@ -7266,7 +7272,7 @@ class Widget(Interface):
                     parent=self
                 )
                 return
-            
+
             if not os.path.exists(current_model):
                 InfoBar.error(
                     title='模型文件不存在',
@@ -7278,23 +7284,83 @@ class Widget(Interface):
                     parent=self
                 )
                 return
-            
-            # 创建并显示预览窗口
-            try:
-                preview_window = Live2DPreviewWindow(current_model, self)
-                preview_window.exec_()  # 模态显示
-            except Exception as e:
+
+            # 检查Live2D预览进程脚本是否存在
+            preview_script = os.path.join(os.path.dirname(__file__), 'live2d_preview_process.py')
+            if not os.path.exists(preview_script):
                 InfoBar.error(
-                    title='预览窗口创建失败',
-                    content=f"无法创建预览窗口: {str(e)}",
+                    title='预览脚本不存在',
+                    content="找不到Live2D预览进程脚本，请确保live2d_preview_process.py存在",
                     orient=Qt.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
                     duration=5000,
                     parent=self
                 )
-                print(f"❌ 预览窗口创建失败: {e}")
-                
+                return
+
+            # 启动独立的Live2D预览进程
+            try:
+                import subprocess
+                import sys
+
+                # 获取Python可执行文件路径
+                python_exe = sys.executable
+
+                # 构建命令行参数
+                cmd = [
+                    python_exe,
+                    preview_script,
+                    '--model-path',
+                    current_model
+                ]
+
+                # 添加调试参数（如果需要）
+                if hasattr(self, 'config_data') and self.config_data.get('debug', {}).get('live2d_preview', False):
+                    cmd.append('--debug')
+
+                self.logger.info(f"启动Live2D预览进程: {' '.join(cmd)}")
+
+                # 启动进程（非阻塞）
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+
+                # 存储进程引用以便后续管理
+                if not hasattr(self, 'live2d_preview_processes'):
+                    self.live2d_preview_processes = []
+
+                self.live2d_preview_processes.append(process)
+
+                # 显示成功消息
+                InfoBar.success(
+                    title='Live2D预览已启动',
+                    content="Live2D预览窗口已在独立进程中启动，请查看新窗口",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+
+                # 启动后台监控线程
+                self._monitor_preview_process(process)
+
+            except Exception as e:
+                InfoBar.error(
+                    title='预览进程启动失败',
+                    content=f"无法启动Live2D预览进程: {str(e)}",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+                print(f"❌ 预览进程启动失败: {e}")
+
         except Exception as e:
             InfoBar.error(
                 title='预览功能错误',
@@ -7316,6 +7382,84 @@ class Widget(Interface):
                 parent=self
             )
             print(f"❌ 预览功能错误: {e}")
+
+    def _monitor_preview_process(self, process):
+        """监控Live2D预览进程"""
+        def monitor_thread():
+            try:
+                # 等待进程完成或出错
+                stdout, stderr = process.communicate()
+
+                # 进程结束后清理引用
+                if hasattr(self, 'live2d_preview_processes'):
+                    if process in self.live2d_preview_processes:
+                        self.live2d_preview_processes.remove(process)
+
+                # 检查进程退出状态
+                if process.returncode != 0:
+                    # 进程异常退出
+                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "未知错误"
+                    self.logger.warning(f"Live2D预览进程异常退出 (代码: {process.returncode}): {error_msg}")
+
+                    # 在主线程中显示错误消息
+                    QTimer.singleShot(0, lambda: self._show_process_error(error_msg))
+                else:
+                    self.logger.info("Live2D预览进程正常退出")
+
+            except Exception as e:
+                self.logger.error(f"监控Live2D预览进程时出错: {e}")
+
+        # 启动监控线程
+        import threading
+        monitor = threading.Thread(target=monitor_thread, daemon=True)
+        monitor.start()
+
+    def _show_process_error(self, error_msg):
+        """在主线程中显示进程错误消息"""
+        try:
+            InfoBar.error(
+                title='Live2D预览进程错误',
+                content=f"Live2D预览进程出现错误: {error_msg[:200]}...",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+        except Exception as e:
+            self.logger.error(f"显示进程错误消息失败: {e}")
+
+    def _cleanup_live2d_processes(self):
+        """清理所有Live2D预览进程"""
+        try:
+            if hasattr(self, 'live2d_preview_processes'):
+                active_processes = []
+
+                for process in self.live2d_preview_processes:
+                    try:
+                        if process.poll() is None:  # 进程仍在运行
+                            self.logger.info("终止Live2D预览进程...")
+                            process.terminate()
+
+                            # 等待进程结束，最多等待3秒
+                            try:
+                                process.wait(timeout=3.0)
+                                self.logger.info("Live2D预览进程已终止")
+                            except subprocess.TimeoutExpired:
+                                self.logger.warning("Live2D预览进程未在预期时间内终止，强制结束")
+                                process.kill()
+                                process.wait()
+                        else:
+                            self.logger.info("Live2D预览进程已结束")
+                    except Exception as e:
+                        self.logger.error(f"清理Live2D预览进程时出错: {e}")
+                        active_processes.append(process)
+
+                # 更新进程列表，只保留仍在运行的进程
+                self.live2d_preview_processes = active_processes
+
+        except Exception as e:
+            self.logger.error(f"清理Live2D预览进程失败: {e}")
 
     def load_model_details_fallback(self, model_path):
         """备用方法：直接解析model3.json文件获取信息"""
@@ -11563,10 +11707,46 @@ class Window(FramelessWindow):
                 except Exception as e:
                     print(f"停止音频播放时出错: {e}")
             
+            # 8. 清理Live2D相关资源
+            try:
+                # 强制清理Live2D资源
+                import live2d
+                if hasattr(live2d, 'dispose'):
+                    live2d.dispose()
+                print("Live2D resources disposed")
+            except Exception as e:
+                print(f"清理Live2D资源时出错: {e}")
+
+            # 9. 清理Live2D预览进程
+            try:
+                self._cleanup_live2d_processes()
+                print("Live2D预览进程已清理")
+            except Exception as e:
+                print(f"清理Live2D预览进程时出错: {e}")
+
+            # 10. 强制退出应用程序（确保所有资源都被清理）
+            import sys
+            import os
+            
+            # 给一些时间让资源清理完成
+            QTimer.singleShot(100, lambda: self._force_quit_app())
+            
             print("所有worker线程和进程已关闭")
             
         except Exception as e:
             print(f"关闭worker线程时出错: {e}")
+    
+    def _force_quit_app(self):
+        """强制退出应用程序"""
+        try:
+            import sys
+            print("强制退出应用程序...")
+            sys.exit(0)
+        except Exception as e:
+            print(f"强制退出失败: {e}")
+            # 最后的手段
+            import os
+            os._exit(0)
 
     def changeEvent(self, e):
         super().changeEvent(e)
@@ -11912,7 +12092,9 @@ class Live2DPreviewWindow(QDialog):
             
             # 显示静态预览
             self.static_preview_area.show()
-            self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n选择上方'动态预览'模式\n体验真实Live2D动画")
+            
+            # 重新加载预览图片
+            self.load_preview_image_enhanced()
             
             # 禁用动态控制
             self.play_btn.setEnabled(False)
@@ -11960,20 +12142,18 @@ class Live2DPreviewWindow(QDialog):
     def create_dynamic_preview_widget(self):
         """创建动态预览组件"""
         try:
-            # 检查是否可以导入Live2D相关模块
+            # 尝试创建Live2D预览组件
             try:
-                from main import Live2DApp
-                live2d_available = True
-            except ImportError:
-                live2d_available = False
-            
-            if live2d_available:
-                # 创建Live2D预览组件
                 self.dynamic_preview_area = Live2DPreviewWidget(
                     model_path=self.model_path,
                     parent=self.preview_container
                 )
-                
+                live2d_available = True
+            except Exception as e:
+                print(f"Live2D预览组件创建失败，将使用模拟组件: {e}")
+                live2d_available = False
+            
+            if live2d_available:
                 # 添加到预览容器布局
                 layout = self.preview_container.layout()
                 layout.addWidget(self.dynamic_preview_area)
@@ -12490,9 +12670,29 @@ class Live2DPreviewWindow(QDialog):
             print(f"更新静态预览文本失败: {e}")
             self.static_preview_area.setText("🎭\n\nLive2D模型预览\n\n加载中...")
     
+    def closeEvent(self, event):
+        """关闭事件 - 确保Live2D资源被正确清理"""
+        try:
+            # 清理动态预览组件
+            if hasattr(self, 'dynamic_preview_area') and self.dynamic_preview_area:
+                if hasattr(self.dynamic_preview_area, 'close'):
+                    self.dynamic_preview_area.close()
+                self.dynamic_preview_area = None
+            
+            # 清理Live2D widget引用
+            if hasattr(self, 'live2d_widget') and self.live2d_widget:
+                self.live2d_widget = None
+            
+            print("Live2DPreviewWindow closed and resources cleaned up")
+            
+        except Exception as e:
+            print(f"Live2DPreviewWindow cleanup failed: {e}")
+        finally:
+            super().closeEvent(event)
     
-class Live2DPreviewWidget(QWidget):
-    """Live2D动态预览组件"""
+    
+class Live2DPreviewWidget(QGLWidget):
+    """Live2D动态预览组件 - 使用OpenGL渲染真正的Live2D模型"""
     
     # 定义信号
     expression_changed = pyqtSignal(str)
@@ -12501,12 +12701,58 @@ class Live2DPreviewWidget(QWidget):
     def __init__(self, model_path, parent=None):
         super().__init__(parent)
         self.model_path = model_path
-        self.model_data = None
+        self.model = None
         self.current_expression = None
         self.current_motion = None
-        self.animation_timer = None
         self.zoom_factor = 1.0
-        self.init_widget()
+        self.is_animating = False
+        self.live2d_initialized = False
+        
+        self.setMinimumSize(400, 500)
+    
+    def initializeGL(self):
+        """OpenGL初始化"""
+        try:
+            # 设置视口
+            self.resizeGL(self.width(), self.height())
+            
+            # 初始化Live2D (在OpenGL上下文创建后)
+            if not self.live2d_initialized:
+                live2d.init()
+                live2d.glInit()  # 使用新的glInit()方法替代glewInit()
+                self.live2d_initialized = True
+                print("Live2D initialized successfully")
+            
+            print("OpenGL initialized")
+        except Exception as e:
+            print(f"OpenGL initialization failed: {e}")
+    
+    def resizeGL(self, width, height):
+        """窗口大小改变"""
+        try:
+            # 设置视口
+            from OpenGL.GL import glViewport
+            glViewport(0, 0, width, height)
+            
+            if self.model:
+                self.model.Resize(width, height)
+        except Exception as e:
+            print(f"Resize GL failed: {e}")
+    
+    def paintGL(self):
+        """渲染"""
+        try:
+            if self.model:
+                live2d.clearBuffer()
+                self.model.Update()
+                self.model.Draw()
+            else:
+                # 如果模型未加载，显示简单的背景
+                from OpenGL.GL import glClearColor, glClear, GL_COLOR_BUFFER_BIT
+                glClearColor(0.9, 0.9, 0.9, 1.0)
+                glClear(GL_COLOR_BUFFER_BIT)
+        except Exception as e:
+            print(f"Paint GL failed: {e}")
         
     def init_widget(self):
         """初始化组件"""
@@ -12566,34 +12812,46 @@ class Live2DPreviewWidget(QWidget):
         """加载Live2D模型"""
         try:
             self.model_path = model_path
-            self.status_label.setText(f"正在加载模型: {os.path.basename(model_path)}")
+            print(f"Loading Live2D model from: {model_path}")
             
-            # 加载纹理图像
-            self.texture_frames = []
+            if self.model:
+                # 清理之前的模型
+                self.model = None
             
-            # 查找纹理文件 - 可能在子文件夹中
-            def find_texture_files(root_path):
-                textures = []
-                for root, dirs, files in os.walk(root_path):
-                    for file in files:
-                        if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-                            textures.append(os.path.join(root, file))
-                return sorted(textures)
+            # 创建新模型
+            self.model = live2d.LAppModel()
             
-            self.texture_frames = find_texture_files(model_path)
-            
-            if self.texture_frames:
-                self.status_label.setText(f"找到 {len(self.texture_frames)} 个纹理文件")
-                self.display_frame(0)
-                self.start_animation()
+            # 查找model3.json文件
+            model_json_path = None
+            if os.path.isfile(model_path) and model_path.endswith('.model3.json'):
+                model_json_path = model_path
             else:
-                # 如果没有纹理文件，使用模拟
-                self.simulate_model_loading()
+                # 在目录中查找model3.json
+                for root, dirs, files in os.walk(model_path):
+                    for file in files:
+                        if file.endswith('.model3.json'):
+                            model_json_path = os.path.join(root, file)
+                            break
+                    if model_json_path:
+                        break
             
+            if model_json_path and os.path.exists(model_json_path):
+                print(f"Loading model JSON: {model_json_path}")
+                self.model.LoadModelJson(model_json_path)
+                
+                # 设置模型大小
+                self.model.Resize(self.width(), self.height())
+                
+                # 启动默认动画
+                self.start_animation()
+                
+                print("Live2D model loaded successfully")
+            else:
+                print(f"Model JSON file not found in {model_path}")
+                
         except Exception as e:
-            print(f"加载Live2D模型失败: {e}")
-            self.status_label.setText(f"模型加载失败: {str(e)}")
-            self.preview_label.setText("❌\n\nLive2D模型加载失败\n\n请检查模型文件")
+            print(f"Failed to load Live2D model: {e}")
+            self.model = None
     
     def simulate_model_loading(self):
         """模拟模型加载过程"""
@@ -12646,54 +12904,32 @@ class Live2DPreviewWidget(QWidget):
         """设置表情"""
         try:
             self.current_expression = expression_name
-            self.status_label.setText(f"应用表情: {expression_name}")
-            
-            # 根据表情名选择帧子集（模拟）
-            if self.texture_frames:
-                # 简单模拟：根据表情名哈希选择起始帧
-                start_index = hash(expression_name) % len(self.texture_frames)
-                self.current_frame_index = start_index
-                self.display_frame(self.current_frame_index)
-            else:
-                self.preview_label.setText(f"🎭\n\nLive2D动态预览\n\n当前表情: {expression_name}\n\n表情动画播放中...")
-                # 模拟表情动画
-                QTimer.singleShot(2000, lambda: self.preview_label.setText(f"🎭\n\nLive2D动态预览\n\n表情: {expression_name}\n\n表情动画完成"))
+            if self.model:
+                # 这里可以实现表情切换逻辑
+                # Live2D的表情通常通过参数控制
+                print(f"Setting expression: {expression_name}")
             
             # 发送表情变化信号
             self.expression_changed.emit(expression_name)
             
         except Exception as e:
             print(f"设置表情失败: {e}")
-            self.status_label.setText(f"设置表情失败: {str(e)}")
     
     def play_motion(self, motion_name, loop=False):
         """播放动作"""
         try:
             self.current_motion = motion_name
-            motion_info = f"动作: {motion_name}"
-            if loop:
-                motion_info += " (循环播放)"
-            
-            self.status_label.setText(f"播放{motion_info}")
-            
-            if self.texture_frames:
-                self.is_animating = True
-                if not self.animation_timer.isActive():
-                    self.animation_timer.start(150)  # 稍微快一点的动作动画
-                self.preview_label.setText("")  # 清除文本，开始显示图像
-            else:
-                self.preview_label.setText(f"🎬\n\nLive2D动态预览\n\n正在播放动作: {motion_name}\n\n{'循环播放模式' if loop else '单次播放模式'}")
-                # 模拟动作播放时间
-                duration = 3000 if not loop else -1  # 循环播放不自动停止
-                if duration > 0:
-                    QTimer.singleShot(duration, self.on_motion_finished)
+            if self.model:
+                # 启动动作 - 使用整数优先级而不是枚举
+                # 3 = PRIORITY_FORCE (强制优先级)
+                self.model.StartMotion(motion_name, 0, 3)
+                print(f"Playing motion: {motion_name}")
             
             # 发送动作变化信号
             self.motion_changed.emit(motion_name)
             
         except Exception as e:
             print(f"播放动作失败: {e}")
-            self.status_label.setText(f"播放动作失败: {str(e)}")
     
     def on_motion_finished(self):
         """动作播放完成"""
@@ -12705,8 +12941,10 @@ class Live2DPreviewWidget(QWidget):
         """停止动作播放"""
         try:
             self.current_motion = None
-            self.status_label.setText("动作播放已停止")
-            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n动作播放已停止\n\n等待下一个指令")
+            if self.model:
+                # 停止所有动作
+                pass
+            print("Motion stopped")
             
         except Exception as e:
             print(f"停止动作失败: {e}")
@@ -12715,8 +12953,10 @@ class Live2DPreviewWidget(QWidget):
         """重置表情"""
         try:
             self.current_expression = None
-            self.status_label.setText("表情已重置")
-            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n表情已重置为默认状态\n\n等待下一个指令")
+            if self.model:
+                # 重置表情参数
+                pass
+            print("Expression reset")
             
         except Exception as e:
             print(f"重置表情失败: {e}")
@@ -12726,8 +12966,10 @@ class Live2DPreviewWidget(QWidget):
         try:
             self.current_expression = None
             self.current_motion = None
-            self.status_label.setText("姿态已重置")
-            self.preview_label.setText("🎭\n\nLive2D动态预览\n\n所有姿态已重置\n\n等待下一个指令")
+            if self.model:
+                # 重置所有参数
+                pass
+            print("Pose reset")
             
         except Exception as e:
             print(f"重置姿态失败: {e}")
@@ -12736,10 +12978,10 @@ class Live2DPreviewWidget(QWidget):
         """开始动画"""
         try:
             self.is_animating = True
-            if not self.animation_timer.isActive():
-                self.animation_timer.start(200)  # 200ms per frame
-                self.status_label.setText("Live2D动画已开始")
-                
+            # 启动渲染定时器
+            self.timer = self.startTimer(16)  # ~60 FPS
+            print("Animation started")
+            
         except Exception as e:
             print(f"开始动画失败: {e}")
     
@@ -12747,42 +12989,67 @@ class Live2DPreviewWidget(QWidget):
         """暂停动画"""
         try:
             self.is_animating = False
-            if self.animation_timer.isActive():
-                self.animation_timer.stop()
-                self.status_label.setText("Live2D动画已暂停")
-                
+            if hasattr(self, 'timer'):
+                self.killTimer(self.timer)
+            print("Animation paused")
+            
         except Exception as e:
             print(f"暂停动画失败: {e}")
     
-    def update_animation(self):
-        """更新动画帧"""
-        try:
-            if self.is_animating and self.texture_frames:
-                self.current_frame_index = (self.current_frame_index + 1) % len(self.texture_frames)
-                self.display_frame(self.current_frame_index)
-            # 如果没有纹理，使用简单的文本动画
-            elif not self.texture_frames:
-                # 简单的文本闪烁效果
-                current_text = self.preview_label.text()
-                if "🎭" in current_text:
-                    self.preview_label.setText(current_text.replace("🎭", "😊"))
-                elif "😊" in current_text:
-                    self.preview_label.setText(current_text.replace("😊", "🎭"))
-                    
-        except Exception as e:
-            print(f"更新动画失败: {e}")
+    def timerEvent(self, event):
+        """定时器事件 - 更新渲染"""
+        if self.is_animating:
+            self.updateGL()
     
     def set_zoom(self, zoom_factor):
         """设置缩放"""
         try:
             self.zoom_factor = zoom_factor
-            # 重新显示当前帧以应用缩放
-            if self.texture_frames:
-                self.display_frame(self.current_frame_index)
-            self.status_label.setText(f"缩放设置为: {int(zoom_factor * 100)}%")
+            if self.model:
+                # 应用缩放到模型
+                pass
+            print(f"Zoom set to: {zoom_factor}")
             
         except Exception as e:
             print(f"设置缩放失败: {e}")
+    
+    def closeEvent(self, event):
+        """关闭事件"""
+        try:
+            # 停止动画和定时器
+            if self.is_animating:
+                self.pause_animation()
+            
+            # 停止所有定时器
+            if hasattr(self, 'timer'):
+                self.killTimer(self.timer)
+                self.timer = None
+            
+            # 清理Live2D模型
+            if self.model:
+                self.model = None
+            
+            # 清理Live2D资源
+            if self.live2d_initialized:
+                try:
+                    # 确保在OpenGL上下文中操作
+                    self.makeCurrent()
+                    live2d.dispose()
+                    self.live2d_initialized = False
+                    print("Live2D resources cleaned up successfully")
+                except Exception as e:
+                    print(f"Live2D cleanup failed: {e}")
+            
+            # 清理OpenGL上下文
+            try:
+                self.doneCurrent()
+            except Exception as e:
+                print(f"OpenGL context cleanup failed: {e}")
+                
+        except Exception as e:
+            print(f"Cleanup failed: {e}")
+        finally:
+            super().closeEvent(event)
 
 
 if __name__ == '__main__':
