@@ -35,6 +35,9 @@ class LLMClient:
         self.model = config.get("llm", {}).get("model", "gpt-3.5-turbo")
         self.system_prompt = config.get("llm", {}).get("system_prompt", "")
         
+        # 多模态支持配置
+        self.multimodal_supported = config.get("llm", {}).get("multimodal_supported", False)
+        
         # 上下文管理配置
         self.enable_limit = config.get("llm", {}).get("enable_limit", True)
         self.max_messages = config.get("llm", {}).get("max_messages", 10)
@@ -64,6 +67,8 @@ class LLMClient:
         )
         
         logger.info("初始化LLM客户端... [ 完成 ]")
+        if not self.multimodal_supported:
+            logger.info("多模态功能已禁用，将忽略图片输入")
 
     def set_callbacks(self, on_llm_output: Optional[Callable[[str], Coroutine]] = None):
         """设置回调函数"""
@@ -81,12 +86,19 @@ class LLMClient:
         Returns:
             添加后的消息列表
         """
-        if not image_data:
+        # 检查是否支持多模态
+        multimodal_supported = getattr(self, 'multimodal_supported', False)
+        
+        if not image_data or not multimodal_supported:
+            # 如果没有图片数据或者不支持多模态，只添加文本内容
             self.messages.append({
                 "role": role,
                 "content": content
             })
+            if image_data and not multimodal_supported:
+                logger.warning("检测到图片数据，但当前LLM服务器不支持多模态，已忽略图片内容")
         else:
+            # 支持多模态时使用OpenAI标准格式
             self.messages.append({
                 "role": role,
                 "content": [

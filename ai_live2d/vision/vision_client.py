@@ -40,6 +40,20 @@ class VisionClient:
     async def check_vision_needed(self, text: str) -> bool:
         """高效判断是否需要截图"""
         try:
+            # 检查视觉检查功能是否启用
+            vision_config = self.config.get("vision", {})
+            check_enabled = vision_config.get("check_enabled", False)
+            
+            if not check_enabled:
+                # 如果未启用视觉检查，则根据文本内容简单判断
+                vision_keywords = ['看', '看一下', '看看', '图片', '图像', '照片', '截图', '显示', '展示']
+                return any(keyword in text for keyword in vision_keywords)
+            
+            # 检查URL是否配置
+            if not self.check_url or self.check_url == "http://127.0.0.1:6006/check":
+                logger.warning("视觉检查URL未配置或使用默认值，跳过网络检查")
+                return False
+            
             # 构建请求URL
             url = f"{self.check_url}?text={text}"
             # 使用连接池发送请求
@@ -62,10 +76,12 @@ class VisionClient:
                 return need_vision
         
         except aiohttp.ClientError as e:
-            logger.warning(f"视觉检查网络错误: {e}")
-            return False
+            logger.warning(f"视觉检查网络错误: {e}，将使用本地关键词判断")
+            # 网络错误时回退到关键词判断
+            vision_keywords = ['看', '看一下', '看看', '图片', '图像', '照片', '截图', '显示', '展示']
+            return any(keyword in text for keyword in vision_keywords)
         except Exception as e:
-            logger.error(f"视觉检查处理错误: {e}")
+            logger.error(f"视觉检查处理错误: {e}，跳过视觉检查")
             return False
     
     async def take_screenshot(self):

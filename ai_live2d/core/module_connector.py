@@ -206,7 +206,7 @@ class ModuleConnector:
         """
         初始化视觉模块
         """
-        # 创建视觉客户端
+        # 创建视觉客户端 - 使用统一的视觉开关
         if self.switch_config.get("vision_enabled", True):
             logger.info("视觉功能模块... [ 已启用 ]")
             vision_client = VisionClient(self.config, self.event_bus)

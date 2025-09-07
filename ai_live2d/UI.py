@@ -3700,20 +3700,45 @@ class ModelFetchWorker(QThread):
             import requests  # 延迟导入，避免无依赖时影响主程序
         except Exception:
             return None, '未安装 requests 库，无法请求模型列表。'
-        url = base_url.rstrip('/') + '/models'
-        headers = {}
+            
+        # 构建模型API URL，支持多种格式
+        if '/models' in base_url:
+            url = base_url
+        elif '/v1' in base_url:
+            url = base_url + '/models'
+        else:
+            url = base_url.rstrip('/') + '/v1/models'
+            
+        headers = {
+            'User-Agent': 'AI-Live2D/1.0'
+        }
+        
         if self.api_key:
             headers['Authorization'] = f'Bearer {self.api_key}'
+            
+        print(f"🔍 请求模型列表: {url}")
+        print(f"🔑 使用API Key: {'是' if self.api_key else '否'}")
+        
         try:
             r = requests.get(url, headers=headers, timeout=15)
         except Exception as e:
             return None, f'网络请求失败：{e}'
+            
+        print(f"📡 响应状态码: {r.status_code}")
+        
         if r.status_code >= 400:
-            return None, f'HTTP {r.status_code} 错误：{r.text[:200]}'
+            error_detail = r.text[:500] if r.text else "无详细错误信息"
+            return None, f'HTTP {r.status_code} 错误：{error_detail}'
+            
         try:
             j = r.json()
+            print(f"✓ 成功获取响应，数据类型: {type(j)}")
+            if isinstance(j, dict):
+                data_count = len(j.get('data', []))
+                print(f"📊 响应包含 {data_count} 个模型")
         except Exception as e:
             return None, f'解析响应失败：{e}'
+            
         return j, None
 
     def _request_models_ollama(self, base_url: str):
@@ -3753,34 +3778,63 @@ class ModelFetchWorker(QThread):
                         models.append(item['name'])
             return list(dict.fromkeys(models))  # 去重并保持顺序
         
-        # OpenAI兼容API格式
+        # OpenAI兼容API格式 - 支持多种响应格式
         if isinstance(payload, dict):
-            data = None
-            if isinstance(payload.get('data'), list):
-                data = payload['data']
-            elif isinstance(payload.get('models'), list):
-                data = payload['models']
-            if data is not None:
+            # 优先查找 data 字段（OpenAI标准格式）
+            data = payload.get('data')
+            if not data:
+                # 备选字段：models, choices, items 等
+                data = payload.get('models') or payload.get('choices') or payload.get('items')
+                
+            if isinstance(data, list):
                 for item in data:
                     if isinstance(item, str):
                         models.append(item)
                     elif isinstance(item, dict):
-                        mid = item.get('id') or item.get('name') or item.get('model') or item.get('slug')
-                        if isinstance(mid, str):
-                            models.append(mid)
+                        # 尝试多个可能的字段名
+                        model_id = (item.get('id') or 
+                                  item.get('name') or 
+                                  item.get('model') or 
+                                  item.get('slug') or
+                                  item.get('model_name') or
+                                  item.get('model_id'))
+                        if isinstance(model_id, str):
+                            models.append(model_id)
+            
+            # 如果没有找到data字段，直接从根级别查找
+            if not models:
+                for key in ['models', 'data', 'choices', 'items']:
+                    if key in payload and isinstance(payload[key], list):
+                        for item in payload[key]:
+                            if isinstance(item, str):
+                                models.append(item)
+                            elif isinstance(item, dict):
+                                model_id = (item.get('id') or 
+                                          item.get('name') or 
+                                          item.get('model') or 
+                                          item.get('slug'))
+                                if isinstance(model_id, str):
+                                    models.append(model_id)
+                        break
+                        
         elif isinstance(payload, list):
+            # 直接是数组格式
             for item in payload:
                 if isinstance(item, str):
                     models.append(item)
                 elif isinstance(item, dict):
-                    mid = item.get('id') or item.get('name') or item.get('model') or item.get('slug')
-                    if isinstance(mid, str):
-                        models.append(mid)
+                    model_id = (item.get('id') or 
+                              item.get('name') or 
+                              item.get('model') or 
+                              item.get('slug'))
+                    if isinstance(model_id, str):
+                        models.append(model_id)
+        
         # 去重并保持顺序
         seen = set()
         dedup = []
         for m in models:
-            if m not in seen:
+            if m and m not in seen:  # 过滤空字符串
                 seen.add(m)
                 dedup.append(m)
         return dedup
@@ -3799,25 +3853,58 @@ class ModelFetchWorker(QThread):
             if err is None and payload is not None:
                 models = self._extract_models(payload)
         else:
-            # OpenAI兼容API：先尝试 /models，再尝试 /v1/models
-            payload, err = self._request_models_openai(self.api_url)
-            if err is None and payload is not None:
-                models = self._extract_models(payload)
-            # 兜底：如果为空或失败，尝试 /v1/models（避免重复尝试）
-            if (err is not None or not models) and '/v1' not in self.api_url:
-                payload2, err2 = self._request_models_openai(self.api_url.rstrip('/') + '/v1')
-                if err2 is None and payload2 is not None:
-                    models = self._extract_models(payload2)
-                    err = None
+            # OpenAI兼容API：尝试多种端点格式
+            base_url = self.api_url.rstrip('/')
+            
+            # 尝试的端点列表
+            endpoints_to_try = []
+            
+            # 如果URL已经包含具体端点，直接使用
+            if '/models' in base_url:
+                endpoints_to_try.append(base_url)
+            else:
+                # 按优先级尝试不同的端点
+                endpoints_to_try = [
+                    f"{base_url}/v1/models",  # 标准OpenAI格式
+                    f"{base_url}/models",     # 简化格式
+                    f"{base_url}/api/v1/models",  # 一些服务商的格式
+                ]
+            
+            # 逐个尝试端点
+            for endpoint in endpoints_to_try:
+                print(f"🔍 尝试端点: {endpoint}")
+                
+                # 临时修改URL进行请求
+                original_url = self.api_url
+                self.api_url = endpoint
+                
+                payload, err = self._request_models_openai(endpoint)
+                
+                # 恢复原始URL
+                self.api_url = original_url
+                
+                if err is None and payload is not None:
+                    models = self._extract_models(payload)
+                    if models:  # 如果成功获取到模型，停止尝试
+                        print(f"✓ 成功从端点获取模型: {endpoint}")
+                        break
                 else:
-                    err = err or err2
+                    print(f"❌ 端点失败: {endpoint}, 错误: {err}")
+            
+            # 如果所有端点都失败，使用最后一个错误
+            if not models and err:
+                pass  # 保留最后的错误信息
         
         if models:
+            print(f"✓ 总共获取到 {len(models)} 个模型")
             self.success.emit(models)
         else:
             error_msg = err or '未获取到可用模型'
             if self.api_type == "Ollama API":
                 error_msg += '\n提示：请确保Ollama服务正在运行，并且URL格式正确（如：http://localhost:11434）'
+            else:
+                error_msg += '\n提示：请检查API URL和API Key是否正确，支持的格式如：\n• https://api.openai.com\n• https://api.siliconflow.cn\n• http://localhost:8000'
+            print(f"❌ 获取模型失败: {error_msg}")
             self.error.emit(error_msg)
 
 class Interface(ScrollArea):
@@ -3961,6 +4048,9 @@ class Widget(Interface):
         # 初始化LLM交互日志记录器
         self.init_llm_logger()
 
+        # 检查和配置视觉功能
+        self.check_and_configure_vision()
+
         # 初始化Live2D模型连接
         self.init_live2d_connection()
 
@@ -4020,6 +4110,57 @@ class Widget(Interface):
         if log_enabled:
             self.webapi_logger.log_system_event("WebAPI交互日志系统已启动")
     
+    def check_and_configure_vision(self):
+        """检查主模型视觉支持情况并配置视觉功能"""
+        try:
+            # 获取配置
+            llm_config = self.config_data.get('llm', {})
+            vision_config = self.config_data.get('vision', {})
+            setting_config = self.config_data.get('setting', {})
+            
+            main_model = llm_config.get('model', '').lower()
+            vision_enabled = setting_config.get('vision_enabled', True)
+            
+            if not vision_enabled:
+                print("视觉功能已禁用")
+                return
+            
+            # 检查主模型是否支持视觉
+            vision_supported_models = [
+                'gpt-4-vision', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo',
+                'claude-3', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-3-5-sonnet',
+                'gemini-pro-vision', 'gemini-1.5-pro', 'gemini-1.5-flash',
+                'qwen-vl', 'qwen2-vl', 'internvl', 'llava', 'moondream'
+            ]
+            
+            main_supports_vision = any(vm in main_model for vm in vision_supported_models)
+            
+            if main_supports_vision:
+                print(f"✓ 主模型 {main_model} 支持视觉功能")
+                # 确保视觉配置正确
+                if 'vision' not in self.config_data:
+                    self.config_data['vision'] = {}
+                self.config_data['vision']['enabled'] = True
+                self.config_data['vision']['fallback_only'] = True  # 优先使用主模型
+            else:
+                print(f"⚠ 主模型 {main_model} 不支持视觉功能")
+                # 检查是否有视觉模型配置
+                vision_api_key = vision_config.get('api_key', '')
+                vision_api_url = vision_config.get('api_url', '')
+                
+                if vision_api_key and vision_api_url:
+                    print("✓ 已配置独立的视觉模型，将自动启用视觉识别")
+                    if 'vision' not in self.config_data:
+                        self.config_data['vision'] = {}
+                    self.config_data['vision']['enabled'] = True
+                    self.config_data['vision']['fallback_only'] = False  # 需要使用独立视觉模型
+                else:
+                    print("⚠ 未配置独立的视觉模型，视觉功能将受限")
+                    print("  建议在视觉标签页中配置视觉模型的API Key和URL")
+            
+        except Exception as e:
+            print(f"检查视觉配置时出错: {e}")
+
     def init_live2d_connection(self):
         """初始化Live2D模型连接"""
         try:
@@ -4789,9 +4930,10 @@ class Widget(Interface):
             if not llm_config.get('api_url') or not llm_config.get('api_key'):
                 return "错误：LLM配置不完整，请检查API URL和API Key设置"
             
-            # 获取视觉配置
+            # 获取视觉配置和开关状态
             vision_config = self.config_data.get('vision', {})
-            vision_enabled = vision_config.get('enabled', False)
+            setting_config = self.config_data.get('setting', {})
+            vision_enabled = setting_config.get('vision_enabled', True)  # 使用统一的视觉开关
             
             # 检查是否有图片数据且需要视觉处理
             vision_result = ""
@@ -4800,8 +4942,13 @@ class Widget(Interface):
                 main_model = llm_config.get('model', '')
                 fallback_only = vision_config.get('fallback_only', True)
                 
-                # 判断主模型是否支持视觉（简单的模型名称判断）
-                vision_supported_models = ['gpt-4-vision', 'gpt-4o', 'claude-3', 'gemini-pro-vision']
+                # 判断主模型是否支持视觉（更全面的模型名称判断）
+                vision_supported_models = [
+                    'gpt-4-vision', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo',
+                    'claude-3', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-3-5-sonnet',
+                    'gemini-pro-vision', 'gemini-1.5-pro', 'gemini-1.5-flash',
+                    'qwen-vl', 'qwen2-vl', 'internvl', 'llava', 'moondream'
+                ]
                 main_supports_vision = any(vm in main_model.lower() for vm in vision_supported_models)
                 
                 # 如果主模型不支持视觉，或者不是仅fallback模式，则使用视觉模型
@@ -4904,14 +5051,24 @@ class Widget(Interface):
             if not vision_config.get('api_url') or not vision_config.get('api_key'):
                 return "错误：视觉模型配置不完整，请检查API URL和API Key设置"
             
-            api_url = vision_config['api_url'].rstrip('/') + '/chat/completions'
+            # 构建API URL，支持多种格式
+            base_url = vision_config['api_url'].rstrip('/')
+            if '/chat/completions' not in base_url:
+                if '/v1' in base_url:
+                    api_url = base_url + '/chat/completions'
+                else:
+                    api_url = base_url + '/v1/chat/completions'
+            else:
+                api_url = base_url
+                
             api_key = vision_config['api_key']
             model = vision_config.get('model', 'gpt-4-vision-preview')
             vision_prompt = vision_config.get('system_prompt', '请仔细观察这张图片，描述你看到的内容。')
             
             headers = {
                 'Content-Type': 'application/json',
-                'Authorization': f'Bearer {api_key}'
+                'Authorization': f'Bearer {api_key}',
+                'User-Agent': 'AI-Live2D/1.0'
             }
             
             # 处理图片数据
@@ -4944,8 +5101,13 @@ class Widget(Interface):
                 "max_tokens": 500
             }
             
+            print(f"🔍 发送视觉识别请求到: {api_url}")
+            print(f"🤖 使用模型: {model}")
+            
             # 发送视觉识别请求
             response = requests.post(api_url, headers=headers, json=data, timeout=30)
+            
+            print(f"📡 响应状态码: {response.status_code}")
             
             if response.status_code == 200:
                 result = response.json()
@@ -4954,9 +5116,11 @@ class Widget(Interface):
                     print(f"✓ 视觉识别完成: {vision_result[:100]}...")
                     return vision_result
                 else:
+                    print(f"❌ 响应格式错误: {result}")
                     return "错误：视觉模型返回的响应格式不正确"
             else:
-                error_msg = f"HTTP {response.status_code}: {response.text}"
+                error_msg = f"HTTP {response.status_code}: {response.text[:500]}"
+                print(f"❌ API请求失败: {error_msg}")
                 return f"错误：视觉模型API请求失败 - {error_msg}"
                 
         except Exception as e:
@@ -5056,99 +5220,90 @@ class Widget(Interface):
                 return
             
             # 执行视觉识别
-            InfoBar.info(
-                title='视觉识别中...',
-                content='正在进行图片识别，请稍候',
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
+            self.vision_result_browser.clear()
+            self.vision_result_browser.append("<b>[视觉识别]</b> 开始进行图片识别...")
             
-            # 在后台线程中执行识别
-            import threading
-            def run_vision_test():
-                try:
-                    result = self._process_vision_request(image_data, vision_config)
-                    
-                    # 在主线程中显示结果
-                    def show_result():
-                        if result.startswith("错误："):
-                            InfoBar.error(
-                                title='视觉识别失败',
-                                content=result,
-                                orient=Qt.Horizontal,
-                                isClosable=True,
-                                position=InfoBarPosition.TOP,
-                                duration=5000,
-                                parent=self
-                            )
-                        else:
-                            # 创建结果显示对话框
-                            dialog = QDialog(self)
-                            dialog.setWindowTitle("视觉识别结果")
-                            dialog.setModal(True)
-                            dialog.resize(600, 400)
-                            
-                            layout = QVBoxLayout(dialog)
-                            
-                            # 添加结果文本框
-                            result_text = QTextEdit()
-                            result_text.setPlainText(result)
-                            result_text.setReadOnly(True)
-                            layout.addWidget(result_text)
-                            
-                            # 添加关闭按钮
-                            close_btn = QPushButton("关闭")
-                            close_btn.clicked.connect(dialog.accept)
-                            layout.addWidget(close_btn)
-                            
-                            dialog.exec_()
-                            
-                            InfoBar.success(
-                                title='视觉识别成功',
-                                content='已完成图片识别，结果已显示',
-                                orient=Qt.Horizontal,
-                                isClosable=True,
-                                position=InfoBarPosition.TOP,
-                                duration=3000,
-                                parent=self
-                            )
-                    
-                    # 使用QTimer在主线程中执行
-                    from PyQt5.QtCore import QTimer
-                    QTimer.singleShot(0, show_result)
-                    
-                except Exception as e:
-                    def show_error():
-                        InfoBar.error(
-                            title='测试异常',
-                            content=f'视觉识别测试过程中出错: {str(e)}',
-                            orient=Qt.Horizontal,
-                            isClosable=True,
-                            position=InfoBarPosition.TOP,
-                            duration=5000,
-                            parent=self
-                        )
-                    
-                    from PyQt5.QtCore import QTimer
-                    QTimer.singleShot(0, show_error)
+            # 创建信号处理器用于UI更新
+            from PyQt5.QtCore import QThread, pyqtSignal
             
-            test_thread = threading.Thread(target=run_vision_test)
-            test_thread.daemon = True
-            test_thread.start()
+            class VisionTestWorker(QThread):
+                finished = pyqtSignal(str)
+                error = pyqtSignal(str)
+                
+                def __init__(self, parent_widget, image_data, vision_config):
+                    super().__init__()
+                    self.parent_widget = parent_widget
+                    self.image_data = image_data
+                    self.vision_config = vision_config
+                
+                def run(self):
+                    try:
+                        result = self.parent_widget._process_vision_request(self.image_data, self.vision_config)
+                        self.finished.emit(result)
+                    except Exception as e:
+                        self.error.emit(str(e))
+            
+            # 创建并启动工作线程
+            self.vision_worker = VisionTestWorker(self, image_data, vision_config)
+            self.vision_worker.finished.connect(self._on_vision_test_finished)
+            self.vision_worker.error.connect(self._on_vision_test_error)
+            self.vision_worker.start()
             
         except Exception as e:
-            InfoBar.error(
-                title='测试失败',
-                content=f"测试过程中出错: {str(e)}",
+            self.vision_result_browser.append(f'<p style="color:red;"><b>[视觉识别测试失败]</b> {str(e)}</p>')
+            self._scroll_vision_result_to_bottom()
+    
+    def _on_vision_test_finished(self, result):
+        """视觉识别测试完成的回调"""
+        try:
+            if result.startswith("错误："):
+                self.vision_result_browser.append(f'<p style="color:red;"><b>[视觉识别失败]</b></p><p>{result}</p>')
+            else:
+                self.vision_result_browser.append(f'<p style="color:green;"><b>[视觉识别成功]</b></p>')
+                self.vision_result_browser.append(f'<div style="margin: 10px 0; padding: 10px; background-color: #f0f8ff; border-left: 4px solid #007acc; border-radius: 4px;"><b>识别结果:</b><br>{result}</div>')
+            
+            self._scroll_vision_result_to_bottom()
+            
+            # 显示成功提示
+            InfoBar.success(
+                title='视觉识别完成',
+                content='识别结果已显示在下方区域',
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=3000,
                 parent=self
             )
+            
+        except Exception as e:
+            print(f"更新视觉识别结果失败: {e}")
+    
+    def _on_vision_test_error(self, error_msg):
+        """视觉识别测试错误的回调"""
+        try:
+            self.vision_result_browser.append(f'<p style="color:red;"><b>[视觉识别测试异常]</b></p><p>{error_msg}</p>')
+            self._scroll_vision_result_to_bottom()
+            
+            InfoBar.error(
+                title='视觉识别失败',
+                content=f'测试过程中发生错误: {error_msg[:50]}...',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+            
+        except Exception as e:
+            print(f"显示视觉识别错误失败: {e}")
+    
+    def _scroll_vision_result_to_bottom(self):
+        """滚动视觉识别结果到底部"""
+        try:
+            scrollbar = self.vision_result_browser.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+        except Exception as e:
+            print(f"滚动视觉识别结果失败: {e}")
     
     def interrupt_current_operations(self):
         """打断当前AI输出和语音播放 - 只发送中断信号，由main.py处理"""
@@ -5437,6 +5592,19 @@ class Widget(Interface):
         self.widgets['vision.enabled'] = {"widget": vision_enabled_check, "type": "checkbox"}
         vision_form.addRow("启用视觉模式:", vision_enabled_check)
         
+        # 启用视觉检查（新增功能）
+        vision_check_enabled_check = CheckBox()
+        vision_check_enabled_check.setChecked(bool(self.config_data.get('vision', {}).get('check_enabled', False)))
+        self.widgets['vision.check_enabled'] = {"widget": vision_check_enabled_check, "type": "checkbox"}
+        vision_form.addRow("启用视觉检查:", vision_check_enabled_check)
+        
+        # 视觉检查URL（新增功能）
+        vision_check_url = LineEdit()
+        vision_check_url.setText(self.config_data.get('vision', {}).get('check_url', 'http://127.0.0.1:6006/check'))
+        vision_check_url.setPlaceholderText("视觉检查服务的URL地址")
+        self.widgets['vision.check_url'] = {"widget": vision_check_url, "type": "lineedit"}
+        vision_form.addRow("检查URL:", vision_check_url)
+        
         # 视觉模型API Key
         vision_api_key = PasswordLineEdit()
         vision_api_key.setText(self.config_data.get('vision', {}).get('api_key', ''))
@@ -5446,7 +5614,7 @@ class Widget(Interface):
         
         # 视觉模型API URL
         vision_api_url = LineEdit()
-        vision_api_url.setText(self.config_data.get('vision', {}).get('api_url', ''))
+        vision_api_url.setText(self.config_data.get('vision', {}).get('api_url', 'https://api.siliconflow.cn'))
         vision_api_url.setPlaceholderText("如: https://api.openai.com 或其他兼容接口")
         self.widgets['vision.api_url'] = {"widget": vision_api_url, "type": "lineedit"}
         vision_form.addRow("视觉模型API URL:", vision_api_url)
@@ -5499,6 +5667,21 @@ class Widget(Interface):
         vision_help_label.setWordWrap(True)
         vision_help_label.setStyleSheet("color: #666; font-size: 12px; padding: 10px;")
         vision_test_form.addRow("", vision_help_label)
+        
+        # 结果显示区域
+        self.vision_result_browser = TextBrowser()
+        self.vision_result_browser.setMinimumHeight(200)
+        self.vision_result_browser.setMaximumHeight(300)
+        self.vision_result_browser.setPlaceholderText("视觉识别结果将在这里显示...")
+        self.vision_result_browser.setStyleSheet("""
+            QTextBrowser {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: #fafafa;
+            }
+        """)
+        vision_test_form.addRow("识别结果:", self.vision_result_browser)
         
         self.vBoxLayout.addWidget(vision_test_group)
 
@@ -8150,7 +8333,6 @@ class Widget(Interface):
         self.create_rag_tab()
         self.create_mcp_tab()
         self.create_memory_tab()
-        self.create_vision_tab()
         self.create_bilibili_tab()
         self.create_auto_chat_tab()
 
@@ -8194,16 +8376,6 @@ class Widget(Interface):
         ]
         
         group = self.create_form_group(self, "记忆配置", fields)
-        self.vBoxLayout.addWidget(group)
-        self.vBoxLayout.addStretch()
-
-    def create_vision_tab(self):
-        """创建视觉配置标签页"""
-        fields = [
-            ("检查URL", "vision.check_url", "lineedit", "")
-        ]
-        
-        group = self.create_form_group(self, "视觉配置", fields)
         self.vBoxLayout.addWidget(group)
         self.vBoxLayout.addStretch()
 
@@ -8265,6 +8437,11 @@ class Widget(Interface):
         if 'setting.action_buttons_enabled' in self.widgets:
             action_buttons_checkbox = self.widgets['setting.action_buttons_enabled']['widget']
             action_buttons_checkbox.stateChanged.connect(self.on_action_buttons_enabled_changed)
+        
+        # 为视觉开关添加状态变化处理
+        if 'setting.vision_enabled' in self.widgets:
+            vision_checkbox = self.widgets['setting.vision_enabled']['widget']
+            vision_checkbox.stateChanged.connect(self.on_vision_enabled_changed)
         
         self.vBoxLayout.addWidget(group)
         
@@ -8814,6 +8991,43 @@ class Widget(Interface):
 
         except Exception as e:
             print(f"处理动作按钮开关状态变化失败: {e}")
+
+    def on_vision_enabled_changed(self, state):
+        """视觉开关状态变化处理"""
+        try:
+            vision_enabled = state == Qt.Checked  # Qt.CheckState.Checked == 2
+            
+            # 自动更新视觉配置中的启用状态
+            if 'vision.enabled' in self.widgets:
+                vision_checkbox = self.widgets['vision.enabled']['widget']
+                vision_checkbox.blockSignals(True)  # 阻止信号循环
+                vision_checkbox.setChecked(vision_enabled)
+                vision_checkbox.blockSignals(False)
+            
+            # 更新配置数据
+            if 'vision' not in self.config_data:
+                self.config_data['vision'] = {}
+            self.config_data['vision']['enabled'] = vision_enabled
+            
+            # 显示状态提示
+            status_text = "已启用" if vision_enabled else "已禁用"
+            InfoBar.info(
+                title='视觉功能设置',
+                content=f"视觉识别功能{status_text}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+            if self.logger:
+                self.logger.info(f"视觉功能{'启用' if vision_enabled else '禁用'}")
+                
+        except Exception as e:
+            print(f"处理视觉开关状态变化失败: {e}")
+            if self.logger:
+                self.logger.error(f"处理视觉开关状态变化失败: {e}")
 
     def _update_log_status(self):
         """更新日志状态显示"""
@@ -11403,6 +11617,28 @@ class TerminalRoom(Interface):
     def _on_finished(self, key: str):
         self._update_status(key, False)
         self._append(key, '进程已退出。')
+
+    def on_vision_enabled_changed(self, state):
+        """视觉开关状态变化处理"""
+        try:
+            vision_enabled = state == 2  # Qt.CheckState.Checked == 2
+            
+            # 自动更新视觉配置中的启用状态
+            if 'vision.enabled' in self.widgets:
+                vision_checkbox = self.widgets['vision.enabled']['widget']
+                vision_checkbox.blockSignals(True)  # 阻止信号循环
+                vision_checkbox.setChecked(vision_enabled)
+                vision_checkbox.blockSignals(False)
+            
+            # 更新配置数据
+            if 'vision' not in self.config_data:
+                self.config_data['vision'] = {}
+            self.config_data['vision']['enabled'] = vision_enabled
+            
+            print(f"视觉功能已{'启用' if vision_enabled else '禁用'}")
+            
+        except Exception as e:
+            print(f"处理视觉开关状态变化时出错: {e}")
 
 class AvatarWidget(NavigationWidget):
     """ Avatar widget """
