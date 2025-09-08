@@ -213,6 +213,19 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 response_text = f"处理错误: {str(e)}"
             
             chat_duration = (time.time() - chat_start_time) * 1000
+
+            # 输出前应用过滤器
+            try:
+                from content_filter import check as filter_check
+                is_blocked, final_text, reason, repl = filter_check(response_text, getattr(self.ui_widget, 'config_path', 'config.json'))
+                if is_blocked:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_system_event(f"[过滤命中] {reason}")
+                    response_text = final_text
+            except Exception as _e:
+                # 过滤异常不阻断主流程
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"过滤器异常: {_e}")
             
             # 记录聊天响应
             if hasattr(self.ui_widget, 'webapi_logger'):
@@ -392,6 +405,18 @@ class WebAPIHandler(BaseHTTPRequestHandler):
                 response_text = f"处理错误: {str(e)}"
             
             dialogue_processing_duration = (time.time() - dialogue_processing_start) * 1000
+
+            # 输出前应用过滤器
+            try:
+                from content_filter import check as filter_check
+                is_blocked, final_text, reason, repl = filter_check(response_text, getattr(self.ui_widget, 'config_path', 'config.json'))
+                if is_blocked:
+                    if hasattr(self.ui_widget, 'webapi_logger'):
+                        self.ui_widget.webapi_logger.log_system_event(f"[过滤命中] {reason}")
+                    response_text = final_text
+            except Exception as _e:
+                if hasattr(self.ui_widget, 'webapi_logger'):
+                    self.ui_widget.webapi_logger.log_system_event(f"过滤器异常: {_e}")
             
             # 记录台词转换响应
             if hasattr(self.ui_widget, 'webapi_logger'):
@@ -4248,7 +4273,8 @@ class Widget(Interface):
                     self.create_animation_tab,
                     self.create_other_tab,
                     self.create_setting_tab,
-                    self.create_voice_clone_tab
+                    self.create_voice_clone_tab,
+                    self.create_filter_tab
                     ]
         return tab_list[num]
     
@@ -5769,6 +5795,324 @@ class Widget(Interface):
 
         self.vBoxLayout.addWidget(trans_group)
         self.vBoxLayout.addStretch()
+
+    def create_filter_tab(self):
+        """创建过滤器配置标签页"""
+        self.startButton.hide()
+        self.closeButton.hide()
+
+        # 清空布局
+        while self.vBoxLayout.count():
+            item = self.vBoxLayout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        # 关键词过滤
+        kw_group = QGroupBox("关键词过滤")
+        kw_form = QFormLayout(kw_group)
+
+        kw_enabled = CheckBox()
+        kw_enabled.setChecked(bool(self.config_data.get('filters', {}).get('keyword', {}).get('enabled', False)))
+        self.widgets['filters.keyword.enabled'] = {"widget": kw_enabled, "type": "checkbox"}
+        kw_form.addRow("启用关键词过滤:", kw_enabled)
+
+        kw_mode = QComboBox()
+        kw_mode.addItems(["contains", "exact", "regex"])
+        kw_mode.setCurrentText(self.config_data.get('filters', {}).get('keyword', {}).get('mode', 'contains'))
+        self.widgets['filters.keyword.mode'] = {"widget": kw_mode, "type": "combobox"}
+        kw_form.addRow("匹配模式:", kw_mode)
+
+        kw_case = CheckBox()
+        kw_case.setChecked(bool(self.config_data.get('filters', {}).get('keyword', {}).get('case_sensitive', False)))
+        self.widgets['filters.keyword.case_sensitive'] = {"widget": kw_case, "type": "checkbox"}
+        kw_form.addRow("区分大小写:", kw_case)
+
+        kw_words = QTextEdit()
+        kw_words.setPlaceholderText("每行一个或用逗号分隔，例如：\n涉黄\n涉政, 暴力")
+        kw_words.setMinimumHeight(100)
+        kw_words.setPlainText(self.config_data.get('filters', {}).get('keyword', {}).get('words', ''))
+        self.widgets['filters.keyword.words'] = {"widget": kw_words, "type": "textedit"}
+        kw_form.addRow("关键词列表:", kw_words)
+
+        self.vBoxLayout.addWidget(kw_group)
+
+        # LLM 审核
+        llm_group = QGroupBox("LLM过滤（参考视觉模型配置样式）")
+        llm_form = QFormLayout(llm_group)
+
+        llm_enabled = CheckBox()
+        llm_enabled.setChecked(bool(self.config_data.get('filters', {}).get('llm', {}).get('enabled', False)))
+        self.widgets['filters.llm.enabled'] = {"widget": llm_enabled, "type": "checkbox"}
+        llm_form.addRow("启用LLM过滤:", llm_enabled)
+
+        llm_api_key = PasswordLineEdit()
+        llm_api_key.setText(self.config_data.get('filters', {}).get('llm', {}).get('api_key', ''))
+        self.widgets['filters.llm.api_key'] = {"widget": llm_api_key, "type": "passwordlineedit"}
+        llm_form.addRow("API Key:", llm_api_key)
+
+        llm_api_url = LineEdit()
+        llm_api_url.setText(self.config_data.get('filters', {}).get('llm', {}).get('api_url', self.config_data.get('llm', {}).get('api_url', '')))
+        self.widgets['filters.llm.api_url'] = {"widget": llm_api_url, "type": "lineedit"}
+        llm_form.addRow("API URL:", llm_api_url)
+
+        # 模型（可编辑下拉 + 获取按钮）
+        self.filter_llm_model_combo = QComboBox()
+        self.filter_llm_model_combo.setEditable(True)
+        model_val = self.config_data.get('filters', {}).get('llm', {}).get('model', '')
+        if model_val:
+            self.filter_llm_model_combo.setEditText(str(model_val))
+        fetch_btn = QPushButton('获取模型')
+        fetch_btn.clicked.connect(lambda: self._on_click_fetch_models(
+            api_url_key='filters.llm.api_url', api_key_key='filters.llm.api_key', combo=self.filter_llm_model_combo, btn=fetch_btn
+        ))
+        r = QHBoxLayout()
+        r.addWidget(self.filter_llm_model_combo)
+        r.addWidget(fetch_btn)
+        ctn = QWidget()
+        ctn.setLayout(r)
+        llm_form.addRow("模型:", ctn)
+        self.widgets['filters.llm.model'] = {"widget": self.filter_llm_model_combo, "type": "combobox"}
+
+        llm_sp = QTextEdit()
+        llm_sp.setMinimumHeight(80)
+        llm_sp.setPlainText(self.config_data.get('filters', {}).get('llm', {}).get('system_prompt', '你是内容安全审核模型。只输出 ALLOW 或 BLOCK。'))
+        self.widgets['filters.llm.system_prompt'] = {"widget": llm_sp, "type": "textedit"}
+        llm_form.addRow("审核系统提示词:", llm_sp)
+
+        llm_allow_on_error = CheckBox()
+        llm_allow_on_error.setChecked(bool(self.config_data.get('filters', {}).get('llm', {}).get('allow_on_error', True)))
+        self.widgets['filters.llm.allow_on_error'] = {"widget": llm_allow_on_error, "type": "checkbox"}
+        llm_form.addRow("出错时放行(推荐):", llm_allow_on_error)
+
+        llm_timeout = SpinBox()
+        llm_timeout.setRange(1, 120)
+        llm_timeout.setValue(int(self.config_data.get('filters', {}).get('llm', {}).get('timeout', 15)))
+        self.widgets['filters.llm.timeout'] = {"widget": llm_timeout, "type": "spinbox"}
+        llm_form.addRow("超时(秒):", llm_timeout)
+
+        self.vBoxLayout.addWidget(llm_group)
+
+        # 易盾
+        yd_group = QGroupBox("网易云盾/易盾过滤")
+        yd_form = QFormLayout(yd_group)
+
+        yd_enabled = CheckBox()
+        yd_enabled.setChecked(bool(self.config_data.get('filters', {}).get('yidun', {}).get('enabled', False)))
+        self.widgets['filters.yidun.enabled'] = {"widget": yd_enabled, "type": "checkbox"}
+        yd_form.addRow("启用易盾过滤:", yd_enabled)
+
+        yd_api_url = LineEdit()
+        yd_api_url.setText(self.config_data.get('filters', {}).get('yidun', {}).get('api_url', ''))
+        self.widgets['filters.yidun.api_url'] = {"widget": yd_api_url, "type": "lineedit"}
+        yd_form.addRow("接口URL:", yd_api_url)
+
+        yd_sid = LineEdit()
+        yd_sid.setText(self.config_data.get('filters', {}).get('yidun', {}).get('secret_id', ''))
+        self.widgets['filters.yidun.secret_id'] = {"widget": yd_sid, "type": "lineedit"}
+        yd_form.addRow("Secret ID:", yd_sid)
+
+        yd_skey = PasswordLineEdit()
+        yd_skey.setText(self.config_data.get('filters', {}).get('yidun', {}).get('secret_key', ''))
+        self.widgets['filters.yidun.secret_key'] = {"widget": yd_skey, "type": "passwordlineedit"}
+        yd_form.addRow("Secret Key:", yd_skey)
+
+        yd_bid = LineEdit()
+        yd_bid.setText(self.config_data.get('filters', {}).get('yidun', {}).get('business_id', ''))
+        self.widgets['filters.yidun.business_id'] = {"widget": yd_bid, "type": "lineedit"}
+        yd_form.addRow("Business ID:", yd_bid)
+
+        yd_version = LineEdit()
+        yd_version.setText(self.config_data.get('filters', {}).get('yidun', {}).get('version', 'v5'))
+        self.widgets['filters.yidun.version'] = {"widget": yd_version, "type": "lineedit"}
+        yd_form.addRow("API版本:", yd_version)
+
+        yd_allow_on_error = CheckBox()
+        yd_allow_on_error.setChecked(bool(self.config_data.get('filters', {}).get('yidun', {}).get('allow_on_error', True)))
+        self.widgets['filters.yidun.allow_on_error'] = {"widget": yd_allow_on_error, "type": "checkbox"}
+        yd_form.addRow("出错时放行(推荐):", yd_allow_on_error)
+
+        yd_timeout = SpinBox()
+        yd_timeout.setRange(1, 60)
+        yd_timeout.setValue(int(self.config_data.get('filters', {}).get('yidun', {}).get('timeout', 10)))
+        self.widgets['filters.yidun.timeout'] = {"widget": yd_timeout, "type": "spinbox"}
+        yd_form.addRow("超时(秒):", yd_timeout)
+
+        self.vBoxLayout.addWidget(yd_group)
+
+        # 拦截替换与语音
+        rep_group = QGroupBox("拦截后的替换行为")
+        rep_form = QFormLayout(rep_group)
+
+        rep_text = LineEdit()
+        rep_text.setText(self.config_data.get('filters', {}).get('replacement', {}).get('text', '当前内容不予展示'))
+        rep_text.setPlaceholderText("例如：当前内容不予展示")
+        self.widgets['filters.replacement.text'] = {"widget": rep_text, "type": "lineedit"}
+        rep_form.addRow("替代文本:", rep_text)
+
+        play_voice = CheckBox()
+        play_voice.setChecked(bool(self.config_data.get('filters', {}).get('voice', {}).get('enabled', False)))
+        self.widgets['filters.voice.enabled'] = {"widget": play_voice, "type": "checkbox"}
+        rep_form.addRow("播放语音提示:", play_voice)
+
+        voice_text = LineEdit()
+        voice_text.setText(self.config_data.get('filters', {}).get('voice', {}).get('text', '当前内容已被过滤'))
+        self.widgets['filters.voice.text'] = {"widget": voice_text, "type": "lineedit"}
+        rep_form.addRow("语音提示内容:", voice_text)
+
+        self.vBoxLayout.addWidget(rep_group)
+
+        # 快速测试
+        test_group = QGroupBox("快速测试")
+        test_layout = QVBoxLayout(test_group)
+
+        self.filter_test_input = QTextEdit()
+        self.filter_test_input.setPlaceholderText("在这里输入要测试的文本内容……")
+        self.filter_test_input.setMinimumHeight(80)
+        test_layout.addWidget(self.filter_test_input)
+
+        btn_row = QHBoxLayout()
+        # 保存为实例属性，便于测试时禁用/启用
+        self.filter_btn_kw = QPushButton("仅测试关键词")
+        self.filter_btn_llm = QPushButton("仅测试LLM")
+        self.filter_btn_yd = QPushButton("仅测试易盾")
+        self.filter_btn_all = QPushButton("综合测试")
+
+        self.filter_btn_kw.clicked.connect(lambda: self._run_filter_test('keyword'))
+        self.filter_btn_llm.clicked.connect(lambda: self._run_filter_test('llm'))
+        self.filter_btn_yd.clicked.connect(lambda: self._run_filter_test('yidun'))
+        self.filter_btn_all.clicked.connect(lambda: self._run_filter_test('all'))
+
+        btn_row.addWidget(self.filter_btn_kw)
+        btn_row.addWidget(self.filter_btn_llm)
+        btn_row.addWidget(self.filter_btn_yd)
+        btn_row.addWidget(self.filter_btn_all)
+        test_layout.addLayout(btn_row)
+
+        self.vBoxLayout.addWidget(test_group)
+        self.vBoxLayout.addStretch()
+
+    def _run_filter_test(self, mode: str = 'all'):
+        """在后台线程中执行过滤测试，避免LLM/易盾网络请求阻塞UI。"""
+        try:
+            text = ''
+            if hasattr(self, 'filter_test_input') and self.filter_test_input:
+                text = self.filter_test_input.toPlainText().strip()
+            if not text:
+                InfoBar.warning(title='请输入内容', content='请在测试框中输入要测试的文本', orient=Qt.Horizontal,
+                                isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self)
+                return
+
+            # 采集当前界面配置到内存
+            try:
+                self.collect_values()
+            except Exception:
+                pass
+
+            import copy
+            cfg = copy.deepcopy(getattr(self, 'config_data', {}))
+
+            # 按钮禁用，提示开始
+            for btn in (
+                getattr(self, 'filter_btn_kw', None),
+                getattr(self, 'filter_btn_llm', None),
+                getattr(self, 'filter_btn_yd', None),
+                getattr(self, 'filter_btn_all', None),
+            ):
+                if btn:
+                    btn.setEnabled(False)
+
+            InfoBar.info(title='开始测试', content=f'模式: {mode}', orient=Qt.Horizontal,
+                         isClosable=True, position=InfoBarPosition.TOP, duration=1500, parent=self)
+
+            # 懒加载工作线程列表
+            if not hasattr(self, '_filter_workers'):
+                self._filter_workers = []
+
+            # 定义工作线程
+            from PyQt5.QtCore import QThread, pyqtSignal  # 仅用于类型提示，本函数内不直接使用
+            class _FilterTestWorker(QThread):
+                success = pyqtSignal(bool, str, str, str)  # is_blocked, final_text, reason, repl
+                error = pyqtSignal(str)
+
+                def __init__(self, text, cfg, mode, parent=None):
+                    super().__init__(parent)
+                    self._text = text
+                    self._cfg = cfg
+                    self._mode = mode
+
+                def run(self):
+                    try:
+                        import copy as _copy
+                        _cfg = _copy.deepcopy(self._cfg) if isinstance(self._cfg, dict) else {}
+                        _cfg.setdefault('filters', {})
+                        for k in ('keyword', 'llm', 'yidun'):
+                            _cfg['filters'].setdefault(k, {})
+                            _cfg['filters'][k].setdefault('enabled', False)
+                        if self._mode in ('keyword', 'llm', 'yidun'):
+                            for k in ('keyword', 'llm', 'yidun'):
+                                _cfg['filters'][k]['enabled'] = (k == self._mode)
+                        from content_filter import check as _filter_check
+                        res = _filter_check(self._text, _cfg)
+                        # 期望返回4元组
+                        self.success.emit(*res)
+                    except Exception as _e:
+                        self.error.emit(str(_e))
+
+            worker = _FilterTestWorker(text, cfg, mode, parent=self)
+
+            def _on_done(is_blocked: bool, final_text: str, reason: str, repl: str):
+                try:
+                    if is_blocked:
+                        snippet = (final_text or '')[:120]
+                        msg = f"原因: {reason or '未提供'}\n替换: {snippet}"
+                        InfoBar.warning(title='已拦截', content=msg, orient=Qt.Horizontal,
+                                        isClosable=True, position=InfoBarPosition.TOP, duration=5000, parent=self)
+                    else:
+                        # 如果是 LLM/易盾返回的非拦截原因，也提示出来，便于排查（比如未配置/超时）
+                        if isinstance(reason, str) and (reason.startswith('llm:') or reason.startswith('yidun:')):
+                            InfoBar.info(title='测试完成', content=f'原因: {reason}', orient=Qt.Horizontal,
+                                         isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
+                        else:
+                            InfoBar.success(title='通过', content='未命中过滤规则', orient=Qt.Horizontal,
+                                            isClosable=True, position=InfoBarPosition.TOP, duration=2500, parent=self)
+                finally:
+                    # 还原按钮状态并清理线程引用
+                    for btn in (
+                        getattr(self, 'filter_btn_kw', None),
+                        getattr(self, 'filter_btn_llm', None),
+                        getattr(self, 'filter_btn_yd', None),
+                        getattr(self, 'filter_btn_all', None),
+                    ):
+                        if btn:
+                            btn.setEnabled(True)
+                    if worker in self._filter_workers:
+                        self._filter_workers.remove(worker)
+
+            def _on_err(msg: str):
+                try:
+                    InfoBar.error(title='测试异常', content=msg, orient=Qt.Horizontal,
+                                  isClosable=True, position=InfoBarPosition.TOP, duration=5000, parent=self)
+                finally:
+                    for btn in (
+                        getattr(self, 'filter_btn_kw', None),
+                        getattr(self, 'filter_btn_llm', None),
+                        getattr(self, 'filter_btn_yd', None),
+                        getattr(self, 'filter_btn_all', None),
+                    ):
+                        if btn:
+                            btn.setEnabled(True)
+                    if worker in self._filter_workers:
+                        self._filter_workers.remove(worker)
+
+            worker.success.connect(_on_done)
+            worker.error.connect(_on_err)
+            self._filter_workers.append(worker)
+            worker.start()
+
+        except Exception as e:
+            InfoBar.error(title='异常', content=str(e), orient=Qt.Horizontal,
+                          isClosable=True, position=InfoBarPosition.TOP, duration=4000, parent=self)
 
     # ====== 模型获取：通用逻辑 ======
     def _on_click_fetch_models(self, api_url_key: str, api_key_key: str, combo: QComboBox, btn: QPushButton):
@@ -11756,8 +12100,7 @@ class Window(FramelessWindow):
         # setTheme(Theme.DARK)
 
         self.hBoxLayout = QHBoxLayout(self)
-        self.navigationInterface = NavigationInterface(
-            self, showMenuButton=True, showReturnButton=True)
+        self.navigationInterface = NavigationInterface(self, showMenuButton=True, showReturnButton=True)
         self.stackWidget = QStackedWidget(self)
 
         # create sub interface
@@ -11772,10 +12115,10 @@ class Window(FramelessWindow):
         self.OtherInterface = Widget('Others', 8, parent=self)
         self.SettingInterface = Widget('Setting', 9, parent=self)
         self.VoiceCloneInterface = Widget('VoiceClone', 10, parent=self)
+        self.FiltersInterface = Widget('Filters', 11, parent=self)
         self.TerminalInterface = TerminalRoom(self)
 
         # 动作按钮悬浮窗口已迁移到main.py中的PetService类
-
 
         # initialize layout
         self.initLayout()
@@ -11819,6 +12162,9 @@ class Window(FramelessWindow):
         self.addSubInterface(self.AnimationInterface, FIF.PLAY, '动画操控')
         self.addSubInterface(self.OtherInterface, FIF.APPLICATION, '其他')
         self.addSubInterface(self.VoiceCloneInterface, FIF.SPEAKERS, '声音克隆')
+        # 新增 过滤器 菜单
+        filter_icon = getattr(FIF, 'FILTER', getattr(FIF, 'SORT', FIF.APPLICATION))
+        self.addSubInterface(self.FiltersInterface, filter_icon, '过滤器')
         terminal_icon = getattr(FIF, 'TERMINAL', getattr(FIF, 'CONSOLE', getattr(FIF, 'CODE', FIF.APPLICATION)))
         self.addSubInterface(self.TerminalInterface, terminal_icon, '终端控制室')
 

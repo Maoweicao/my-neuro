@@ -1673,6 +1673,37 @@ class PetService:
             source: 字幕来源 (dialogue, singing, etc.)
         """
         try:
+            # 在展示前进行内容过滤
+            try:
+                from content_filter import check as filter_check
+                cfg_path = getattr(self, 'config_path', 'config.json') if hasattr(self, 'config_path') else 'config.json'
+                is_blocked, final_text, reason, repl = filter_check(text, cfg_path)
+                if is_blocked:
+                    if self.logger:
+                        self.logger.info(f">>> 字幕内容被过滤: {reason}")
+                    text = final_text
+                    # 可选：播放语音提示
+                    try:
+                        with open(cfg_path, 'r', encoding='utf-8') as f:
+                            cfg = json.load(f)
+                        voice_cfg = cfg.get('filters', {}).get('voice', {})
+                        if voice_cfg.get('enabled') and voice_cfg.get('text'):
+                            if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
+                                # 异步触发TTS播报
+                                try:
+                                    import asyncio
+                                    coro = self.app_manager.tts_client.speak(voice_cfg.get('text'))
+                                    if asyncio.iscoroutine(coro):
+                                        asyncio.create_task(coro)
+                                except Exception as te:
+                                    if self.logger:
+                                        self.logger.warning(f">>> 播放过滤语音提示失败: {te}")
+                    except Exception as _:
+                        pass
+            except Exception:
+                # 过滤流程失败时不影响字幕正常显示
+                pass
+
             if self.logger:
                 # 为歌词显示完整内容，其他内容截断显示
                 if source == "lyrics":
