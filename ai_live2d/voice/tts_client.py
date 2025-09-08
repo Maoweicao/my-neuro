@@ -195,9 +195,7 @@ class TTSClient:
             except Exception as e:
                 logger.error(f"关闭豆包TTS WebSocket连接错误: {e}")
         
-        # 关闭HTTP会话
-        if self.session and not self.session.closed:
-            await self.session.close()
+    # 保持本地HTTP会话以便快速恢复；如需彻底关闭请在shutdown处处理
         
         # 重置状态
         await self.reset()
@@ -532,8 +530,21 @@ class TTSClient:
         Args:
             text: 文本片段
         """
-        if self.shutdown_event.is_set():
-            return
+        # 自愈：若循环未运行则自动拉起
+        try:
+            if (self.processing_task is None or self.processing_task.done() or
+                self.playback_task is None or self.playback_task.done() or
+                self.shutdown_event.is_set()):
+                logger.debug("[tts] 检测到循环未运行，自动重启任务环")
+                # 清理标志后重启
+                self.shutdown_event.clear()
+                # 不重复创建过多任务
+                if self.processing_task is None or self.processing_task.done():
+                    self.processing_task = asyncio.create_task(self._process_text_loop())
+                if self.playback_task is None or self.playback_task.done():
+                    self.playback_task = asyncio.create_task(self._playback_loop())
+        except Exception as e:
+            logger.warning(f"[tts] 自动重启任务环失败: {e}")
         await self.text_segment_queue.put(text)
     
     def _segment_text(self, text):
@@ -575,6 +586,20 @@ class TTSClient:
         # 重置状态
         await self.reset()
         
+        # 自愈：若循环未运行则自动拉起
+        try:
+            if (self.processing_task is None or self.processing_task.done() or
+                self.playback_task is None or self.playback_task.done() or
+                self.shutdown_event.is_set()):
+                logger.debug("[tts] speak前检测到循环未运行，自动重启任务环")
+                self.shutdown_event.clear()
+                if self.processing_task is None or self.processing_task.done():
+                    self.processing_task = asyncio.create_task(self._process_text_loop())
+                if self.playback_task is None or self.playback_task.done():
+                    self.playback_task = asyncio.create_task(self._playback_loop())
+        except Exception as e:
+            logger.warning(f"[tts] speak自动重启失败: {e}")
+        
         # 分段处理文本
         segments = self._segment_text(text)
         for segment in segments:
@@ -582,6 +607,7 @@ class TTSClient:
     
     async def reset(self):
         """重置所有状态"""
+    # 注意：reset 只做内部状态与队列清空，不关闭HTTP会话，不发 tts_end
         # 清空文本
         self.current_full_text = ''
         self.displayed_text = ''
@@ -942,9 +968,13 @@ class TTSClient:
         
         for attempt in range(max_retries):
             try:
-                if not self.session:
-                    logger.error("本地TTS会话未初始化")
-                    return None
+                # 自动重建会话（被关闭或未初始化时）
+                if self.session is None or self.session.closed:
+                    logger.warning("本地TTS会话不可用，尝试重建会话...")
+                    self.session = aiohttp.ClientSession(
+                        connector=aiohttp.TCPConnector(limit_per_host=4),
+                        timeout=aiohttp.ClientTimeout(total=50)
+                    )
                 
                 logger.debug(f"本地TTS请求尝试 {attempt + 1}/{max_retries}: {text[:50]}...")
                 

@@ -5559,7 +5559,59 @@ class Widget(Interface):
         self.vBoxLayout.addLayout(main_layout)
 
         # 设置示例文本
-        self.left_browser.setText("终端输出于此处，毕竟是测试版本，如果出现了bug也很正常吧（")
+        leftHtml = """
+        <p>终端输出于此处，毕竟是测试版本，如果出现了bug也很正常吧（</p>
+                 <p class="text-xl md:text-2xl font-bold leading-relaxed">
+            <span style="color: #ff0000">当</span>
+            <span style="color: #ff7f00">前</span>
+            <span style="color: #ffff00">版</span>
+            <span style="color: #00ff00">本</span>
+            <span style="color: #00ffff">是</span>
+            <span style="color: #0000ff">一</span>
+            <span style="color: #8b00ff">个</span>
+            <span style="color: #ff0000">非</span>
+            <span style="color: #ff7f00">常</span>
+            <span style="color: #ffff00">不</span>
+            <span style="color: #00ff00">稳</span>
+            <span style="color: #00ffff">定</span>
+            <span style="color: #0000ff">的</span>
+            <span style="color: #8b00ff">版</span>
+            <span style="color: #ff0000">本</span>
+            <span style="color: #ff7f00">，</span>
+            <span style="color: #ffff00">🌈</span>
+            <span style="color: #00ff00">出</span>
+            <span style="color: #00ffff">现</span>
+            <span style="color: #0000ff">各</span>
+            <span style="color: #8b00ff">种</span>
+            <span style="color: #ff0000">问</span>
+            <span style="color: #ff7f00">题</span>
+            <span style="color: #ffff00">都</span>
+            <span style="color: #00ff00">有</span>
+            <span style="color: #00ffff">可</span>
+            <span style="color: #0000ff">能</span>
+            <span style="color: #8b00ff">，</span>
+            <span style="color: #ff0000">要</span>
+            <span style="color: #ff7f00">注</span>
+            <span style="color: #ffff00">意</span>
+            <span style="color: #00ff00">谨</span>
+            <span style="color: #00ffff">慎</span>
+            <span style="color: #0000ff">使</span>
+            <span style="color: #8b00ff">用</span>
+            <span style="color: #ff0000">哦</span>
+            <span style="color: #ff7f00">！</span>
+            <span style="color: #ffff00">༼</span>
+            <span style="color: #00ff00"> </span>
+            <span style="color: #00ffff">つ</span>
+            <span style="color: #0000ff"> </span>
+            <span style="color: #8b00ff">◕</span>
+            <span style="color: #ff0000">_</span>
+            <span style="color: #ff7f00">◕</span>
+            <span style="color: #ffff00"> </span>
+            <span style="color: #00ff00">༽</span>
+            <span style="color: #00ffff">つ</span>
+        </p>
+        """
+        self.left_browser.setHtml(leftHtml)
         self.right_browser.setHtml("<p>欢迎使用，点击按钮即可打开终端(*´∀ ˋ*)。<br/>什么，你想问上图作者是谁(*ﾟ∀ﾟ*)？<br/>是<b>菊花茶洋参</b>大佬哦ξ( ✿＞◡❛)<br>本体程序由<b>老汤圆</b>大佬完成(☄⊙ω⊙)☄<br>但是当前你运行的是由<b>猫尾草</b>魔改的版本~(￣0￣)/</p>")
         
         # 设置日志处理器

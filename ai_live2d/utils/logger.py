@@ -25,7 +25,7 @@ class ColoredFormatter(logging.Formatter):
         return f"{color}{message}{self.RESET}"
 
 
-def setup_logger(level=logging.INFO, log_file="pet_system.log"):
+def setup_logger(level=logging.DEBUG, log_file="pet_system.log"):
     """设置全局日志配置
     
     Args:

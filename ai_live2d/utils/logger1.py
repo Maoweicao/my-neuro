@@ -99,7 +99,7 @@ class ColoredFormatter(logging.Formatter):
         return f"{color}{message}{self.RESET}"
 
 
-def setup_logger(level=logging.INFO, 
+def setup_logger(level=logging.DEBUG, 
                  log_file="pet_system.log", 
                  streaming=True, 
                  char_delay=0.25):

@@ -8,6 +8,8 @@ import sys
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
+import re
+import json
 
 # 导入事件总线
 from core.event_bus import EventBus
@@ -19,6 +21,7 @@ from core.module_connector import ModuleConnector
 from models.live2d_model import dispose_live2d
 
 logger = logging.getLogger("app_manager")
+logger.setLevel(logging.DEBUG)
 
 class AppManager:
     """
@@ -40,7 +43,7 @@ class AppManager:
         
         # 初始化模块引用
         self.event_bus = None
-        self.module_connector: 'ModuleConnector|None' = None
+        self.module_connector = None
         self.live2d_model = None
         self.subtitle_manager = None
         self.user_input = None
@@ -64,11 +67,157 @@ class AppManager:
         self.is_running = False
         self.initialized = False
         
+        # 过滤拦截状态：一旦命中敏感词，立刻中断当次输出
+        self.filter_block_active = False
+        self.filter_block_replacement_sent = False
+        
         # 异步任务管理
         self.tasks = set()
         self.shutdown_event = asyncio.Event()
         
         logger.info("创建应用管理器... [ 完成 ]")
+
+    # ===== 文本清洗/审核辅助 =====
+    def _strip_think_blocks(self, text: str) -> str:
+        """移除 <think>...</think> 深度思考内容（大小写不敏感，跨行）。
+        同时兜底移除未闭合的 <think> 直至文本末尾。
+        """
+        if not text:
+            return text
+        try:
+            logger.debug(f"[sanitize] strip_think_blocks: input_len={len(text)}; contains_think={('<think' in text.lower())}")
+        except Exception:
+            pass
+        cleaned = re.sub(r"(?is)<\s*think\b[^>]*>.*?<\s*/\s*think\s*>", "", text)
+        cleaned = re.sub(r"(?is)<\s*think\b[^>]*>.*$", "", cleaned)
+        try:
+            logger.debug(f"[sanitize] strip_think_blocks: output_len={len(cleaned)}")
+        except Exception:
+            pass
+        return cleaned
+
+    def _sanitize_visible_text(self, text: str) -> str:
+        """生成对外展示/朗读的文本：去除 <think>、收敛空白、去首尾空白。"""
+        if not text:
+            return text
+        logger.debug(f"[sanitize] visible_text: input_len={len(text)}")
+        cleaned = self._strip_think_blocks(text)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\n\s*\n+", "\n", cleaned)
+        cleaned = cleaned.strip()
+        logger.debug(f"[sanitize] visible_text: output_len={len(cleaned)}; preview='{cleaned[:80] + ('…' if len(cleaned)>80 else '')}'")
+        return cleaned
+
+    # ===== 审核辅助 =====
+    def _log_preview(self, label: str, text: str, max_len: int = 120):
+        """统一的文本预览日志（长度与首尾空白不敏感）。"""
+        try:
+            if text is None:
+                logger.debug(f"{label}: <None>")
+                return
+            s = text.strip()
+            preview = s[:max_len] + ('…' if len(s) > max_len else '')
+            logger.debug(f"{label}: len={len(s)}; preview='{preview}'")
+        except Exception:
+            # 避免日志自身异常影响主流程
+            pass
+
+    def _build_fast_filter_cfg(self) -> dict:
+        """构建快速审核配置：禁用LLM与易盾，仅保留关键词审核，避免网络阻塞。"""
+        cfg: dict = {}
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+        except Exception as e:
+            logger.debug(f"[filter] 加载配置失败，使用空配置: {e}")
+            cfg = {}
+        # 浅拷贝 + 局部覆盖
+        fast_cfg = dict(cfg)
+        fast_filters = dict((fast_cfg.get('filters') or {}))
+        llm_cfg = dict((fast_filters.get('llm') or {}))
+        yidun_cfg = dict((fast_filters.get('yidun') or {}))
+        llm_cfg['enabled'] = False
+        yidun_cfg['enabled'] = False
+        fast_filters['llm'] = llm_cfg
+        fast_filters['yidun'] = yidun_cfg
+        fast_cfg['filters'] = fast_filters
+        keyword_enabled = (fast_filters.get('keyword') or {}).get('enabled')
+        logger.debug(f"[filter] 构建快速审核配置: keyword_enabled={keyword_enabled}; llm_enabled=False; yidun_enabled=False")
+        return fast_cfg
+
+    async def _handle_filter_block(self, replacement_text: Optional[str], where: str = ""):
+        """在检测到敏感内容时触发：
+        - 中断LLM流
+        - 清空TTS队列，避免继续播报
+        - 显示一次替代文本到字幕
+        - 可选播放过滤语音提示
+        """
+        if self.filter_block_active:
+            logger.debug(f"[filter] 已处于拦截状态，忽略重复处理 where={where}")
+            return
+        self.filter_block_active = True
+        logger.info(f"[filter] 触发拦截：中断LLM与TTS where={where}")
+        try:
+            # 立刻中断LLM流
+            if self.llm_client:
+                try:
+                    self.llm_client.interrupt()
+                except Exception as e:
+                    logger.debug(f"[filter] 中断LLM失败: {e}")
+            # 清空TTS队列与累计文本（不中断内部循环/会话，以便后续还能继续工作）
+            if self.tts_client:
+                try:
+                    if hasattr(self.tts_client, 'interrupt'):
+                        self.tts_client.interrupt()
+                    if hasattr(self.tts_client, 'reset'):
+                        await self.tts_client.reset()
+                    self.tts_client.current_full_text = ''
+                except Exception as e:
+                    logger.debug(f"[filter] 重置TTS失败: {e}")
+            # 显示替代文本（只显示一次）
+            if (not self.filter_block_replacement_sent) and replacement_text and self.subtitle_manager:
+                try:
+                    self.subtitle_manager.add_text(replacement_text, stream=True)
+                    self._log_preview("[filter] -> 替代文本(字幕)", replacement_text)
+                    self.filter_block_replacement_sent = True
+                except Exception as e:
+                    logger.debug(f"[filter] 显示替代文本失败: {e}")
+            # 可选的过滤语音提示
+            await self._maybe_speak_filter_prompt()
+        except Exception as e:
+            logger.warning(f"[filter] 处理拦截时出现异常: {e}")
+
+    def _fast_moderate(self, text: str):
+        """执行快速审核，返回 (blocked, final_text, reason)。发生异常则放行。"""
+        try:
+            self._log_preview("[filter] 待审核文本", text)
+            fast_cfg = self._build_fast_filter_cfg()
+            from content_filter import check as filter_check
+            blocked, final_text, reason, _ = filter_check(text, fast_cfg)
+            logger.debug(f"[filter] 审核结果: blocked={blocked}; reason={reason}")
+            if blocked:
+                self._log_preview("[filter] 替代文本", final_text)
+            return blocked, (final_text if final_text is not None else text), reason
+        except Exception as e:
+            logger.debug(f"[filter] 审核异常，默认放行: {e}")
+            return False, text, None
+
+    async def _maybe_speak_filter_prompt(self):
+        """若配置启用过滤语音提示，则播放之。"""
+        try:
+            if not self.tts_client:
+                logger.debug("[filter] 无TTS客户端，跳过过滤语音提示播放")
+                return
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            voice_cfg = (cfg.get('filters', {}) or {}).get('voice', {}) or {}
+            if voice_cfg.get('enabled') and voice_cfg.get('text'):
+                self._log_preview("[filter] 播放过滤语音提示", voice_cfg.get('text'))
+                await self.tts_client.speak(voice_cfg.get('text'))
+            else:
+                logger.debug("[filter] 过滤语音提示未启用或无文本，跳过播放")
+        except Exception as e:
+            logger.warning(f"播放过滤语音提示失败: {e}")
 
     async def start(self):
         """启动应用"""
@@ -322,6 +471,9 @@ class AppManager:
 
     async def _on_input_to_llm(self, data:dict):
         """将输入传输给LLM - 内部调用函数"""
+        # 新一轮对话开始，重置过滤拦截状态
+        self.filter_block_active = False
+        self.filter_block_replacement_sent = False
         # 检查是否需要记忆
         text = data.get("text", "")
         if self.memory_manager:
@@ -371,48 +523,116 @@ class AppManager:
     async def _on_llm_streaming(self, data:dict):
         """处理LLM流式输出事件 - 事件调用函数"""
         try:
-            text = data.get("text", "").replace('\n', '') # 已初步分割完成的输出片段
+            # 若已处于拦截状态，忽略后续所有片段
+            if self.filter_block_active:
+                logger.debug("[stream] 已处于过滤拦截状态，忽略片段")
+                return
+            raw_text = data.get("text", "").replace('\n', '') # 已初步分割的输出片段
             full_text = data.get("full_text", "").replace('\n', '')
             is_final = data.get("is_final", False)
+            logger.debug(f"[stream] 收到LLM流式事件: is_final={is_final}; raw_len={len(raw_text)}; full_len={len(full_text)}")
+            # 先清洗可见文本（去除 <think>）
+            text = self._sanitize_visible_text(raw_text)
+            self._log_preview("[stream] 清洗后文本", text)
             
             if not is_final:
                 # LLM正在流式输出
                 self.llm_streaming = True
                 if self.tts_client:
+                    # 仅累计清洗后的文本
                     self.tts_client.current_full_text += text
+                    logger.debug(f"[stream] 累计TTS文本长度: {len(self.tts_client.current_full_text)}")
                     # 检查是否需要发送给TTS（遇到标点符号）
                     if any(True for word in text if word in self.tts_client.punctuations):
                         segments = self.tts_client._segment_text(self.tts_client.current_full_text)
+                        logger.debug(f"[stream] 命中标点，分段数量: {len(segments)}")
                         if len(segments) > 1:
                             # 发送所有完整片段(除了最后一个)
                             for i in range(len(segments)-1):
-                                # 将片段发送给TTS进行处理
-                                await self.tts_client.add_streaming_text(segments[i])
-                                logger.debug(f"发送文本片段到TTS: {segments[i]}")
+                                seg = segments[i]
+                                # 输出前进行内容审核，命中则不送TTS
+                                blocked, final_text, reason = self._fast_moderate(seg)
+                                if not blocked and seg.strip():
+                                    # 发送到TTS
+                                    await self.tts_client.add_streaming_text(seg)
+                                    self._log_preview("[stream] -> 发送片段到TTS", seg)
+                                    # 同步更新字幕
+                                    if self.subtitle_manager:
+                                        try:
+                                            self.subtitle_manager.add_text(seg, stream=True)
+                                        except Exception as e:
+                                            logger.debug(f"[stream] 更新字幕失败: {e}")
+                                else:
+                                    # 命中即停：中断LLM与TTS，仅显示一次替代文本
+                                    await self._handle_filter_block(final_text, where="streaming:seg_multi")
+                                    return
                             # 保留最后一个片段
                             self.tts_client.current_full_text = segments[-1]
+                            logger.debug(f"[stream] 保留末尾残片长度: {len(self.tts_client.current_full_text)}")
                         else:
                             # 只有一个片段
-                            await self.tts_client.add_streaming_text(segments[0])
+                            seg = segments[0]
+                            blocked, final_text, reason = self._fast_moderate(seg)
+                            if not blocked and seg.strip():
+                                await self.tts_client.add_streaming_text(seg)
+                                self._log_preview("[stream] -> 发送片段到TTS", seg)
+                                if self.subtitle_manager:
+                                    try:
+                                        self.subtitle_manager.add_text(seg, stream=True)
+                                    except Exception as e:
+                                        logger.debug(f"[stream] 更新字幕失败: {e}")
+                            else:
+                                await self._handle_filter_block(final_text, where="streaming:seg_single")
+                                return
                             self.tts_client.current_full_text = ''
-                            logger.debug(f"发送文本片段到TTS: {segments[0]}")
                 else:
                     if self.subtitle_manager:
-                        self.subtitle_manager.add_text(text, stream=True)
+                        # 无TTS时，字幕同样先审核
+                        blocked, final_text, reason = self._fast_moderate(text)
+                        if blocked:
+                            await self._handle_filter_block(final_text, where="streaming:no-tts")
+                            return
+                        else:
+                            self.subtitle_manager.add_text(text, stream=True)
+                            self._log_preview("[stream] (no-TTS) -> 字幕片段", text)
             
-            elif is_final and text:
+            elif is_final:
+                # 终止时也要处理尾段：即使text为空也可能有缓存残片
                 if self.tts_client:
-                    self.tts_client.current_full_text += text
-                    if self.tts_client.current_full_text.strip():
+                    if text:
+                        self.tts_client.current_full_text += text
+                    if self.tts_client.current_full_text and self.tts_client.current_full_text.strip():
                         segments = self.tts_client._segment_text(self.tts_client.current_full_text)
+                        logger.debug(f"[final] 完成后分段数量: {len(segments)}")
                         for segment in segments:
                             if segment.strip():
-                                await self.tts_client.add_streaming_text(segment)
-                                logger.debug(f"发送最终文本片段到TTS: {segment}")
+                                # 审核最终片段，拦截则不入TTS
+                                blocked, final_text, reason = self._fast_moderate(segment)
+                                if not blocked:
+                                    await self.tts_client.add_streaming_text(segment)
+                                    self._log_preview("[final] -> 发送片段到TTS", segment)
+                                    # 同步更新字幕
+                                    if self.subtitle_manager:
+                                        try:
+                                            self.subtitle_manager.add_text(segment, stream=True)
+                                        except Exception as e:
+                                            logger.debug(f"[final] 更新字幕失败: {e}")
+                                else:
+                                    await self._handle_filter_block(final_text, where="final:tts")
+                                    return
                         self.tts_client.current_full_text = ''
                 else:
-                    if self.subtitle_manager:
-                        self.subtitle_manager.add_text(text, stream=True)
+                    # 无TTS时，直接将最终可见文本用于字幕
+                    if self.subtitle_manager and (text or full_text):
+                        # 优先使用清洗过的text；若为空则回退到full_text的清洗版
+                        final_visible = text if text else self._sanitize_visible_text(full_text)
+                        blocked, final_text, reason = self._fast_moderate(final_visible)
+                        if blocked:
+                            await self._handle_filter_block(final_text, where="final:no-tts")
+                            return
+                        else:
+                            self.subtitle_manager.add_text(final_visible, stream=True)
+                            self._log_preview("[final] (no-TTS) -> 字幕片段", final_visible)
                 # LLM流式输出结束
                 self.llm_streaming = False
                 logger.debug("LLM流式输出结束")
@@ -427,6 +647,9 @@ class AppManager:
             
             # 确保LLM流式状态为False
             self.llm_streaming = False
+            # 一轮完成后，重置过滤拦截标志（避免影响后续对话）
+            self.filter_block_active = False
+            self.filter_block_replacement_sent = False
 
             with open('chat_log.txt', 'a', encoding='utf-8') as chat_log:
                 chat_log.write("Fake Neuro:{}\n\n".format(text.replace('\n', ' ')))
@@ -567,7 +790,7 @@ class AppManager:
             if self.subtitle_manager:
                 # 发送给字幕管理器
                 self.subtitle_manager.add_text(text)
-                logger.debug(f"更新字幕文本: {text}")
+                self._log_preview("[subtitle] 更新字幕文本", text)
         except Exception as e:
             logger.error(f"文本更新回调失败: {e}")
 
@@ -694,9 +917,22 @@ class AppManager:
     async def _on_auto_chat_response(self, data):
         """处理自动聊天响应 - 事件调用函数"""
         try:
-            text = data.get("text", "")
+            raw = data.get("text", "")
+            self._log_preview("[auto_chat] 原始响应", raw)
+            text = self._sanitize_visible_text(raw)
+            self._log_preview("[auto_chat] 清洗后响应", text)
             if text and self.tts_client:
-                await self.tts_client.speak(text)
+                # 输出前进行审核（快速模式）
+                blocked, final_text, reason = self._fast_moderate(text)
+                if blocked:
+                    # 不提交拦截内容给TTS；更新字幕并可选播放提示
+                    if self.subtitle_manager and final_text:
+                        self.subtitle_manager.add_text(final_text)
+                        self._log_preview("[auto_chat] 审核拦截 -> 字幕", final_text)
+                    await self._maybe_speak_filter_prompt()
+                else:
+                    self._log_preview("[auto_chat] 通过审核 -> TTS.speak", text)
+                    await self.tts_client.speak(text)
         except Exception as e:
             logger.error(f"处理自动聊天响应失败: {e}")
     
@@ -725,8 +961,9 @@ class AppManager:
                 return
             
             nickname = message.get("nickname", "观众")
-            text = f"[弹幕] {nickname}: {text}"
-            logger.info(f"收到弹幕: {nickname}: {text}")
+            content = message.get("text", "")
+            text = f"[弹幕] {nickname}: {content}"
+            self._log_preview("[bilibili] 收到弹幕", text)
             
             with open('chat_log.txt', 'a', encoding='utf-8') as chat_log:
                 chat_log.write(text+'\n')

@@ -24,6 +24,7 @@ import sys
 import os
 import json
 import traceback
+import re
 # 注释掉不再使用的socket导入
 # import socket
 import threading
@@ -39,23 +40,15 @@ from PyQt5.QtCore import Qt
 # 导入核心管理器
 from core.app_manager import AppManager
 from utils.logger import setup_logger
-
-# 导入qasync
 import qasync
-
-# 导入音频播放和动作按钮相关模块
+from utils.message_queue import get_message_queue
+from utils.lrc_manager import LRCManager
+from interface.action_buttons import ActionButtonsWindow
 import io
 import wave
-import tempfile
 import numpy as np
 import sounddevice as sd
-from interface.action_buttons import ActionButtonsWindow
-
-# 导入消息队列
-from utils.message_queue import get_message_queue, register_handler, start_message_listener, stop_message_listener
-
-# 导入LRC歌词管理器
-from utils.lrc_manager import LRCManager
+import tempfile
 
 class PetService:
     """AI桌面宠物服务类 - 支持Qt和asyncio集成"""
@@ -83,13 +76,42 @@ class PetService:
         
         # LRC歌词管理器
         self.lrc_manager = None
+    
+    # ====== 文本清洗与可见内容提取 ======
+    def _strip_think_blocks(self, text: str) -> str:
+        """移除深度思考标记块，例如 <think>...</think>。
+        - 大小写不敏感，跨行匹配；
+        - 多个片段全部移除；
+        - 若存在不闭合的 <think>，则从该标签起始到文本末尾全部移除。
+        """
+        if not text:
+            return text
+        # 先移除成对的 <think>...</think>
+        cleaned = re.sub(r"(?is)<\s*think\b[^>]*>.*?<\s*/\s*think\s*>", "", text)
+        # 再兜底移除未闭合的 <think>...（直到文本末尾）
+        cleaned = re.sub(r"(?is)<\s*think\b[^>]*>.*$", "", cleaned)
+        return cleaned
+
+    def _sanitize_visible_text(self, text: str) -> str:
+        """获取可对外展示/朗读的文本：
+        1) 去掉 <think> 思考内容；
+        2) 收敛多余空白；
+        3) 去除首尾空白。
+        """
+        if not text:
+            return text
+        cleaned = self._strip_think_blocks(text)
+        # 收敛连续空行为单个空行，收敛多空格
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\n\s*\n+", "\n", cleaned)
+        return cleaned.strip()
         
     async def initialize(self) -> None:
         """初始化服务"""
         try:
             # 设置日志
             self.logger = setup_logger(
-                level=logging.INFO,
+                level=logging.DEBUG,
                 log_file="pet_system.log"
             )
             self.logger.info(">>> 初始化AI桌宠系统... [ 进行中 ]")
@@ -398,17 +420,33 @@ class PetService:
                     self.app_manager.llm_client.interrupt()
                     if self.logger:
                         self.logger.info(">>> LLM输出已中断")
+                # 将过滤拦截标志置为True，用于忽略随后可能到来的流式片段（与过滤硬停保持一致）
+                if hasattr(self.app_manager, 'filter_block_active'):
+                    self.app_manager.filter_block_active = True
+                if hasattr(self.app_manager, 'filter_block_replacement_sent'):
+                    # 手动中断不显示替代文本，但标志保持默认False也可
+                    self.app_manager.filter_block_replacement_sent = False
+                # 标记LLM流式结束
+                if hasattr(self.app_manager, 'llm_streaming'):
+                    self.app_manager.llm_streaming = False
             
-            # 中断TTS播放
+            # 中断TTS播放（仅清空与复位，不关闭会话或循环）
             if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
                 if hasattr(self.app_manager.tts_client, 'interrupt'):
                     self.app_manager.tts_client.interrupt()
                     if self.logger:
                         self.logger.info(">>> TTS播放已中断")
-                elif hasattr(self.app_manager.tts_client, 'stop'):
-                    await self.app_manager.tts_client.stop()
+                try:
+                    if hasattr(self.app_manager.tts_client, 'reset'):
+                        await self.app_manager.tts_client.reset()
+                    # 清空累计文本，确保不再继续送入分段
+                    if hasattr(self.app_manager.tts_client, 'current_full_text'):
+                        self.app_manager.tts_client.current_full_text = ''
                     if self.logger:
-                        self.logger.info(">>> TTS播放已中断")
+                        self.logger.info(">>> 已清空TTS队列并复位")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 清空TTS队列失败: {e}")
             
             # 中断ASR
             if self.app_manager and hasattr(self.app_manager, 'asr_client') and self.app_manager.asr_client:
@@ -448,6 +486,14 @@ class PetService:
             
             # 重置动作按钮
             self.reset_action_buttons()
+            
+            # 同步ASR锁定状态，避免残留锁定
+            try:
+                if self.app_manager and hasattr(self.app_manager, '_check_and_update_asr_status'):
+                    await self.app_manager._check_and_update_asr_status()
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f">>> 刷新ASR状态失败: {e}")
             
             if self.logger:
                 self.logger.info(">>> 中断操作... [ 完成 ]")
@@ -1673,32 +1719,51 @@ class PetService:
             source: 字幕来源 (dialogue, singing, etc.)
         """
         try:
-            # 在展示前进行内容过滤
+            # 先移除深度思考内容，仅保留可发表内容
+            visible_text = self._sanitize_visible_text(text)
+
+            # 在展示前进行内容过滤（基于可见文本）— 使用“快速模式”（仅关键词），避免阻塞
             try:
                 from content_filter import check as filter_check
                 cfg_path = getattr(self, 'config_path', 'config.json') if hasattr(self, 'config_path') else 'config.json'
-                is_blocked, final_text, reason, repl = filter_check(text, cfg_path)
+                cfg = {}
+                try:
+                    with open(cfg_path, 'r', encoding='utf-8') as f:
+                        cfg = json.load(f)
+                except Exception:
+                    cfg = {}
+                # 构造快速过滤配置：禁用 LLM / 易盾
+                fast_cfg = dict(cfg)
+                fast_filters = dict((fast_cfg.get('filters') or {}))
+                llm_cfg = dict((fast_filters.get('llm') or {}))
+                yidun_cfg = dict((fast_filters.get('yidun') or {}))
+                llm_cfg['enabled'] = False
+                yidun_cfg['enabled'] = False
+                fast_filters['llm'] = llm_cfg
+                fast_filters['yidun'] = yidun_cfg
+                fast_cfg['filters'] = fast_filters
+                is_blocked, final_text, reason, repl = filter_check(visible_text, fast_cfg)
                 if is_blocked:
                     if self.logger:
-                        self.logger.info(f">>> 字幕内容被过滤: {reason}")
-                    text = final_text
-                    # 可选：播放语音提示
+                        self.logger.info(f">>> 字幕/语音内容被过滤: {reason}")
+                    # 显示替换文本；原始被屏蔽文本不提交给TTS
+                    visible_text = final_text
+                    # 可选：播放语音提示（安全且不含敏感内容）
                     try:
-                        with open(cfg_path, 'r', encoding='utf-8') as f:
-                            cfg = json.load(f)
+                        if not cfg:
+                            with open(cfg_path, 'r', encoding='utf-8') as f:
+                                cfg = json.load(f)
                         voice_cfg = cfg.get('filters', {}).get('voice', {})
                         if voice_cfg.get('enabled') and voice_cfg.get('text'):
                             if self.app_manager and hasattr(self.app_manager, 'tts_client') and self.app_manager.tts_client:
-                                # 异步触发TTS播报
                                 try:
-                                    import asyncio
                                     coro = self.app_manager.tts_client.speak(voice_cfg.get('text'))
                                     if asyncio.iscoroutine(coro):
                                         asyncio.create_task(coro)
                                 except Exception as te:
                                     if self.logger:
                                         self.logger.warning(f">>> 播放过滤语音提示失败: {te}")
-                    except Exception as _:
+                    except Exception:
                         pass
             except Exception:
                 # 过滤流程失败时不影响字幕正常显示
@@ -1707,16 +1772,16 @@ class PetService:
             if self.logger:
                 # 为歌词显示完整内容，其他内容截断显示
                 if source == "lyrics":
-                    self.logger.info(f">>> 显示字幕: {source} - 完整歌词内容:\n{text}")
+                    self.logger.info(f">>> 显示字幕: {source} - 完整歌词内容:\n{visible_text}")
                 else:
-                    self.logger.info(f">>> 显示字幕: {source} - {text[:50]}...")
+                    self.logger.info(f">>> 显示字幕: {source} - {visible_text[:50]}...")
             
             # 检查字幕管理器是否存在
             if self.app_manager and hasattr(self.app_manager, 'subtitle_manager') and self.app_manager.subtitle_manager:
                 # 根据来源决定是否流式显示
                 stream = source == "dialogue"  # 台词使用流式显示，唱歌使用完整显示
-                
-                self.app_manager.subtitle_manager.add_text(text, stream=stream)
+                # 仅展示经过清洗后的可见文本
+                self.app_manager.subtitle_manager.add_text(visible_text, stream=stream)
                 
                 if self.logger:
                     self.logger.info(f">>> 字幕已发送到管理器: stream={stream}")
