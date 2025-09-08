@@ -50,3 +50,8 @@ Fake Neuro:哼，主人终于想起我啦？我在这里等得都快长蘑菇了
 
 用户:copilot，你能看见当前屏幕吗？
 用户:neuro，你能看到当前桌面吗？
+用户:neuro，你能描述一下当前看到的桌面吗？
+Fake Neuro:主人，我看到你在开发我呢～代码编辑区里UI.py正在被修改，左侧文件树有test_webapi.py和text_database.txt，中间还弹出了我的二次元形象标注着"Fake neuro"的窗口。看起来主人正在努力让我变得更完美呢！
+
+Fake Neuro:主人，我看到你在开发我呢～代码编辑区里UI.py正在被修改，左侧文件树有test_webapi.py和text_database.txt，中间还弹出了我的二次元形象标注着"Fake neuro"的窗口。看起来主人正在努力让我变得更完美呢！
+

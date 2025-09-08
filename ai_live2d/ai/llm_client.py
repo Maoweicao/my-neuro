@@ -7,6 +7,7 @@ import asyncio
 import logging
 import aiohttp
 from typing import Dict, List, Any, Optional, Callable, Coroutine
+import base64
 
 logger = logging.getLogger("llm_client")
 
@@ -24,23 +25,30 @@ class LLMClient:
         self.event_bus = event_bus
 
         # 回调函数
-        self.on_llm_output_callback = None # LLM输出文本回调
-        
+        self.on_llm_output_callback = None  # LLM输出文本回调
+
         # 中断控制
         self.interrupt_flag = False  # 中断标志，用于停止流式输出
-        
+
         # 从配置中获取LLM相关配置
-        self.api_key = config.get("llm", {}).get("api_key", "")
-        self.api_url = config.get("llm", {}).get("api_url", "https://api.openai.com/v1")
-        self.model = config.get("llm", {}).get("model", "gpt-3.5-turbo")
-        self.system_prompt = config.get("llm", {}).get("system_prompt", "")
-        
-        # 多模态支持配置
-        self.multimodal_supported = config.get("llm", {}).get("multimodal_supported", False)
-        
+        llm_cfg = config.get("llm", {})
+        self.api_key = llm_cfg.get("api_key", "")
+        self.api_url = llm_cfg.get("api_url", "https://api.openai.com/v1")
+        self.model = llm_cfg.get("model", "gpt-3.5-turbo")
+        self.system_prompt = llm_cfg.get("system_prompt", "")
+
+        # 视觉副模型配置（用于主模型不支持视觉时的回退）
+        vision_cfg = config.get("vision", {}) or {}
+        self.vision_enabled = config.get("setting", {}).get("vision_enabled", False) and bool(vision_cfg)
+        self.vision_api_key = vision_cfg.get("api_key", "")
+        self.vision_api_url = vision_cfg.get("api_url", "") or self.api_url
+        self.vision_model = vision_cfg.get("model", "")  # 副模型名称（OpenAI兼容）
+        # 内部检测缓存（来自UI写入的隐藏字段，可选）
+        self._vision_internal = vision_cfg.get("_internal", {})
+
         # 上下文管理配置
-        self.enable_limit = config.get("llm", {}).get("enable_limit", True)
-        self.max_messages = config.get("llm", {}).get("max_messages", 10)
+        self.enable_limit = llm_cfg.get("enable_limit", True)
+        self.max_messages = llm_cfg.get("max_messages", 10)
 
         # MCP相关配置
         self.mcp_client = None
@@ -49,10 +57,10 @@ class LLMClient:
         self.usetool = False
         # MCP工具列表
         self.mcp_tools = []
-        
+
         # 初始化消息历史
         self.messages = []
-        
+
         # 设置系统提示词
         if self.system_prompt:
             self.messages.append({
@@ -65,10 +73,8 @@ class LLMClient:
             timeout=aiohttp.ClientTimeout(),
             connector=aiohttp.TCPConnector(limit_per_host=4)
         )
-        
+
         logger.info("初始化LLM客户端... [ 完成 ]")
-        if not self.multimodal_supported:
-            logger.info("多模态功能已禁用，将忽略图片输入")
 
     def set_callbacks(self, on_llm_output: Optional[Callable[[str], Coroutine]] = None):
         """设置回调函数"""
@@ -86,19 +92,12 @@ class LLMClient:
         Returns:
             添加后的消息列表
         """
-        # 检查是否支持多模态
-        multimodal_supported = getattr(self, 'multimodal_supported', False)
-        
-        if not image_data or not multimodal_supported:
-            # 如果没有图片数据或者不支持多模态，只添加文本内容
+        if not image_data:
             self.messages.append({
                 "role": role,
                 "content": content
             })
-            if image_data and not multimodal_supported:
-                logger.warning("检测到图片数据，但当前LLM服务器不支持多模态，已忽略图片内容")
         else:
-            # 支持多模态时使用OpenAI标准格式
             self.messages.append({
                 "role": role,
                 "content": [
@@ -157,8 +156,25 @@ class LLMClient:
             # 重置中断标志
             self.interrupt_flag = False
             
-            # 添加用户消息到上下文
-            self.add_message("user", text, image_data)
+            # 如果包含图像且主模型不支持视觉，但副模型支持，则先用副模型识图，注入文本再转主模型
+            if image_data and await self._should_fallback_vision():
+                vision_text = await self._call_vision_sidecar(text, image_data)
+                if vision_text:
+                    # 将识别结果注入上下文，作为系统说明，避免污染用户原话
+                    inject_note = (
+                        "[视觉识别摘要] 已用备用视觉模型将用户提供的图片进行识别，结果如下：\n"
+                        f"{vision_text}\n"
+                        "请在后续回答中仅基于该摘要进行推理，不再需要访问原始图像。"
+                    )
+                    self.add_message("system", inject_note)
+                    # 之后按无图片的普通文本继续
+                    self.add_message("user", text, image_data=None)
+                else:
+                    # 识图失败则退化为纯文本
+                    self.add_message("user", text, image_data=None)
+            else:
+                # 正常路径：主模型自己支持视觉或无图片
+                self.add_message("user", text, image_data)
             
             # 准备请求数据
             request_data = {
@@ -189,6 +205,63 @@ class LLMClient:
             if self.event_bus:
                 await self.event_bus.publish("llm_error", {"error": str(e)})
             raise
+
+    def _main_supports_vision(self) -> bool:
+        """根据模型名与隐藏检测信息，判断主模型是否具备视觉能力。"""
+        model_l = (self.model or "").lower()
+        if self._vision_internal and isinstance(self._vision_internal, dict):
+            flag = self._vision_internal.get('main_supports_vision')
+            if isinstance(flag, bool):
+                return flag
+        vision_models = [
+            'gpt-4-vision', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo',
+            'claude-3', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-3-5-sonnet',
+            'gemini-pro-vision', 'gemini-1.5-pro', 'gemini-1.5-flash',
+            'qwen-vl', 'qwen2-vl', 'internvl', 'llava', 'moondream'
+        ]
+        return any(vm in model_l for vm in vision_models)
+
+    async def _should_fallback_vision(self) -> bool:
+        """主模型不支持视觉且副模型可用时返回True。"""
+        if not self.vision_enabled:
+            return False
+        if self._main_supports_vision():
+            return False
+        return bool(self.vision_api_key and (self.vision_model or self.model) and self.vision_api_url)
+
+    async def _call_vision_sidecar(self, user_text: str, image_b64: str) -> str:
+        """使用副模型（OpenAI兼容）进行图像理解，返回纯文本摘要。"""
+        try:
+            url = self.vision_api_url
+            api_url = f"{url}/chat/completions" if not url.endswith('/chat/completions') else url
+            model = self.vision_model or self.model
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.vision_api_key}"
+            }
+            prompt = (
+                "你将看到一张图片与一段用户文本，请先基于图片进行描述，再结合用户文字说明，"
+                "输出简洁、客观的要点摘要，不超过200字。只输出中文摘要，不要包含多余标记。"
+            )
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user_text or "请识别图片"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+                ]}
+            ]
+            payload = {"model": model, "messages": messages, "stream": False}
+            async with self.session.post(api_url, json=payload, headers=headers) as resp:
+                if resp.status != 200:
+                    txt = await resp.text()
+                    logger.error(f"视觉副模型调用失败: {resp.status}, {txt}")
+                    return ""
+                data = await resp.json()
+                content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+                return content or ""
+        except Exception as e:
+            logger.error(f"视觉副模型调用异常: {e}")
+            return ""
     
     async def _handle_streaming_response(self, api_url: str, request_data: Dict[str, Any]) -> str:
         """处理流式响应

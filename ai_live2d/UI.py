@@ -4142,6 +4142,14 @@ class Widget(Interface):
                     self.config_data['vision'] = {}
                 self.config_data['vision']['enabled'] = True
                 self.config_data['vision']['fallback_only'] = True  # 优先使用主模型
+                # 记录隐藏检测信息
+                self.config_data['vision']['_internal'] = {
+                    'main_supports_vision': True,
+                    'fallback_enabled': False,
+                    'secondary_model_available': False,
+                    'detected_main_model': main_model,
+                    'last_check': int(time.time())
+                }
             else:
                 print(f"⚠ 主模型 {main_model} 不支持视觉功能")
                 # 检查是否有视觉模型配置
@@ -4154,9 +4162,35 @@ class Widget(Interface):
                         self.config_data['vision'] = {}
                     self.config_data['vision']['enabled'] = True
                     self.config_data['vision']['fallback_only'] = False  # 需要使用独立视觉模型
+                    # 记录隐藏检测信息（不在UI展示）
+                    self.config_data['vision']['_internal'] = {
+                        'main_supports_vision': False,
+                        'fallback_enabled': True,
+                        'secondary_model_available': True,
+                        'secondary_model': vision_config.get('model', ''),
+                        'secondary_api_url': vision_api_url,
+                        'detected_main_model': main_model,
+                        'last_check': int(time.time())
+                    }
                 else:
                     print("⚠ 未配置独立的视觉模型，视觉功能将受限")
                     print("  建议在视觉标签页中配置视觉模型的API Key和URL")
+                    # 记录隐藏检测信息
+                    self.config_data.setdefault('vision', {})
+                    self.config_data['vision']['_internal'] = {
+                        'main_supports_vision': False,
+                        'fallback_enabled': False,
+                        'secondary_model_available': False,
+                        'detected_main_model': main_model,
+                        'last_check': int(time.time())
+                    }
+            
+            # 将隐藏检测结果写入配置文件（静默保存，不触发UI提示）
+            try:
+                with open(self.config_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.config_data, f, indent=4, ensure_ascii=False)
+            except Exception as se:
+                print(f"写入视觉检测结果到配置失败: {se}")
             
         except Exception as e:
             print(f"检查视觉配置时出错: {e}")
