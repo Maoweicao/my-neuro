@@ -100,6 +100,9 @@ ai_live2d/models/
 # Test assets
 ai_live2d/test/*.wav
 
+# Dependencies
+ai_live2d/dependies/*.exe
+
 # venvs and lock files
 .venv/
 venv/
