@@ -60,7 +60,8 @@ from PyQt5.QtWidgets import (
     QColorDialog,
     QTextBrowser,
     QGridLayout,
-    QSlider
+    QSlider,
+    QScrollArea
 )
 from PyQt5.QtOpenGL import QGLWidget
 import live2d.v3 as live2d
@@ -4450,6 +4451,26 @@ class Widget(Interface):
             if local_url:  # 只有在local_url有值时才同步
                 self.config_data['tts']['url'] = local_url
         
+        # 处理Live2D部件透明度设置
+        if hasattr(self, 'parts_opacity_widgets') and self.parts_opacity_widgets:
+            # 获取当前模型名称
+            model_path = self.config_data.get('ui', {}).get('model_path', '')
+            model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
+            
+            # 收集所有部件的透明度设置
+            parts_opacity = {}
+            for part_id, widgets in self.parts_opacity_widgets.items():
+                opacity_value = widgets['slider'].value()
+                parts_opacity[part_id] = opacity_value
+            
+            # 保存到配置
+            if 'live2d' not in self.config_data:
+                self.config_data['live2d'] = {}
+            if model_name not in self.config_data['live2d']:
+                self.config_data['live2d'][model_name] = {}
+            
+            self.config_data['live2d'][model_name]['parts_opacity'] = parts_opacity
+        
     def reload_config(self):
         """重新加载配置文件"""
         self.config_data = self.load_config()
@@ -5469,6 +5490,35 @@ class Widget(Interface):
             else:
                 # 处理其他未知类型的widget
                 print(f"Unknown widget type for {key_path}: {type(widget)} in update_widgets")
+        
+        # 更新Live2D部件透明度控件
+        self._update_live2d_parts_widgets()
+
+    def _update_live2d_parts_widgets(self):
+        """更新Live2D部件透明度控件的值"""
+        try:
+            if not hasattr(self, 'parts_opacity_widgets') or not self.parts_opacity_widgets:
+                return
+            
+            # 获取当前模型的透明度配置
+            model_path = self.config_data.get('ui', {}).get('model_path', '')
+            model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
+            
+            live2d_config = self.config_data.get('live2d', {}).get(model_name, {})
+            parts_opacity = live2d_config.get('parts_opacity', {})
+            
+            # 更新每个部件的滑块值
+            for part_id, widgets in self.parts_opacity_widgets.items():
+                slider = widgets['slider']
+                value_label = widgets['value_label']
+                
+                # 从配置中获取值，默认为100%
+                opacity_value = parts_opacity.get(part_id, 100)
+                slider.setValue(int(opacity_value))
+                value_label.setText(f"{opacity_value}%")
+                
+        except Exception as e:
+            print(f"更新Live2D部件控件失败: {e}")
 
     def create_form_group(self, parent, title, fields):
         """创建表单组"""
@@ -8690,6 +8740,44 @@ class Widget(Interface):
         status_layout.addLayout(refresh_layout)
         
         control_layout.addWidget(status_group)
+        
+        # Live2D部件透明度设置组
+        parts_group = QGroupBox("部件透明度设置")
+        parts_layout = QVBoxLayout(parts_group)
+        
+        # 部件列表容器
+        self.parts_scroll_area = QScrollArea()
+        self.parts_scroll_area.setWidgetResizable(True)
+        self.parts_scroll_area.setMaximumHeight(300)
+        
+        self.parts_widget = QWidget()
+        self.parts_layout = QVBoxLayout(self.parts_widget)
+        
+        # 自动检测按钮
+        detect_layout = QHBoxLayout()
+        self.detect_parts_btn = ToolButton(FIF.SEARCH)
+        self.detect_parts_btn.setText("检测部件")
+        self.detect_parts_btn.setToolTip("自动检测当前Live2D模型的所有部件")
+        self.detect_parts_btn.clicked.connect(self.detect_live2d_parts)
+        
+        self.apply_parts_btn = PrimaryToolButton(FIF.SAVE)
+        self.apply_parts_btn.setText("应用设置")
+        self.apply_parts_btn.setToolTip("将透明度设置应用到Live2D模型")
+        self.apply_parts_btn.clicked.connect(self.apply_live2d_parts_opacity)
+        
+        detect_layout.addWidget(self.detect_parts_btn)
+        detect_layout.addWidget(self.apply_parts_btn)
+        detect_layout.addStretch()
+        
+        parts_layout.addLayout(detect_layout)
+        parts_layout.addWidget(self.parts_scroll_area)
+        
+        # 状态标签
+        self.parts_status_label = QLabel("部件状态: 未检测")
+        self.parts_status_label.setStyleSheet("color: #666; font-size: 11px;")
+        parts_layout.addWidget(self.parts_status_label)
+        
+        control_layout.addWidget(parts_group)
         control_layout.addStretch()
         
         # === 右侧：表情和动作列表 ===
@@ -8751,6 +8839,322 @@ class Widget(Interface):
         
         # 初始化时加载模型信息
         self.refresh_live2d_model_info()
+        
+        # 初始化部件透明度控件字典
+        self.parts_opacity_widgets = {}
+        self.current_model_parts = []
+
+    def detect_live2d_parts(self):
+        """检测当前Live2D模型的所有部件"""
+        try:
+            self.parts_status_label.setText("部件状态: 检测中...")
+            self.parts_status_label.setStyleSheet("color: orange; font-size: 11px;")
+            
+            # 清空现有的部件控件
+            self._clear_parts_widgets()
+            
+            # 获取当前模型路径
+            model_path = self.config_data.get('ui', {}).get('model_path', '')
+            if not model_path:
+                self.parts_status_label.setText("部件状态: 未找到模型路径")
+                self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
+                return
+            
+            # 尝试从Live2D模型实例获取部件信息
+            parts_info = self._get_live2d_parts_from_model()
+            
+            if not parts_info:
+                # 如果无法从模型实例获取，尝试从model3.json文件解析
+                parts_info = self._get_live2d_parts_from_file(model_path)
+            
+            if parts_info:
+                self._create_parts_opacity_controls(parts_info)
+                self.parts_status_label.setText(f"部件状态: 检测到 {len(parts_info)} 个部件")
+                self.parts_status_label.setStyleSheet("color: green; font-size: 11px;")
+            else:
+                self.parts_status_label.setText("部件状态: 无法检测部件信息")
+                self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
+                
+        except Exception as e:
+            self.parts_status_label.setText(f"部件状态: 检测失败 - {str(e)}")
+            self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
+            print(f"检测Live2D部件失败: {e}")
+
+    def _get_live2d_parts_from_model(self):
+        """从Live2D模型实例获取部件信息"""
+        try:
+            # 尝试通过各种方式获取Live2D模型实例
+            live2d_model = None
+            
+            # 方法1：从全局实例获取
+            try:
+                import models.live2d_model as live2d_module
+                if hasattr(live2d_module, '_model') and live2d_module._model:
+                    live2d_model = live2d_module._model
+            except ImportError:
+                pass
+            
+            # 方法2：从app_manager获取
+            if not live2d_model and hasattr(self, 'app_manager') and self.app_manager:
+                if hasattr(self.app_manager, 'live2d_model'):
+                    live2d_model = self.app_manager.live2d_model
+            
+            if live2d_model:
+                # 尝试获取部件信息
+                if hasattr(live2d_model, 'get_parts'):
+                    return live2d_model.get_parts()
+                elif hasattr(live2d_model, 'parts'):
+                    return live2d_model.parts
+                elif hasattr(live2d_model, 'model') and live2d_model.model:
+                    # 通过Live2D SDK获取部件
+                    if hasattr(live2d_model.model, 'GetPartCount'):
+                        part_count = live2d_model.model.GetPartCount()
+                        parts = []
+                        for i in range(part_count):
+                            part_id = live2d_model.model.GetPartId(i)
+                            parts.append({
+                                'id': part_id.ToString() if hasattr(part_id, 'ToString') else str(part_id),
+                                'name': part_id.ToString() if hasattr(part_id, 'ToString') else str(part_id),
+                                'index': i
+                            })
+                        return parts
+            
+            return None
+            
+        except Exception as e:
+            print(f"从模型实例获取部件信息失败: {e}")
+            return None
+
+    def _get_live2d_parts_from_file(self, model_path):
+        """从model3.json文件解析部件信息"""
+        try:
+            import json
+            import os
+            
+            if not os.path.exists(model_path):
+                return None
+            
+            with open(model_path, 'r', encoding='utf-8') as f:
+                model_data = json.load(f)
+            
+            parts = []
+            
+            # 解析FileReferences
+            if 'FileReferences' in model_data:
+                file_refs = model_data['FileReferences']
+                
+                # 获取纹理文件作为部件参考
+                if 'Textures' in file_refs:
+                    textures = file_refs['Textures']
+                    for i, texture in enumerate(textures):
+                        parts.append({
+                            'id': f"texture_{i}",
+                            'name': os.path.basename(texture),
+                            'index': i,
+                            'type': 'texture'
+                        })
+                
+                # 获取动作文件作为部件参考
+                if 'Motions' in file_refs:
+                    motions = file_refs['Motions']
+                    for motion_name in motions.keys():
+                        parts.append({
+                            'id': f"motion_{motion_name}",
+                            'name': motion_name,
+                            'index': len(parts),
+                            'type': 'motion'
+                        })
+            
+            # 如果没有找到部件，创建默认部件
+            if not parts:
+                # 常见的Live2D部件名称
+                default_parts = [
+                    {'id': 'body', 'name': '身体', 'index': 0, 'type': 'part'},
+                    {'id': 'head', 'name': '头部', 'index': 1, 'type': 'part'},
+                    {'id': 'face', 'name': '脸部', 'index': 2, 'type': 'part'},
+                    {'id': 'eyes', 'name': '眼睛', 'index': 3, 'type': 'part'},
+                    {'id': 'mouth', 'name': '嘴巴', 'index': 4, 'type': 'part'},
+                    {'id': 'hair', 'name': '头发', 'index': 5, 'type': 'part'},
+                    {'id': 'clothes', 'name': '衣服', 'index': 6, 'type': 'part'}
+                ]
+                parts = default_parts
+            
+            return parts
+            
+        except Exception as e:
+            print(f"从文件解析部件信息失败: {e}")
+            return None
+
+    def _create_parts_opacity_controls(self, parts_info):
+        """为检测到的部件创建透明度控制控件"""
+        try:
+            # 清空现有控件
+            self._clear_parts_widgets()
+            
+            # 获取当前模型的透明度配置
+            model_path = self.config_data.get('ui', {}).get('model_path', '')
+            model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
+            
+            live2d_config = self.config_data.get('live2d', {}).get(model_name, {})
+            parts_opacity = live2d_config.get('parts_opacity', {})
+            
+            # 为每个部件创建控制控件
+            for part in parts_info:
+                part_id = part['id']
+                part_name = part.get('name', part_id)
+                
+                # 创建部件控制行
+                part_widget = QWidget()
+                part_layout = QHBoxLayout(part_widget)
+                part_layout.setContentsMargins(5, 5, 5, 5)
+                
+                # 部件名称标签
+                name_label = QLabel(part_name)
+                name_label.setMinimumWidth(100)
+                name_label.setToolTip(f"部件ID: {part_id}")
+                part_layout.addWidget(name_label)
+                
+                # 透明度滑块
+                opacity_slider = QSlider(Qt.Horizontal)
+                opacity_slider.setRange(0, 100)
+                opacity_slider.setValue(int(parts_opacity.get(part_id, 100)))  # 默认100%不透明
+                opacity_slider.setToolTip(f"调整 {part_name} 的透明度")
+                part_layout.addWidget(opacity_slider)
+                
+                # 透明度数值显示
+                value_label = QLabel(f"{opacity_slider.value()}%")
+                value_label.setMinimumWidth(40)
+                value_label.setAlignment(Qt.AlignCenter)
+                part_layout.addWidget(value_label)
+                
+                # 连接滑块值变化信号
+                opacity_slider.valueChanged.connect(
+                    lambda value, label=value_label: label.setText(f"{value}%")
+                )
+                
+                # 保存控件引用
+                self.parts_opacity_widgets[part_id] = {
+                    'widget': part_widget,
+                    'slider': opacity_slider,
+                    'value_label': value_label,
+                    'name': part_name
+                }
+                
+                # 添加到布局
+                self.parts_layout.addWidget(part_widget)
+            
+            # 设置滚动区域的widget
+            self.parts_scroll_area.setWidget(self.parts_widget)
+            
+            # 保存当前部件信息
+            self.current_model_parts = parts_info
+            
+        except Exception as e:
+            print(f"创建部件透明度控件失败: {e}")
+
+    def _clear_parts_widgets(self):
+        """清空现有的部件控件"""
+        try:
+            # 断开所有信号连接并删除控件
+            for part_id, widgets in self.parts_opacity_widgets.items():
+                widget = widgets['widget']
+                if widget:
+                    widget.setParent(None)
+                    widget.deleteLater()
+            
+            # 清空字典
+            self.parts_opacity_widgets.clear()
+            self.current_model_parts.clear()
+            
+        except Exception as e:
+            print(f"清空部件控件失败: {e}")
+
+    def apply_live2d_parts_opacity(self):
+        """应用Live2D部件透明度设置"""
+        try:
+            if not self.parts_opacity_widgets:
+                InfoBar.warning(
+                    title='无部件数据',
+                    content="请先检测Live2D模型部件",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
+            
+            # 收集所有部件的透明度设置
+            parts_opacity = {}
+            for part_id, widgets in self.parts_opacity_widgets.items():
+                opacity_value = widgets['slider'].value()
+                parts_opacity[part_id] = opacity_value
+            
+            # 获取当前模型名称
+            model_path = self.config_data.get('ui', {}).get('model_path', '')
+            model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
+            
+            # 保存到配置
+            if 'live2d' not in self.config_data:
+                self.config_data['live2d'] = {}
+            if model_name not in self.config_data['live2d']:
+                self.config_data['live2d'][model_name] = {}
+            
+            self.config_data['live2d'][model_name]['parts_opacity'] = parts_opacity
+            
+            # 保存配置
+            self.save_config()
+            
+            # 发送消息给main.py应用设置
+            self._send_parts_opacity_to_main(parts_opacity)
+            
+            InfoBar.success(
+                title='设置已应用',
+                content=f"已保存并应用 {len(parts_opacity)} 个部件的透明度设置",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+        except Exception as e:
+            InfoBar.error(
+                title='应用失败',
+                content=f"应用透明度设置失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+
+    def _send_parts_opacity_to_main(self, parts_opacity):
+        """发送部件透明度设置给main.py"""
+        try:
+            import socket
+            import json
+            import time
+            
+            # 通过socket发送设置
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.settimeout(2.0)
+            client_socket.connect(('127.0.0.1', 8889))
+            
+            message_data = {
+                "type": "set_live2d_parts_opacity",
+                "parts_opacity": parts_opacity,
+                "timestamp": time.time(),
+                "source": "ui_parts_opacity"
+            }
+            
+            client_socket.send(json.dumps(message_data).encode('utf-8'))
+            client_socket.close()
+            
+            print(f"✓ 已发送Live2D部件透明度设置给main.py: {len(parts_opacity)} 个部件")
+            
+        except Exception as e:
+            print(f"⚠ 发送Live2D部件透明度设置失败: {e}")
 
     def create_other_tab(self):
         self.startButton.hide()

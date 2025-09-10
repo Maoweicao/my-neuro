@@ -236,6 +236,7 @@ class PetService:
             self.message_queue.register_handler('show_subtitle', self._handle_show_subtitle_message)
             self.message_queue.register_handler('hide_subtitle', self._handle_hide_subtitle_message)
             self.message_queue.register_handler('update_subtitle_display', self._handle_update_subtitle_display_message)
+            self.message_queue.register_handler('set_live2d_parts_opacity', self._handle_set_live2d_parts_opacity_message)
             
             # 启动监听器
             self.message_queue.start_listener()
@@ -407,6 +408,107 @@ class PetService:
         except Exception as e:
             if self.logger:
                 self.logger.error(f">>> 处理字幕显示设置更新消息时出错: {e}")
+
+    def _handle_set_live2d_parts_opacity_message(self, data):
+        """处理设置Live2D部件透明度消息"""
+        try:
+            parts_opacity = data.get('parts_opacity', {})
+            
+            if self.logger:
+                self.logger.info(f">>> 收到Live2D部件透明度设置请求: {len(parts_opacity)} 个部件")
+            
+            # 在事件循环中运行异步操作
+            if self.event_loop and self.event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._apply_live2d_parts_opacity(parts_opacity), 
+                    self.event_loop
+                )
+            else:
+                if self.logger:
+                    self.logger.warning(">>> 事件循环不可用，无法应用Live2D部件透明度设置")
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 处理Live2D部件透明度设置消息时出错: {e}")
+
+    async def _apply_live2d_parts_opacity(self, parts_opacity):
+        """应用Live2D部件透明度设置"""
+        try:
+            if self.logger:
+                self.logger.info(f">>> 应用Live2D部件透明度设置: {len(parts_opacity)} 个部件")
+            
+            if not self.app_manager or not hasattr(self.app_manager, 'live2d_model') or not self.app_manager.live2d_model:
+                if self.logger:
+                    self.logger.warning(">>> Live2D模型不可用，无法应用部件透明度设置")
+                return
+            
+            live2d_model = self.app_manager.live2d_model
+            
+            # 应用每个部件的透明度设置
+            applied_count = 0
+            for part_id, opacity in parts_opacity.items():
+                try:
+                    # 将百分比转换为0-1之间的浮点数
+                    opacity_float = opacity / 100.0
+                    
+                    # 尝试设置部件透明度
+                    if hasattr(live2d_model, 'set_part_opacity'):
+                        # 如果模型有直接的方法
+                        live2d_model.set_part_opacity(part_id, opacity_float)
+                        applied_count += 1
+                    elif hasattr(live2d_model, 'model') and live2d_model.model:
+                        # 通过Live2D SDK设置
+                        if hasattr(live2d_model.model, 'SetPartOpacity'):
+                            # 查找部件索引
+                            part_index = self._find_live2d_part_index(live2d_model.model, part_id)
+                            if part_index >= 0:
+                                live2d_model.model.SetPartOpacity(part_index, opacity_float)
+                                applied_count += 1
+                        elif hasattr(live2d_model.model, 'GetPartCount'):
+                            # 尝试通过部件ID设置
+                            part_count = live2d_model.model.GetPartCount()
+                            for i in range(part_count):
+                                part_id_obj = live2d_model.model.GetPartId(i)
+                                current_part_id = part_id_obj.ToString() if hasattr(part_id_obj, 'ToString') else str(part_id_obj)
+                                if current_part_id == part_id:
+                                    if hasattr(live2d_model.model, 'SetPartOpacity'):
+                                        live2d_model.model.SetPartOpacity(i, opacity_float)
+                                        applied_count += 1
+                                    break
+                    else:
+                        # 尝试通用方法
+                        if hasattr(live2d_model, 'setParamFloat'):
+                            # 有些Live2D实现使用参数方式控制透明度
+                            param_name = f"PartOpacity{part_id}"
+                            live2d_model.setParamFloat(param_name, opacity_float)
+                            applied_count += 1
+                            
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f">>> 设置部件 {part_id} 透明度失败: {e}")
+            
+            if self.logger:
+                self.logger.info(f">>> Live2D部件透明度设置完成: {applied_count}/{len(parts_opacity)} 个部件已应用")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f">>> 应用Live2D部件透明度设置时出错: {e}")
+
+    def _find_live2d_part_index(self, model, part_id):
+        """查找Live2D部件的索引"""
+        try:
+            if hasattr(model, 'GetPartCount'):
+                part_count = model.GetPartCount()
+                for i in range(part_count):
+                    part_id_obj = model.GetPartId(i)
+                    current_part_id = part_id_obj.ToString() if hasattr(part_id_obj, 'ToString') else str(part_id_obj)
+                    if current_part_id == part_id:
+                        return i
+            return -1
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f">>> 查找部件索引失败: {e}")
+            return -1
 
     async def _perform_interrupt(self):
         """执行中断操作"""
