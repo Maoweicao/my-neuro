@@ -4451,17 +4451,17 @@ class Widget(Interface):
             if local_url:  # 只有在local_url有值时才同步
                 self.config_data['tts']['url'] = local_url
         
-        # 处理Live2D部件透明度设置
-        if hasattr(self, 'parts_opacity_widgets') and self.parts_opacity_widgets:
+        # 处理Live2D参数设置
+        if hasattr(self, 'params_widgets') and self.params_widgets:
             # 获取当前模型名称
             model_path = self.config_data.get('ui', {}).get('model_path', '')
             model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
             
-            # 收集所有部件的透明度设置
-            parts_opacity = {}
-            for part_id, widgets in self.parts_opacity_widgets.items():
-                opacity_value = widgets['slider'].value()
-                parts_opacity[part_id] = opacity_value
+            # 收集所有参数的设置
+            params_values = {}
+            for param_id, widgets in self.params_widgets.items():
+                param_value = widgets['slider'].value() / 100.0  # 转换为浮点数
+                params_values[param_id] = param_value
             
             # 保存到配置
             if 'live2d' not in self.config_data:
@@ -4469,7 +4469,7 @@ class Widget(Interface):
             if model_name not in self.config_data['live2d']:
                 self.config_data['live2d'][model_name] = {}
             
-            self.config_data['live2d'][model_name]['parts_opacity'] = parts_opacity
+            self.config_data['live2d'][model_name]['parameters'] = params_values
         
     def reload_config(self):
         """重新加载配置文件"""
@@ -5491,34 +5491,35 @@ class Widget(Interface):
                 # 处理其他未知类型的widget
                 print(f"Unknown widget type for {key_path}: {type(widget)} in update_widgets")
         
-        # 更新Live2D部件透明度控件
-        self._update_live2d_parts_widgets()
+        # 更新Live2D参数控件
+        self._update_live2d_params_widgets()
 
-    def _update_live2d_parts_widgets(self):
-        """更新Live2D部件透明度控件的值"""
+    def _update_live2d_params_widgets(self):
+        """更新Live2D参数控件的值"""
         try:
-            if not hasattr(self, 'parts_opacity_widgets') or not self.parts_opacity_widgets:
+            if not hasattr(self, 'params_widgets') or not self.params_widgets:
                 return
             
-            # 获取当前模型的透明度配置
+            # 获取当前模型的参数配置
             model_path = self.config_data.get('ui', {}).get('model_path', '')
             model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
             
             live2d_config = self.config_data.get('live2d', {}).get(model_name, {})
-            parts_opacity = live2d_config.get('parts_opacity', {})
+            params_values = live2d_config.get('parameters', {})
             
-            # 更新每个部件的滑块值
-            for part_id, widgets in self.parts_opacity_widgets.items():
+            # 更新每个参数的滑块值
+            for param_id, widgets in self.params_widgets.items():
                 slider = widgets['slider']
                 value_label = widgets['value_label']
                 
-                # 从配置中获取值，默认为100%
-                opacity_value = parts_opacity.get(part_id, 100)
-                slider.setValue(int(opacity_value))
-                value_label.setText(f"{opacity_value}%")
+                # 从配置中获取值，默认为参数的默认值
+                param_value = params_values.get(param_id, widgets['default'])
+                slider_value = int(param_value * 100)  # 转换为滑块值
+                slider.setValue(slider_value)
+                value_label.setText(f"{param_value:.2f}")
                 
         except Exception as e:
-            print(f"更新Live2D部件控件失败: {e}")
+            print(f"更新Live2D参数控件失败: {e}")
 
     def create_form_group(self, parent, title, fields):
         """创建表单组"""
@@ -8719,66 +8720,86 @@ class Widget(Interface):
         
         expression_layout.addLayout(expr_buttons_layout)
         control_layout.addWidget(expression_group)
-        
+
         # 模型状态组
         status_group = QGroupBox("模型状态")
         status_layout = QVBoxLayout(status_group)
-        
+
         self.model_status_label = QLabel("Live2D状态：检查中...")
         self.model_status_label.setStyleSheet("color: #666; font-size: 12px;")
         status_layout.addWidget(self.model_status_label)
-        
+
+        # 当前模型名称显示（避免出现错误显示为脚本名，如 UI.py）
+        self.animation_model_label = QLabel("当前模型：未选择")
+        self.animation_model_label.setStyleSheet("color: #0078d4; font-size: 12px;")
+        status_layout.addWidget(self.animation_model_label)
+
         # 刷新按钮
         refresh_layout = QHBoxLayout()
         self.refresh_model_btn = ToolButton(FIF.UPDATE)
         self.refresh_model_btn.setText("刷新模型信息")
         self.refresh_model_btn.setToolTip("重新加载当前模型的表情和动作列表")
         self.refresh_model_btn.clicked.connect(self.refresh_live2d_model_info)
-        
+
         refresh_layout.addWidget(self.refresh_model_btn)
         refresh_layout.addStretch()
         status_layout.addLayout(refresh_layout)
-        
+
         control_layout.addWidget(status_group)
-        
-        # Live2D部件透明度设置组
-        parts_group = QGroupBox("部件透明度设置")
-        parts_layout = QVBoxLayout(parts_group)
-        
-        # 部件列表容器
-        self.parts_scroll_area = QScrollArea()
-        self.parts_scroll_area.setWidgetResizable(True)
-        self.parts_scroll_area.setMaximumHeight(300)
-        
-        self.parts_widget = QWidget()
-        self.parts_layout = QVBoxLayout(self.parts_widget)
-        
-        # 自动检测按钮
-        detect_layout = QHBoxLayout()
-        self.detect_parts_btn = ToolButton(FIF.SEARCH)
-        self.detect_parts_btn.setText("检测部件")
-        self.detect_parts_btn.setToolTip("自动检测当前Live2D模型的所有部件")
-        self.detect_parts_btn.clicked.connect(self.detect_live2d_parts)
-        
-        self.apply_parts_btn = PrimaryToolButton(FIF.SAVE)
-        self.apply_parts_btn.setText("应用设置")
-        self.apply_parts_btn.setToolTip("将透明度设置应用到Live2D模型")
-        self.apply_parts_btn.clicked.connect(self.apply_live2d_parts_opacity)
-        
-        detect_layout.addWidget(self.detect_parts_btn)
-        detect_layout.addWidget(self.apply_parts_btn)
-        detect_layout.addStretch()
-        
-        parts_layout.addLayout(detect_layout)
-        parts_layout.addWidget(self.parts_scroll_area)
-        
-        # 状态标签
-        self.parts_status_label = QLabel("部件状态: 未检测")
-        self.parts_status_label.setStyleSheet("color: #666; font-size: 11px;")
-        parts_layout.addWidget(self.parts_status_label)
-        
-        control_layout.addWidget(parts_group)
+
+        # Live2D参数控制组
+        params_group = QGroupBox("模型参数控制")
+        params_layout = QVBoxLayout(params_group)
+
+        # 参数列表容器
+        self.params_scroll_area = QScrollArea()
+        self.params_scroll_area.setWidgetResizable(True)
+        self.params_scroll_area.setMaximumHeight(350)
+
+        self.params_widget = QWidget()
+        self.params_layout = QVBoxLayout(self.params_widget)
+
+        # 参数控制按钮
+        params_buttons_layout = QHBoxLayout()
+        self.detect_params_btn = ToolButton(FIF.SEARCH)
+        self.detect_params_btn.setText("检测参数")
+        self.detect_params_btn.setToolTip("自动检测当前Live2D模型的所有参数")
+        self.detect_params_btn.clicked.connect(self.detect_live2d_parameters)
+
+        self.apply_params_btn = PrimaryToolButton(FIF.SAVE)
+        self.apply_params_btn.setText("应用参数")
+        self.apply_params_btn.setToolTip("将参数设置应用到Live2D模型")
+        self.apply_params_btn.clicked.connect(self.apply_live2d_parameters)
+
+        self.reset_params_btn = ToolButton(FIF.CLOSE)
+        self.reset_params_btn.setText("重置参数")
+        self.reset_params_btn.setToolTip("将所有参数重置为默认值")
+        self.reset_params_btn.clicked.connect(self.reset_live2d_parameters)
+
+        params_buttons_layout.addWidget(self.detect_params_btn)
+        params_buttons_layout.addWidget(self.apply_params_btn)
+        params_buttons_layout.addWidget(self.reset_params_btn)
+        params_buttons_layout.addStretch()
+
+        params_layout.addLayout(params_buttons_layout)
+        params_layout.addWidget(self.params_scroll_area)
+
+        # 参数状态标签
+        self.params_status_label = QLabel("参数状态: 未检测")
+        self.params_status_label.setStyleSheet("color: #666; font-size: 11px;")
+        params_layout.addWidget(self.params_status_label)
+
+        control_layout.addWidget(params_group)
         control_layout.addStretch()
+
+        # 动画日志面板（详细日志）
+        log_group = QGroupBox("动画日志")
+        log_layout = QVBoxLayout(log_group)
+        self.animation_log_browser = TextBrowser()
+        self.animation_log_browser.setMaximumHeight(180)
+        self.animation_log_browser.setPlaceholderText("这里会显示表情、动作、参数等详细日志…")
+        log_layout.addWidget(self.animation_log_browser)
+        control_layout.addWidget(log_group)
         
         # === 右侧：表情和动作列表 ===
         lists_widget = QWidget()
@@ -8840,48 +8861,112 @@ class Widget(Interface):
         # 初始化时加载模型信息
         self.refresh_live2d_model_info()
         
-        # 初始化部件透明度控件字典
-        self.parts_opacity_widgets = {}
-        self.current_model_parts = []
+        # 初始化参数控件字典
+        self.params_widgets = {}
+        self.current_model_params = []
 
-    def detect_live2d_parts(self):
-        """检测当前Live2D模型的所有部件"""
+    def append_animation_log(self, text: str):
+        """向动画日志面板追加一条带时间戳的日志"""
         try:
-            self.parts_status_label.setText("部件状态: 检测中...")
-            self.parts_status_label.setStyleSheet("color: orange; font-size: 11px;")
+            ts = time.strftime("%H:%M:%S")
+            line = f"[{ts}] {text}"
+            if hasattr(self, 'animation_log_browser') and self.animation_log_browser:
+                # TextBrowser 支持追加纯文本或HTML，此处用纯文本更稳妥
+                self.animation_log_browser.append(line)
+                self.logger.debug(line)
+            else:
+                print(line)
+        except Exception:
+            pass
+
+    def _resolve_model_dir_from_config(self):
+        """根据配置解析模型目录，返回可用的模型目录路径或None"""
+        # 优先使用 ui.model_path（与UI页一致）
+        model_path = self.config_data.get('ui', {}).get('model_path', '') if hasattr(self, 'config_data') else ''
+        if model_path:
+            # 如果是具体的 .model3.json 文件，则取其所在目录
+            if os.path.isfile(model_path) and model_path.lower().endswith('.model3.json'):
+                return os.path.dirname(model_path)
+            # 如果是目录并存在
+            if os.path.isdir(model_path):
+                return model_path
+        # 兼容旧键：ui.live2d_model（可能是目录名/相对路径）
+        legacy = self.config_data.get('ui', {}).get('live2d_model', '') if hasattr(self, 'config_data') else ''
+        if legacy and os.path.exists(legacy):
+            # 若是文件，则取目录；若是目录，直接用
+            return os.path.dirname(legacy) if os.path.isfile(legacy) else legacy
+        return None
+
+    def _get_current_model_display_name(self, model_dir: str = None) -> str:
+        """从目录或当前选择推断显示用的模型名称"""
+        try:
+            path = None
+            if model_dir and os.path.isdir(model_dir):
+                path = model_dir
+            elif hasattr(self, 'model_combo') and self.model_combo and self.model_combo.currentData():
+                # UI页下拉中的显示名更友好
+                text = self.model_combo.currentText().strip()
+                if text:
+                    return text
+                data = self.model_combo.currentData()
+                path = os.path.dirname(data) if (isinstance(data, str) and data.lower().endswith('.model3.json')) else data
+            if not path:
+                path = self._resolve_model_dir_from_config()
+            if path:
+                name = os.path.basename(path)
+                # 避免错误显示为脚本名等
+                if name.lower().endswith('.py'):
+                    # 回退到其父目录名
+                    parent = os.path.basename(os.path.dirname(path))
+                    return parent or '未命名模型'
+                return name or '未命名模型'
+        except Exception:
+            pass
+        return '未选择'
+
+    def detect_live2d_parameters(self):
+        """检测当前Live2D模型的所有参数"""
+        try:
+            # 日志：开始检测参数
+            self.append_animation_log("开始检测模型参数…")
+            self.params_status_label.setText("参数状态: 检测中...")
+            self.params_status_label.setStyleSheet("color: orange; font-size: 11px;")
             
-            # 清空现有的部件控件
-            self._clear_parts_widgets()
+            # 清空现有的参数控件
+            self._clear_params_widgets()
             
             # 获取当前模型路径
             model_path = self.config_data.get('ui', {}).get('model_path', '')
             if not model_path:
-                self.parts_status_label.setText("部件状态: 未找到模型路径")
-                self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
+                self.params_status_label.setText("参数状态: 未找到模型路径")
+                self.params_status_label.setStyleSheet("color: red; font-size: 11px;")
                 return
             
-            # 尝试从Live2D模型实例获取部件信息
-            parts_info = self._get_live2d_parts_from_model()
+            # 尝试从Live2D模型实例获取参数信息
+            params_info = self._get_live2d_params_from_model()
             
-            if not parts_info:
-                # 如果无法从模型实例获取，尝试从model3.json文件解析
-                parts_info = self._get_live2d_parts_from_file(model_path)
+            if not params_info:
+                # 如果无法从模型实例获取，使用默认参数
+                params_info = self._get_default_live2d_params()
             
-            if parts_info:
-                self._create_parts_opacity_controls(parts_info)
-                self.parts_status_label.setText(f"部件状态: 检测到 {len(parts_info)} 个部件")
-                self.parts_status_label.setStyleSheet("color: green; font-size: 11px;")
+            if params_info:
+                self._create_params_controls(params_info)
+                self.params_status_label.setText(f"参数状态: 检测到 {len(params_info)} 个参数")
+                self.params_status_label.setStyleSheet("color: green; font-size: 11px;")
+                self.append_animation_log(f"参数检测完成：共 {len(params_info)} 个参数")
             else:
-                self.parts_status_label.setText("部件状态: 无法检测部件信息")
-                self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
+                self.params_status_label.setText("参数状态: 无法检测参数信息")
+                self.params_status_label.setStyleSheet("color: red; font-size: 11px;")
+                self.append_animation_log("参数检测失败：未获取到任何参数")
                 
         except Exception as e:
-            self.parts_status_label.setText(f"部件状态: 检测失败 - {str(e)}")
-            self.parts_status_label.setStyleSheet("color: red; font-size: 11px;")
-            print(f"检测Live2D部件失败: {e}")
+            self.params_status_label.setText(f"参数状态: 检测失败 - {str(e)}")
+            self.params_status_label.setStyleSheet("color: red; font-size: 11px;")
+            print(f"检测Live2D参数失败: {e}")
+            self.append_animation_log(f"参数检测异常：{e}")
 
-    def _get_live2d_parts_from_model(self):
-        """从Live2D模型实例获取部件信息"""
+    def _get_live2d_params_from_model(self):
+        """从Live2D模型实例获取参数信息"""
         try:
             # 尝试通过各种方式获取Live2D模型实例
             live2d_model = None
@@ -8900,182 +8985,221 @@ class Widget(Interface):
                     live2d_model = self.app_manager.live2d_model
             
             if live2d_model:
-                # 尝试获取部件信息
-                if hasattr(live2d_model, 'get_parts'):
-                    return live2d_model.get_parts()
-                elif hasattr(live2d_model, 'parts'):
-                    return live2d_model.parts
-                elif hasattr(live2d_model, 'model') and live2d_model.model:
-                    # 通过Live2D SDK获取部件
-                    if hasattr(live2d_model.model, 'GetPartCount'):
-                        part_count = live2d_model.model.GetPartCount()
-                        parts = []
-                        for i in range(part_count):
-                            part_id = live2d_model.model.GetPartId(i)
-                            parts.append({
-                                'id': part_id.ToString() if hasattr(part_id, 'ToString') else str(part_id),
-                                'name': part_id.ToString() if hasattr(part_id, 'ToString') else str(part_id),
-                                'index': i
-                            })
-                        return parts
+                # 尝试获取参数信息
+                params = []
+                
+                if hasattr(live2d_model, 'model') and live2d_model.model:
+                    # 通过Live2D SDK获取参数
+                    if hasattr(live2d_model.model, 'GetParameterCount'):
+                        param_count = live2d_model.model.GetParameterCount()
+                        for i in range(param_count):
+                            try:
+                                if hasattr(live2d_model.model, 'GetParameter'):
+                                    param = live2d_model.model.GetParameter(i)
+                                    param_info = {
+                                        'id': param.id if hasattr(param, 'id') else f"param_{i}",
+                                        'name': param.id if hasattr(param, 'id') else f"参数{i}",
+                                        'value': param.value if hasattr(param, 'value') else 0.0,
+                                        'min': param.min if hasattr(param, 'min') else 0.0,
+                                        'max': param.max if hasattr(param, 'max') else 1.0,
+                                        'default': param.default if hasattr(param, 'default') else 0.0,
+                                        'type': param.type if hasattr(param, 'type') else 'Normal',
+                                        'index': i
+                                    }
+                                    params.append(param_info)
+                                elif hasattr(live2d_model.model, 'GetParameterId'):
+                                    param_id = live2d_model.model.GetParameterId(i)
+                                    param_value = live2d_model.model.GetParameterValue(param_id) if hasattr(live2d_model.model, 'GetParameterValue') else 0.0
+                                    param_min = live2d_model.model.GetParameterMinimumValue(param_id) if hasattr(live2d_model.model, 'GetParameterMinimumValue') else 0.0
+                                    param_max = live2d_model.model.GetParameterMaximumValue(param_id) if hasattr(live2d_model.model, 'GetParameterMaximumValue') else 1.0
+                                    param_default = live2d_model.model.GetParameterDefaultValue(param_id) if hasattr(live2d_model.model, 'GetParameterDefaultValue') else 0.0
+                                    
+                                    param_info = {
+                                        'id': param_id.ToString() if hasattr(param_id, 'ToString') else str(param_id),
+                                        'name': param_id.ToString() if hasattr(param_id, 'ToString') else str(param_id),
+                                        'value': param_value,
+                                        'min': param_min,
+                                        'max': param_max,
+                                        'default': param_default,
+                                        'type': 'Normal',
+                                        'index': i
+                                    }
+                                    params.append(param_info)
+                            except Exception as e:
+                                print(f"获取参数 {i} 信息失败: {e}")
+                
+                return params if params else None
             
             return None
             
         except Exception as e:
-            print(f"从模型实例获取部件信息失败: {e}")
+            print(f"从模型实例获取参数信息失败: {e}")
             return None
 
-    def _get_live2d_parts_from_file(self, model_path):
-        """从model3.json文件解析部件信息"""
+    def _get_default_live2d_params(self):
+        """获取默认的Live2D参数列表"""
         try:
-            import json
-            import os
-            
-            if not os.path.exists(model_path):
-                return None
-            
-            with open(model_path, 'r', encoding='utf-8') as f:
-                model_data = json.load(f)
-            
-            parts = []
-            
-            # 解析FileReferences
-            if 'FileReferences' in model_data:
-                file_refs = model_data['FileReferences']
+            # 常见的Live2D标准参数
+            default_params = [
+                # 眼部参数
+                {'id': 'ParamEyeLOpen', 'name': '左眼开合', 'value': 1.0, 'min': 0.0, 'max': 1.0, 'default': 1.0, 'type': 'Normal'},
+                {'id': 'ParamEyeROpen', 'name': '右眼开合', 'value': 1.0, 'min': 0.0, 'max': 1.0, 'default': 1.0, 'type': 'Normal'},
+                {'id': 'ParamEyeLSmile', 'name': '左眼微笑', 'value': 0.0, 'min': 0.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamEyeRSmile', 'name': '右眼微笑', 'value': 0.0, 'min': 0.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamEyeBallX', 'name': '眼球X轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamEyeBallY', 'name': '眼球Y轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
                 
-                # 获取纹理文件作为部件参考
-                if 'Textures' in file_refs:
-                    textures = file_refs['Textures']
-                    for i, texture in enumerate(textures):
-                        parts.append({
-                            'id': f"texture_{i}",
-                            'name': os.path.basename(texture),
-                            'index': i,
-                            'type': 'texture'
-                        })
+                # 眉毛参数
+                {'id': 'ParamBrowLY', 'name': '左眉Y轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamBrowRY', 'name': '右眉Y轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamBrowLX', 'name': '左眉X轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamBrowRX', 'name': '右眉X轴', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
                 
-                # 获取动作文件作为部件参考
-                if 'Motions' in file_refs:
-                    motions = file_refs['Motions']
-                    for motion_name in motions.keys():
-                        parts.append({
-                            'id': f"motion_{motion_name}",
-                            'name': motion_name,
-                            'index': len(parts),
-                            'type': 'motion'
-                        })
+                # 嘴部参数
+                {'id': 'ParamMouthOpenY', 'name': '嘴巴开合', 'value': 0.0, 'min': 0.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamMouthForm', 'name': '嘴型', 'value': 0.0, 'min': -1.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'},
+                
+                # 面部参数
+                {'id': 'ParamAngleX', 'name': '面部X轴旋转', 'value': 0.0, 'min': -30.0, 'max': 30.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamAngleY', 'name': '面部Y轴旋转', 'value': 0.0, 'min': -30.0, 'max': 30.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamAngleZ', 'name': '面部Z轴旋转', 'value': 0.0, 'min': -30.0, 'max': 30.0, 'default': 0.0, 'type': 'Normal'},
+                
+                # 身体参数
+                {'id': 'ParamBodyAngleX', 'name': '身体X轴旋转', 'value': 0.0, 'min': -10.0, 'max': 10.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamBodyAngleY', 'name': '身体Y轴旋转', 'value': 0.0, 'min': -10.0, 'max': 10.0, 'default': 0.0, 'type': 'Normal'},
+                {'id': 'ParamBodyAngleZ', 'name': '身体Z轴旋转', 'value': 0.0, 'min': -10.0, 'max': 10.0, 'default': 0.0, 'type': 'Normal'},
+                
+                # 呼吸参数
+                {'id': 'ParamBreath', 'name': '呼吸', 'value': 0.0, 'min': 0.0, 'max': 1.0, 'default': 0.0, 'type': 'Normal'}
+            ]
             
-            # 如果没有找到部件，创建默认部件
-            if not parts:
-                # 常见的Live2D部件名称
-                default_parts = [
-                    {'id': 'body', 'name': '身体', 'index': 0, 'type': 'part'},
-                    {'id': 'head', 'name': '头部', 'index': 1, 'type': 'part'},
-                    {'id': 'face', 'name': '脸部', 'index': 2, 'type': 'part'},
-                    {'id': 'eyes', 'name': '眼睛', 'index': 3, 'type': 'part'},
-                    {'id': 'mouth', 'name': '嘴巴', 'index': 4, 'type': 'part'},
-                    {'id': 'hair', 'name': '头发', 'index': 5, 'type': 'part'},
-                    {'id': 'clothes', 'name': '衣服', 'index': 6, 'type': 'part'}
-                ]
-                parts = default_parts
-            
-            return parts
+            return default_params
             
         except Exception as e:
-            print(f"从文件解析部件信息失败: {e}")
+            print(f"获取默认参数失败: {e}")
             return None
 
-    def _create_parts_opacity_controls(self, parts_info):
-        """为检测到的部件创建透明度控制控件"""
+    def _create_params_controls(self, params_info):
+        """为检测到的参数创建控制控件"""
         try:
             # 清空现有控件
-            self._clear_parts_widgets()
+            self._clear_params_widgets()
             
-            # 获取当前模型的透明度配置
+            # 获取当前模型的参数配置
             model_path = self.config_data.get('ui', {}).get('model_path', '')
             model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
             
             live2d_config = self.config_data.get('live2d', {}).get(model_name, {})
-            parts_opacity = live2d_config.get('parts_opacity', {})
+            params_values = live2d_config.get('parameters', {})
             
-            # 为每个部件创建控制控件
-            for part in parts_info:
-                part_id = part['id']
-                part_name = part.get('name', part_id)
+            # 为每个参数创建控制控件
+            for param in params_info:
+                param_id = param['id']
+                param_name = param.get('name', param_id)
+                param_min = float(param.get('min', 0.0))
+                param_max = float(param.get('max', 1.0))
+                param_default = float(param.get('default', 0.0))
+                param_current = float(param.get('value', param_default))
                 
-                # 创建部件控制行
-                part_widget = QWidget()
-                part_layout = QHBoxLayout(part_widget)
-                part_layout.setContentsMargins(5, 5, 5, 5)
+                # 创建参数控制行
+                param_widget = QWidget()
+                param_layout = QHBoxLayout(param_widget)
+                param_layout.setContentsMargins(5, 5, 5, 5)
                 
-                # 部件名称标签
-                name_label = QLabel(part_name)
-                name_label.setMinimumWidth(100)
-                name_label.setToolTip(f"部件ID: {part_id}")
-                part_layout.addWidget(name_label)
+                # 参数名称标签
+                name_label = QLabel(param_name)
+                name_label.setMinimumWidth(120)
+                name_label.setToolTip(f"参数ID: {param_id}\\n范围: {param_min} ~ {param_max}\\n默认值: {param_default}")
+                param_layout.addWidget(name_label)
                 
-                # 透明度滑块
-                opacity_slider = QSlider(Qt.Horizontal)
-                opacity_slider.setRange(0, 100)
-                opacity_slider.setValue(int(parts_opacity.get(part_id, 100)))  # 默认100%不透明
-                opacity_slider.setToolTip(f"调整 {part_name} 的透明度")
-                part_layout.addWidget(opacity_slider)
+                # 参数滑块
+                param_slider = QSlider(Qt.Horizontal)
                 
-                # 透明度数值显示
-                value_label = QLabel(f"{opacity_slider.value()}%")
-                value_label.setMinimumWidth(40)
+                # 将浮点数范围转换为整数范围（精度为0.01）
+                slider_min = int(param_min * 100)
+                slider_max = int(param_max * 100)
+                slider_default = int(param_default * 100)
+                slider_current = int(params_values.get(param_id, param_current) * 100)
+                
+                param_slider.setRange(slider_min, slider_max)
+                param_slider.setValue(slider_current)
+                param_slider.setToolTip(f"调整 {param_name} 的数值")
+                param_layout.addWidget(param_slider)
+                
+                # 参数数值显示
+                value_label = QLabel(f"{slider_current/100:.2f}")
+                value_label.setMinimumWidth(50)
                 value_label.setAlignment(Qt.AlignCenter)
-                part_layout.addWidget(value_label)
+                param_layout.addWidget(value_label)
+                
+                # 重置按钮
+                reset_btn = ToolButton(FIF.CLOSE)
+                reset_btn.setFixedSize(24, 24)
+                reset_btn.setToolTip(f"重置 {param_name} 为默认值")
+                reset_btn.clicked.connect(
+                    lambda checked, slider=param_slider, label=value_label, default=slider_default: self._reset_single_param(slider, label, default)
+                )
+                param_layout.addWidget(reset_btn)
                 
                 # 连接滑块值变化信号
-                opacity_slider.valueChanged.connect(
-                    lambda value, label=value_label: label.setText(f"{value}%")
+                param_slider.valueChanged.connect(
+                    lambda value, label=value_label: label.setText(f"{value/100:.2f}")
                 )
                 
                 # 保存控件引用
-                self.parts_opacity_widgets[part_id] = {
-                    'widget': part_widget,
-                    'slider': opacity_slider,
+                self.params_widgets[param_id] = {
+                    'widget': param_widget,
+                    'slider': param_slider,
                     'value_label': value_label,
-                    'name': part_name
+                    'reset_btn': reset_btn,
+                    'name': param_name,
+                    'min': param_min,
+                    'max': param_max,
+                    'default': param_default,
+                    'type': param.get('type', 'Normal')
                 }
                 
                 # 添加到布局
-                self.parts_layout.addWidget(part_widget)
+                self.params_layout.addWidget(param_widget)
             
             # 设置滚动区域的widget
-            self.parts_scroll_area.setWidget(self.parts_widget)
+            self.params_scroll_area.setWidget(self.params_widget)
             
-            # 保存当前部件信息
-            self.current_model_parts = parts_info
+            # 保存当前参数信息
+            self.current_model_params = params_info
             
         except Exception as e:
-            print(f"创建部件透明度控件失败: {e}")
+            print(f"创建参数控制控件失败: {e}")
 
-    def _clear_parts_widgets(self):
-        """清空现有的部件控件"""
+    def _reset_single_param(self, slider, label, default_value):
+        """重置单个参数为默认值"""
+        slider.setValue(default_value)
+        label.setText(f"{default_value/100:.2f}")
+
+    def _clear_params_widgets(self):
+        """清空现有的参数控件"""
         try:
             # 断开所有信号连接并删除控件
-            for part_id, widgets in self.parts_opacity_widgets.items():
+            for param_id, widgets in self.params_widgets.items():
                 widget = widgets['widget']
                 if widget:
                     widget.setParent(None)
                     widget.deleteLater()
             
             # 清空字典
-            self.parts_opacity_widgets.clear()
-            self.current_model_parts.clear()
+            self.params_widgets.clear()
+            self.current_model_params.clear()
             
         except Exception as e:
-            print(f"清空部件控件失败: {e}")
+            print(f"清空参数控件失败: {e}")
 
-    def apply_live2d_parts_opacity(self):
-        """应用Live2D部件透明度设置"""
+    def apply_live2d_parameters(self):
+        """应用Live2D参数设置"""
         try:
-            if not self.parts_opacity_widgets:
+            if not self.params_widgets:
                 InfoBar.warning(
-                    title='无部件数据',
-                    content="请先检测Live2D模型部件",
+                    title='无参数数据',
+                    content="请先检测Live2D模型参数",
                     orient=Qt.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
@@ -9084,33 +9208,36 @@ class Widget(Interface):
                 )
                 return
             
-            # 收集所有部件的透明度设置
-            parts_opacity = {}
-            for part_id, widgets in self.parts_opacity_widgets.items():
-                opacity_value = widgets['slider'].value()
-                parts_opacity[part_id] = opacity_value
+            # 收集所有参数的设置
+            params_values = {}
+            for param_id, widgets in self.params_widgets.items():
+                param_value = widgets['slider'].value() / 100.0  # 转换回浮点数
+                params_values[param_id] = param_value
             
             # 获取当前模型名称
             model_path = self.config_data.get('ui', {}).get('model_path', '')
             model_name = os.path.basename(model_path).replace('.model3.json', '') if model_path else 'default'
             
+            self.append_animation_log(f"应用参数到模型‘{model_name}’：{len(params_values)} 项")
+
             # 保存到配置
             if 'live2d' not in self.config_data:
                 self.config_data['live2d'] = {}
             if model_name not in self.config_data['live2d']:
                 self.config_data['live2d'][model_name] = {}
             
-            self.config_data['live2d'][model_name]['parts_opacity'] = parts_opacity
+            self.config_data['live2d'][model_name]['parameters'] = params_values
             
             # 保存配置
             self.save_config()
             
             # 发送消息给main.py应用设置
-            self._send_parts_opacity_to_main(parts_opacity)
+            self._send_params_to_main(params_values)
+            self.append_animation_log("参数已保存到配置并发送到主程序应用")
             
             InfoBar.success(
-                title='设置已应用',
-                content=f"已保存并应用 {len(parts_opacity)} 个部件的透明度设置",
+                title='参数已应用',
+                content=f"已保存并应用 {len(params_values)} 个参数设置",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -9121,40 +9248,80 @@ class Widget(Interface):
         except Exception as e:
             InfoBar.error(
                 title='应用失败',
-                content=f"应用透明度设置失败: {str(e)}",
+                content=f"应用参数设置失败: {str(e)}",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=5000,
                 parent=self
             )
+            self.append_animation_log(f"应用参数失败：{e}")
 
-    def _send_parts_opacity_to_main(self, parts_opacity):
-        """发送部件透明度设置给main.py"""
+    def reset_live2d_parameters(self):
+        """重置所有Live2D参数为默认值"""
         try:
-            import socket
-            import json
-            import time
+            if not self.params_widgets:
+                InfoBar.warning(
+                    title='无参数数据',
+                    content="请先检测Live2D模型参数",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return
             
-            # 通过socket发送设置
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.settimeout(2.0)
-            client_socket.connect(('127.0.0.1', 8889))
+            # 重置所有参数为默认值
+            for param_id, widgets in self.params_widgets.items():
+                default_value = int(widgets['default'] * 100)
+                widgets['slider'].setValue(default_value)
+                widgets['value_label'].setText(f"{default_value/100:.2f}")
+            self.append_animation_log(f"已重置参数到默认值：{len(self.params_widgets)} 项")
             
-            message_data = {
-                "type": "set_live2d_parts_opacity",
-                "parts_opacity": parts_opacity,
-                "timestamp": time.time(),
-                "source": "ui_parts_opacity"
-            }
-            
-            client_socket.send(json.dumps(message_data).encode('utf-8'))
-            client_socket.close()
-            
-            print(f"✓ 已发送Live2D部件透明度设置给main.py: {len(parts_opacity)} 个部件")
+            InfoBar.success(
+                title='参数已重置',
+                content=f"已将 {len(self.params_widgets)} 个参数重置为默认值",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
             
         except Exception as e:
-            print(f"⚠ 发送Live2D部件透明度设置失败: {e}")
+            InfoBar.error(
+                title='重置失败',
+                content=f"重置参数失败: {str(e)}",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self
+            )
+            self.append_animation_log(f"重置参数失败：{e}")
+
+    def _send_params_to_main(self, params_values):
+        """发送参数设置给main.py"""
+        try:
+            # 通过消息队列发送设置
+            from utils.message_queue import send_message
+            
+            message_data = {
+                "type": "set_live2d_parameters",
+                "parameters": params_values,
+                "timestamp": time.time(),
+                "source": "ui_parameters"
+            }
+            
+            success = send_message(message_data, priority=1)
+            if success:
+                print(f"✓ 已发送Live2D参数设置给main.py: {len(params_values)} 个参数")
+            else:
+                print(f"⚠ 发送Live2D参数设置失败")
+            
+        except Exception as e:
+            print(f"⚠ 发送Live2D参数设置失败: {e}")
 
     def create_other_tab(self):
         self.startButton.hide()
@@ -11547,6 +11714,8 @@ class Widget(Interface):
         """触发Live2D动作"""
         try:
             success = False
+            # 记录将要触发的动作
+            self.append_animation_log(f"触发动作为索引：{motion_index}")
             
             # 方法1：优先使用实例引用
             if hasattr(self, 'live2d_model') and self.live2d_model:
@@ -11602,6 +11771,7 @@ class Widget(Interface):
                 duration=2000,
                 parent=self
             )
+            self.append_animation_log(f"动作为索引 {motion_index} 已触发（{'直接控制' if success else '通过文件'}）")
             
         except Exception as e:
             InfoBar.error(
@@ -11613,6 +11783,7 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"动作为索引 {motion_index} 触发失败：{e}")
     
     def trigger_random_motion(self):
         """触发随机动作"""
@@ -11625,6 +11796,7 @@ class Widget(Interface):
                 if item and item.data(Qt.UserRole) is not None:
                     motion_index = item.data(Qt.UserRole)
                     self.trigger_live2d_motion(motion_index)
+                    self.append_animation_log(f"随机动作：触发索引 {motion_index}")
                     
                     InfoBar.success(
                         title='随机动作',
@@ -11653,6 +11825,7 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"随机动作失败：{e}")
     
     def trigger_custom_action(self, action_num):
         """触发自定义动作 - 通过socket发送请求给main.py"""
@@ -11781,6 +11954,7 @@ class Widget(Interface):
                 duration=2000,
                 parent=self
             )
+            self.append_animation_log(f"停止所有动作：{'直接控制' if success else '通过文件'}")
             
         except Exception as e:
             InfoBar.error(
@@ -11792,6 +11966,7 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"停止动作失败：{e}")
     
     def trigger_random_expression(self):
         """触发随机表情"""
@@ -11804,6 +11979,7 @@ class Widget(Interface):
                 if item and item.data(Qt.UserRole):
                     expression_name = item.data(Qt.UserRole)
                     self.trigger_live2d_expression(expression_name)
+                    self.append_animation_log(f"随机表情：设置 {expression_name}")
                     
                     InfoBar.success(
                         title='随机表情',
@@ -11830,6 +12006,7 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"随机表情失败：{e}")
     
     def trigger_live2d_expression(self, expression_name):
         """触发Live2D表情"""
@@ -11899,6 +12076,7 @@ class Widget(Interface):
                 duration=2000,
                 parent=self
             )
+            self.append_animation_log(f"设置表情：{expression_name}（{'直接控制' if success else '通过文件'}）")
             
         except Exception as e:
             InfoBar.error(
@@ -11910,6 +12088,7 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"表情设置失败：{e}")
     
     def reset_live2d_expression(self):
         """重置Live2D表情"""
@@ -11958,6 +12137,7 @@ class Widget(Interface):
                     duration=2000,
                     parent=self
                 )
+                self.append_animation_log("表情已重置为默认（直接控制）")
             
         except Exception as e:
             InfoBar.error(
@@ -11969,20 +12149,25 @@ class Widget(Interface):
                 duration=3000,
                 parent=self
             )
+            self.append_animation_log(f"表情重置失败：{e}")
     
     def on_animation_expression_click(self, item):
         """点击表情列表项"""
         expression_name = item.data(Qt.UserRole)
         if expression_name:
+            self.append_animation_log(f"点击表情：{expression_name}")
             self.trigger_live2d_expression(expression_name)
         else:
             # fallback: 使用显示的文本
-            self.trigger_live2d_expression(item.text())
+            text = item.text()
+            self.append_animation_log(f"点击表情（文本回退）：{text}")
+            self.trigger_live2d_expression(text)
     
     def on_animation_motion_click(self, item):
         """点击动作列表项"""
         motion_index = item.data(Qt.UserRole)
         if motion_index is not None:
+            self.append_animation_log(f"点击动作：索引 {motion_index}")
             self.trigger_live2d_motion(motion_index)
         else:
             # fallback: 尝试从文本解析索引
@@ -11991,6 +12176,7 @@ class Widget(Interface):
                 if '[' in text and ']' in text:
                     index_str = text.split('[')[1].split(']')[0]
                     motion_index = int(index_str)
+                    self.append_animation_log(f"点击动作（文本回退）：索引 {motion_index}")
                     self.trigger_live2d_motion(motion_index)
             except:
                 InfoBar.warning(
@@ -12002,6 +12188,7 @@ class Widget(Interface):
                     duration=2000,
                     parent=self
                 )
+                self.append_animation_log("点击动作失败：无法解析索引")
     
     def refresh_live2d_model_info(self):
         """刷新Live2D模型信息"""
@@ -12009,6 +12196,11 @@ class Widget(Interface):
             # 更新状态标签
             if hasattr(self, 'model_status_label'):
                 self.model_status_label.setText("Live2D状态：正在加载...")
+            # 更新动画面板的模型名显示
+            if hasattr(self, 'animation_model_label'):
+                name = self._get_current_model_display_name()
+                self.animation_model_label.setText(f"当前模型：{name}")
+                self.append_animation_log(f"刷新模型信息：{name}")
             
             # 清空现有列表
             if hasattr(self, 'animation_expression_list'):
@@ -12022,6 +12214,7 @@ class Widget(Interface):
         except Exception as e:
             if hasattr(self, 'model_status_label'):
                 self.model_status_label.setText(f"Live2D状态：加载失败 - {str(e)}")
+            self.append_animation_log(f"模型信息刷新失败：{e}")
             
             InfoBar.error(
                 title='模型信息加载失败',
@@ -12036,11 +12229,20 @@ class Widget(Interface):
     def load_live2d_model_lists(self):
         """加载Live2D模型的表情和动作列表"""
         try:
-            # 检查是否有活跃的Live2D模型
+            # 优先：根据配置解析模型目录（兼容 ui.model_path 指向 .model3.json 或目录）
+            model_dir = None
+            try:
+                model_dir = self._resolve_model_dir_from_config()
+            except Exception as e:
+                print(f"解析配置中的模型路径失败: {e}")
+            if model_dir and os.path.isdir(model_dir):
+                self.load_model_from_path(model_dir)
+                return
+
+            # 次优：兼容旧键 ui.live2d_model
             current_model = self.config_data.get('ui', {}).get('live2d_model', '')
-            
             if not current_model:
-                # 尝试从模型文件夹扫描
+                # 最后：扫描模型目录，选择第一个可用模型
                 self.scan_and_load_model_info()
                 return
             
@@ -12068,6 +12270,7 @@ class Widget(Interface):
         except Exception as e:
             print(f"加载模型列表失败: {e}")
             self.load_default_model_info()
+            self.append_animation_log(f"加载模型列表失败：{e}")
     
     def scan_and_load_model_info(self):
         """扫描并加载模型信息"""
@@ -12128,11 +12331,17 @@ class Widget(Interface):
             
             # 更新状态
             if hasattr(self, 'model_status_label'):
-                self.model_status_label.setText(f"Live2D状态：已加载模型 - {os.path.basename(model_path)}")
+                model_name = self._get_current_model_display_name(model_path)
+                self.model_status_label.setText(f"Live2D状态：已加载模型 - {model_name}")
+            if hasattr(self, 'animation_model_label'):
+                name = self._get_current_model_display_name(model_path)
+                self.animation_model_label.setText(f"当前模型：{name}")
+            self.append_animation_log(f"已加载模型目录：{model_path}")
             
         except Exception as e:
             print(f"从路径加载模型失败: {e}")
             self.load_default_model_info()
+            self.append_animation_log(f"从路径加载模型失败：{e}")
     
     def load_default_model_info(self):
         """加载默认模型信息"""
@@ -12158,12 +12367,16 @@ class Widget(Interface):
             ]
             
             self.update_animation_lists(default_expressions, default_motions)
+            if hasattr(self, 'animation_model_label'):
+                self.animation_model_label.setText("当前模型：默认")
+            self.append_animation_log("加载默认模型信息")
             
             if hasattr(self, 'model_status_label'):
                 self.model_status_label.setText("Live2D状态：使用默认配置")
                 
         except Exception as e:
             print(f"加载默认模型信息失败: {e}")
+            self.append_animation_log(f"加载默认模型信息失败：{e}")
             if hasattr(self, 'model_status_label'):
                 self.model_status_label.setText(f"Live2D状态：加载失败 - {str(e)}")
     
